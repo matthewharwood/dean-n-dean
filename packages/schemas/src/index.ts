@@ -1,6 +1,7 @@
 import * as z from "zod";
 
 export * from "./adding-game";
+export * from "./data";
 
 // Pillar 3 contract — every IDB-backed schema declares its zero via `.default()`
 // on each defaultable field, and exports a named `<NAME>_DEFAULT` companion when

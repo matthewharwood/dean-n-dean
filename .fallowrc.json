@@ -4,7 +4,8 @@
     "turbo/generators/templates/**",
     "turbo/generators/config.ts",
     "**/*.gen.ts",
-    "tmp/**"
+    "tmp/**",
+    "apps/test-project/**"
   ],
   "ignoreDependencies": [
     "@dean-stack/biome-config",
