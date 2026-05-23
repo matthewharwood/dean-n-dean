@@ -7,8 +7,8 @@
 // rendered meta tags after build/prerender.
 import { createRootRoute } from "@tanstack/react-router";
 
-import { NotFound, RouteError } from "~/lib/route-boundaries";
 import { RootShell } from "~/lib/root-shell";
+import { NotFound, RouteError } from "~/lib/route-boundaries";
 import { buildJsonLd, buildSeoMeta } from "~/lib/seo";
 
 // This file is route config only — components live in ~/lib/root-shell and

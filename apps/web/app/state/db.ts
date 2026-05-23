@@ -52,6 +52,7 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
 // it AND without a pending debounced persist call sneaking a fresh
 // connection in mid-clear. Terminal — the page is expected to reload
 // immediately after.
+// fallow-ignore-next-line unused-export
 export async function closeDB(): Promise<void> {
   closed = true;
   if (!dbPromise) return;

@@ -2,7 +2,7 @@
 // a public DependencyList parameter the caller owns. Biome's exhaustive-deps
 // check honors `biome-ignore` (see inline comment below); react-doctor runs
 // oxlint with the same rule under the `react-doctor/` namespace, which the
-// biome-ignore can't address. The disable lives at file scope so hook callers
+// inline Biome suppressions can't address. The disable lives at file scope so hook callers
 // don't have to re-read the rationale at every call site. See use-anime.ts
 // for the original (animejs) instance of the same pattern.
 import { Application } from "pixi.js";

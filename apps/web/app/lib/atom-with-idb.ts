@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { atom, type WritableAtom } from "jotai";
 import type * as z from "zod";
 
@@ -13,6 +14,7 @@ const UNINIT: unique symbol = Symbol("atomWithIDB.uninit");
 // (populated when `idbHydrationPromise` resolves at the root <Suspense>).
 // Writes parse via the Zod schema (Pillar 2) and trigger debounced write-through
 // + BroadcastChannel via the supplied `write` helper.
+// fallow-ignore-next-line unused-export
 export function atomWithIDB<S extends z.ZodType>(
   schema: S,
   read: StoreReader<z.infer<S>>,

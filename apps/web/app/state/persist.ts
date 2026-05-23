@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import type { Progress, Settings } from "@dean-stack/schemas";
 
 import { getDB } from "./db";
@@ -20,6 +21,7 @@ function schedule(key: string, run: () => Promise<void>): void {
   );
 }
 
+// fallow-ignore-next-line unused-export
 export function persistProgress(value: Progress): void {
   schedule(`progress:${value.id}`, async () => {
     const db = await getDB();
@@ -28,6 +30,7 @@ export function persistProgress(value: Progress): void {
   });
 }
 
+// fallow-ignore-next-line unused-export
 export function persistSettings(value: Settings): void {
   schedule(`settings:${value.id}`, async () => {
     const db = await getDB();
@@ -38,6 +41,7 @@ export function persistSettings(value: Settings): void {
 
 export type RemoteWriteMessage = { store: StoreName; key: string };
 
+// fallow-ignore-next-line unused-export
 export function subscribeRemoteWrites(onChange: (msg: RemoteWriteMessage) => void): () => void {
   if (!channel) return () => undefined;
   const handler = (e: MessageEvent) => onChange(e.data as RemoteWriteMessage);
@@ -50,6 +54,7 @@ export function subscribeRemoteWrites(onChange: (msg: RemoteWriteMessage) => voi
 // runs, opens a fresh IDB connection via `getDB()`, and that new connection
 // blocks `deleteDatabase` — leaving the user on the same DB they thought
 // they cleared.
+// fallow-ignore-next-line unused-export
 export function cancelPendingWrites(): void {
   for (const timer of pending.values()) clearTimeout(timer);
   pending.clear();
