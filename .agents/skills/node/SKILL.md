@@ -1,6 +1,6 @@
 ---
 name: node
-description: Node 25 in dean-stack — installed only for tools that refuse to run on Bun, pinned via `.nvmrc` (the single source of truth). The repo does NOT ship `.tool-versions` or a `volta` block; the per-developer version manager is each contributor's choice. Node is a tooling runtime, never an application target. Triggers on: node 25, node version, .nvmrc, .tool-versions, volta, asdf, node tooling, node toolchain.
+description: "Node 25 in dean-stack — installed only for tools that refuse to run on Bun, pinned via `.nvmrc` (the single source of truth). The repo does NOT ship `.tool-versions` or a `volta` block; the per-developer version manager is each contributor's choice. Node is a tooling runtime, never an application target. Triggers on: node 25, node version, .nvmrc, .tool-versions, volta, asdf, node tooling, node toolchain."
 license: MIT
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: stylelint
-description: Stylelint with the Tailwind v4 plugin for every `.css` file in dean-stack — CSS lint exclusively, `--max-warnings 0` is the gate, and the CLI watcher is the source of truth (not the IDE). Triggers on: stylelint, stylelintrc, stylelint tailwind, stylelint css, stylelint watch, stylelint plugin, max-warnings.
+description: "Stylelint with the Tailwind v4 plugin for every `.css` file in dean-stack — CSS lint exclusively, `--max-warnings 0` is the gate, and the CLI watcher is the source of truth (not the IDE). Triggers on: stylelint, stylelintrc, stylelint tailwind, stylelint css, stylelint watch, stylelint plugin, max-warnings."
 license: MIT
 ---
 

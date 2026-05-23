@@ -1,6 +1,6 @@
 ---
 name: playwright-app-tests
-description: Playwright end-to-end tests pointed at the running dean-stack app — route workflows under `apps/web/tests/app/`, real IDB hydration via `page.evaluate`, BroadcastChannel cross-tab verification, IDB-seeded fixtures (no mocks). Triggers on: playwright app test, e2e workflow, app-level test, route workflow test, idb seeded test, idb assertion.
+description: "Playwright end-to-end tests pointed at the running dean-stack app — route workflows under `apps/web/tests/app/`, real IDB hydration via `page.evaluate`, BroadcastChannel cross-tab verification, IDB-seeded fixtures (no mocks). Triggers on: playwright app test, e2e workflow, app-level test, route workflow test, idb seeded test, idb assertion."
 license: MIT
 ---
 

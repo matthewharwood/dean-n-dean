@@ -1,6 +1,6 @@
 ---
 name: tanstack-router-preload
-description: TanStack Router's `defaultPreload: "intent"` policy for dean-stack — modulepreload of route JS chunks plus loader execution on `touchstart`/hover, additive to (and distinct from) the Workbox SW precache. Triggers on: defaultPreload, modulepreload, intent preload, viewport preload, link preload, tanstack router preload, route preload.
+description: "TanStack Router's `defaultPreload: \"intent\"` policy for dean-stack — modulepreload of route JS chunks plus loader execution on `touchstart`/hover, additive to (and distinct from) the Workbox SW precache. Triggers on: defaultPreload, modulepreload, intent preload, viewport preload, link preload, tanstack router preload, route preload."
 license: MIT
 ---
 

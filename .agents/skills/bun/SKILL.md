@@ -1,6 +1,6 @@
 ---
 name: bun
-description: Router skill for Bun 1.3.13 in dean-stack — pins the runtime via `packageManager` and dispatches to a sub-skill (runtime, test, package manager) based on the question. Triggers on: bun, bun 1.3.13, packageManager, which bun, bun overview.
+description: "Router skill for Bun 1.3.13 in dean-stack — pins the runtime via `packageManager` and dispatches to a sub-skill (runtime, test, package manager) based on the question. Triggers on: bun, bun 1.3.13, packageManager, which bun, bun overview."
 license: MIT
 ---
 

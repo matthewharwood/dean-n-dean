@@ -1,6 +1,6 @@
 ---
 name: turborepo
-description: TurboRepo task orchestration for the dean-stack monorepo — `turbo.json` v2 schema, `tasks` graph, `dependsOn`, `outputs`, and the `bun run check` ordering that is the CLI gate. Triggers on: turbo, turborepo, turbo.json, turbo task, turbo cache, dependsOn, turbo pipeline, workspace orchestration.
+description: "TurboRepo task orchestration for the dean-stack monorepo — `turbo.json` v2 schema, `tasks` graph, `dependsOn`, `outputs`, and the `bun run check` ordering that is the CLI gate. Triggers on: turbo, turborepo, turbo.json, turbo task, turbo cache, dependsOn, turbo pipeline, workspace orchestration."
 license: MIT
 ---
 

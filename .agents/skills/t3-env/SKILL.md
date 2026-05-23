@@ -1,6 +1,6 @@
 ---
 name: t3-env
-description: `@t3-oss/env-core` for dean-stack — client-only `VITE_*` env validation that runs at build time on GitHub Pages, with the `server` slot kept empty so a future move off Pages is a config change, not a refactor. Triggers on: clientPrefix, createEnv, env validation, env-core, env.ts, runtimeEnv, t3 env, t3-env, VITE_.
+description: "`@t3-oss/env-core` for dean-stack — client-only `VITE_*` env validation that runs at build time on GitHub Pages, with the `server` slot kept empty so a future move off Pages is a config change, not a refactor. Triggers on: clientPrefix, createEnv, env validation, env-core, env.ts, runtimeEnv, t3 env, t3-env, VITE_."
 license: MIT
 ---
 

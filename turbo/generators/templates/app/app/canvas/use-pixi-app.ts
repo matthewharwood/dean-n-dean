@@ -9,22 +9,29 @@ import { Application } from "pixi.js";
 import { type DependencyList, type RefObject, useEffect } from "react";
 
 const PRM = "(prefers-reduced-motion: reduce)";
+const DEFAULT_MAX_RESOLUTION = 2;
 
 type SetupCleanup = (() => void) | void;
 type SetupContext = { reducedMotion: boolean };
 type Setup = (app: Application, ctx: SetupContext) => SetupCleanup;
+type PixiRendererPreference = "webgl" | "canvas";
+type PixiAppOptions = {
+  maxResolution?: number;
+  preference?: PixiRendererPreference;
+};
 
 // Pillar — PixiJS is a side channel exactly like anime.js. The scene graph
 // mutates the canvas outside React's reconciler; render must stay pure. This
 // hook owns the lifecycle: async `app.init({ canvas, ... })`, the `setup`
 // callback (where the caller adds children, registers Ticker callbacks, etc.),
-// and `app.destroy(true, { children: true, texture: true })` on unmount.
+// and `app.destroy(false, { children: true, texture: true })` on unmount.
 // `prefers-reduced-motion: reduce` is detected once and passed to setup so the
 // caller can skip Ticker-driven animations the same way `useAnime` short-circuits.
 export function usePixiApp(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   setup: Setup,
   deps: DependencyList = [],
+  options: PixiAppOptions = {},
 ): void {
   useEffect(
     () => {
@@ -39,17 +46,22 @@ export function usePixiApp(
 
       void (async () => {
         const next = new Application();
+        const resolution = getDeviceResolution(options.maxResolution ?? DEFAULT_MAX_RESOLUTION);
+
         await next.init({
           canvas,
           resizeTo: canvas.parentElement ?? canvas,
           antialias: true,
+          autoDensity: true,
+          resolution,
+          roundPixels: true,
           // WebGL is the most reliable backend in headless Chromium (Playwright);
           // pixi will fall back to canvas if WebGL is unavailable.
-          preference: "webgl",
+          preference: options.preference ?? "webgl",
           autoStart: !reducedMotion,
         });
         if (cancelled) {
-          next.destroy(true, { children: true, texture: true });
+          next.destroy(false, { children: true, texture: true });
           return;
         }
         app = next;
@@ -59,7 +71,7 @@ export function usePixiApp(
       return () => {
         cancelled = true;
         if (typeof userCleanup === "function") userCleanup();
-        if (app) app.destroy(true, { children: true, texture: true });
+        if (app) app.destroy(false, { children: true, texture: true });
       };
     },
     // KEEP — same API-design escape as `useAnime`. `deps` is the
@@ -68,4 +80,12 @@ export function usePixiApp(
     // biome-ignore lint/correctness/useExhaustiveDependencies: API design — `deps` is a public parameter the caller owns.
     deps,
   );
+}
+
+function getDeviceResolution(maxResolution: number): number {
+  if (typeof window === "undefined") return 1;
+
+  const deviceResolution = window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+
+  return Math.max(1, Math.min(deviceResolution, maxResolution));
 }

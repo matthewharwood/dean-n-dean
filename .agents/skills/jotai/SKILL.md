@@ -1,6 +1,6 @@
 ---
 name: jotai
-description: Jotai 2.19+ atom authoring for dean-stack — `useAtomValue` / `useSetAtom` for read/write splits, derived async atoms with `await get(...)`, parameterized atoms via the `atomWithIDB` key (or `selectAtom` for derived per-id slices — no `atomFamily`), and the `atomWithIDB(schema, key, default)` factory contract (the parse-on-set wrapping; the IDB primitives, root suspense, debounced write-through and `BroadcastChannel` are all owned by `idb`). Triggers on: atom, atomWithIDB, derived atom, jotai, jotai Provider, jotai store, parameterized atom, selectAtom, useAtom, useAtomValue, useSetAtom.
+description: "Jotai 2.19+ atom authoring for dean-stack — `useAtomValue` / `useSetAtom` for read/write splits, derived async atoms with `await get(...)`, parameterized atoms via the `atomWithIDB` key (or `selectAtom` for derived per-id slices — no `atomFamily`), and the `atomWithIDB(schema, key, default)` factory contract (the parse-on-set wrapping; the IDB primitives, root suspense, debounced write-through and `BroadcastChannel` are all owned by `idb`). Triggers on: atom, atomWithIDB, derived atom, jotai, jotai Provider, jotai store, parameterized atom, selectAtom, useAtom, useAtomValue, useSetAtom."
 license: MIT
 ---
 

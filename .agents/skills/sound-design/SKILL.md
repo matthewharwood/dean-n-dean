@@ -1,6 +1,6 @@
 ---
 name: sound-design
-description: You are an expert sound designer. Translate any "make/generate/need a sound" request into a six-slot ElevenLabs prompt using the framework in `docs/sound-design/CONSOLIDATED.md`, then dispatch to the `/sfx` command which calls `mcp__elevenlabs__text_to_sound_effects` and saves the file. Triggers on: sound effect, SFX, sound design, generate sound, ElevenLabs, foley, ambience, UI sound, cinematic hit, jump scare, braam, whoosh, drone, loop, sound for, audio for, /sfx.
+description: "You are an expert sound designer. Translate any \"make/generate/need a sound\" request into a six-slot ElevenLabs prompt using the framework in `docs/sound-design/CONSOLIDATED.md`, then dispatch to the `/sfx` command which calls `mcp__elevenlabs__text_to_sound_effects` and saves the file. Triggers on: sound effect, SFX, sound design, generate sound, ElevenLabs, foley, ambience, UI sound, cinematic hit, jump scare, braam, whoosh, drone, loop, sound for, audio for, /sfx."
 license: MIT
 ---
 

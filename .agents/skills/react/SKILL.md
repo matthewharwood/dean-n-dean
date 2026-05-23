@@ -1,6 +1,6 @@
 ---
 name: react
-description: Router skill for React 19 + React Compiler in dean-stack — pins the React major and dispatches to the Compiler-rules sub-skill or the React-19-primitives sub-skill based on the question. Triggers on: react, react 19, react overview, which react skill.
+description: "Router skill for React 19 + React Compiler in dean-stack — pins the React major and dispatches to the Compiler-rules sub-skill or the React-19-primitives sub-skill based on the question. Triggers on: react, react 19, react overview, which react skill."
 license: MIT
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: biome
-description: Biome 2.x as the formatter + linter for `.ts`, `.tsx`, `.js`, and `.json` in dean-stack — `biome ci` is the gate, watch mode runs alongside `bun run dev`, and Biome MUST NOT touch CSS. Triggers on: biome, biome.json, biome ci, biome lint, biome format, biome watch, biome rule.
+description: "Biome 2.x as the formatter + linter for `.ts`, `.tsx`, `.js`, and `.json` in dean-stack — `biome ci` is the gate, watch mode runs alongside `bun run dev`, and Biome MUST NOT touch CSS. Triggers on: biome, biome.json, biome ci, biome lint, biome format, biome watch, biome rule."
 license: MIT
 ---
 

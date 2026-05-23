@@ -1,6 +1,6 @@
 ---
 name: storybook
-description: Router skill for Storybook with the Vite builder in dean-stack — pins the framework to `@storybook/react-vite`, enforces Pillar 1 at the routing level (no component without a story), and dispatches to the config, stories, or play-functions sub-skill. Triggers on: storybook, storybook overview, which storybook skill, storybook-first.
+description: "Router skill for Storybook with the Vite builder in dean-stack — pins the framework to `@storybook/react-vite`, enforces Pillar 1 at the routing level (no component without a story), and dispatches to the config, stories, or play-functions sub-skill. Triggers on: storybook, storybook overview, which storybook skill, storybook-first."
 license: MIT
 ---
 

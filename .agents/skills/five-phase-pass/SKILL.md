@@ -1,7 +1,7 @@
 ---
 name: five-phase-pass
-description: Use when asked to propagate a dean-stack monorepo change through the five-phase pass: P1 apps/web, P2 generator template, P3 regenerated test-project plus gate, P4 docs/owning skill, and P5 cross-skill audit. Also use when the user asks for the old /five-phase-pass command or passes `--baseline` to run only the cumulative skill audit.
-argument-hint: [change description] | --baseline
+description: "Use when asked to propagate a dean-stack monorepo change through the five-phase pass: P1 apps/web, P2 generator template, P3 regenerated test-project plus gate, P4 docs/owning skill, and P5 cross-skill audit. Also use when the user asks for the old /five-phase-pass command or passes `--baseline` to run only the cumulative skill audit."
+argument-hint: "[change description] | --baseline"
 ---
 
 <objective>

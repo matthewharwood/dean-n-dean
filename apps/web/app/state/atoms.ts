@@ -1,5 +1,7 @@
 // fallow-ignore-file unused-file
 import {
+  ALCHEMIST_GUILD_BOARD_DEFAULT,
+  AlchemistGuildBoardStateSchema,
   type Progress,
   ProgressSchema,
   SETTINGS_DEFAULT,
@@ -9,13 +11,20 @@ import type { WritableAtom } from "jotai";
 
 import { atomWithIDB } from "~/lib/atom-with-idb";
 
-import { persistProgress, persistSettings } from "./persist";
+import { persistAlchemistGuildBoard, persistProgress, persistSettings } from "./persist";
 
 export const settingsAtom = atomWithIDB(
   SettingsSchema,
   (snapshot) => snapshot.settings,
   persistSettings,
   SETTINGS_DEFAULT,
+);
+
+export const alchemistGuildBoardAtom = atomWithIDB(
+  AlchemistGuildBoardStateSchema,
+  (snapshot) => snapshot.alchemistGuildBoard,
+  persistAlchemistGuildBoard,
+  ALCHEMIST_GUILD_BOARD_DEFAULT,
 );
 
 // Parameterized atoms — prefer the IDB key over a family library.

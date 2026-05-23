@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: Router skill for Playwright in dean-stack — pins `@playwright/test` 1.59+, dispatches to the story-tests, app-tests, PWA-offline, or conventions sub-skill, and surfaces the load-bearing ASK-FIRST rule before any Playwright test is written or modified. Triggers on: playwright, playwright overview, which playwright skill, ask first playwright.
+description: "Router skill for Playwright in dean-stack — pins `@playwright/test` 1.59+, dispatches to the story-tests, app-tests, PWA-offline, or conventions sub-skill, and surfaces the load-bearing ASK-FIRST rule before any Playwright test is written or modified. Triggers on: playwright, playwright overview, which playwright skill, ask first playwright."
 license: MIT
 ---
 

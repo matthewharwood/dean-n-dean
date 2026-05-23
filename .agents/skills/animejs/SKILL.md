@@ -1,6 +1,6 @@
 ---
 name: animejs
-description: anime.js v4 named-import API for dean-stack — `createTimeline`, `createAnimatable`, `animate`, `stagger`, `engine`; the `useAnime(ref, params, deps)` hook that fronts every animation; `prefers-reduced-motion` short-circuited at the hook level. Triggers on: anime.js, animejs, anime v4, createTimeline, createAnimatable, createScope, createDraggable, useAnime, prefers-reduced-motion, anime utils.
+description: "anime.js v4 named-import API for dean-stack — `createTimeline`, `createAnimatable`, `animate`, `stagger`, `engine`; the `useAnime(ref, params, deps)` hook that fronts every animation; `prefers-reduced-motion` short-circuited at the hook level. Triggers on: anime.js, animejs, anime v4, createTimeline, createAnimatable, createScope, createDraggable, useAnime, prefers-reduced-motion, anime utils."
 license: MIT
 ---
 

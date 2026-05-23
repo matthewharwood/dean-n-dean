@@ -1,6 +1,6 @@
 ---
 name: storybook-stories
-description: Authoring `*.stories.tsx` co-located with the component for dean-stack — CSF 3 `Meta` / `StoryObj`, typed `args` / `argTypes`, the "no component without a story" rule (Pillar 1), and the story-ID contract Playwright consumes by URL. Triggers on: story, stories.tsx, CSF 3, Meta, StoryObj, args, argTypes, story file, co-located story.
+description: "Authoring `*.stories.tsx` co-located with the component for dean-stack — CSF 3 `Meta` / `StoryObj`, typed `args` / `argTypes`, the \"no component without a story\" rule (Pillar 1), and the story-ID contract Playwright consumes by URL. Triggers on: story, stories.tsx, CSF 3, Meta, StoryObj, args, argTypes, story file, co-located story."
 license: MIT
 ---
 

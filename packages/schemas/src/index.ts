@@ -1,5 +1,7 @@
 import * as z from "zod";
 
+import { ElementAlchemyCardSchema } from "./data";
+
 export * from "./adding-game";
 export * from "./data";
 
@@ -30,6 +32,40 @@ export const ProgressSchema = z.object({
   completed: z.boolean().default(false),
 });
 export type Progress = z.infer<typeof ProgressSchema>;
+
+export const ALCHEMIST_GUILD_BOARD_ID = "alchemist-guild-board";
+
+export const AlchemistGuildReagentSlotIdSchema = z.enum([
+  "reagent-slot-1",
+  "reagent-slot-2",
+  "reagent-slot-3",
+  "reagent-slot-4",
+  "reagent-slot-5",
+]);
+export type AlchemistGuildReagentSlotId = z.infer<typeof AlchemistGuildReagentSlotIdSchema>;
+
+export const AlchemistGuildCardIdSchema = ElementAlchemyCardSchema.shape.id;
+export type AlchemistGuildCardId = z.infer<typeof AlchemistGuildCardIdSchema>;
+
+export const AlchemistGuildBoardSlotsSchema = z.object({
+  "reagent-slot-1": AlchemistGuildCardIdSchema.nullable().default(null),
+  "reagent-slot-2": AlchemistGuildCardIdSchema.nullable().default(null),
+  "reagent-slot-3": AlchemistGuildCardIdSchema.nullable().default(null),
+  "reagent-slot-4": AlchemistGuildCardIdSchema.nullable().default(null),
+  "reagent-slot-5": AlchemistGuildCardIdSchema.nullable().default(null),
+});
+export type AlchemistGuildBoardSlots = z.infer<typeof AlchemistGuildBoardSlotsSchema>;
+
+export const ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT: AlchemistGuildBoardSlots =
+  AlchemistGuildBoardSlotsSchema.parse({});
+
+export const AlchemistGuildBoardStateSchema = z.object({
+  id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
+  reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
+});
+export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;
+export const ALCHEMIST_GUILD_BOARD_DEFAULT: AlchemistGuildBoardState =
+  AlchemistGuildBoardStateSchema.parse({});
 
 // Sound playback settings — global mute + master volume. Persists across reloads
 // so a parent muting for naptime doesn't have to re-mute every page load.

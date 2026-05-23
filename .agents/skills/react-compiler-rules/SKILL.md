@@ -1,6 +1,6 @@
 ---
 name: react-compiler-rules
-description: React 19 + React Compiler purity rules for dean-stack — no manual `useMemo`/`useCallback`/`React.memo`, anime.js AND PixiJS are side channels never called in render (use `useAnime` / `usePixiApp` from `useEffect`), Jotai hooks are pure subscribers safe to use directly, and the Compiler is the source of truth for memoization. Triggers on: react compiler, useMemo, useCallback, React.memo, manual memoization, render purity, side channel, compiler audit, useAnime, usePixiApp.
+description: "React 19 + React Compiler purity rules for dean-stack — no manual `useMemo`/`useCallback`/`React.memo`, anime.js AND PixiJS are side channels never called in render (use `useAnime` / `usePixiApp` from `useEffect`), Jotai hooks are pure subscribers safe to use directly, and the Compiler is the source of truth for memoization. Triggers on: react compiler, useMemo, useCallback, React.memo, manual memoization, render purity, side channel, compiler audit, useAnime, usePixiApp."
 license: MIT
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: eslint-plugin-sonarjs
-description: Local-only second-opinion lint pass via `eslint-plugin-sonarjs` — code-smell, cognitive-complexity, and bug-pattern rules layered on top of Biome (which owns formatting + the bulk of lint). NO SonarQube server, NO `sonar-scanner`, NO project token. Runs as `bun run check:sonar` (the workspace task) and as the standalone `.github/workflows/sonarjs.yml` workflow. Triggers on: sonar, sonarjs, eslint-plugin-sonarjs, cognitive-complexity, pseudo-random, no-nested-conditional, no-nested-functions, void-use, second-opinion lint, eslint.sonar.config.mjs.
+description: "Local-only second-opinion lint pass via `eslint-plugin-sonarjs` — code-smell, cognitive-complexity, and bug-pattern rules layered on top of Biome (which owns formatting + the bulk of lint). NO SonarQube server, NO `sonar-scanner`, NO project token. Runs as `bun run check:sonar` (the workspace task) and as the standalone `.github/workflows/sonarjs.yml` workflow. Triggers on: sonar, sonarjs, eslint-plugin-sonarjs, cognitive-complexity, pseudo-random, no-nested-conditional, no-nested-functions, void-use, second-opinion lint, eslint.sonar.config.mjs."
 license: MIT
 ---
 

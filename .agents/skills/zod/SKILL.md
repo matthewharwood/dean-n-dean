@@ -1,6 +1,6 @@
 ---
 name: zod
-description: Zod 4 schema authoring for dean-stack — every type comes from `z.infer<typeof Schema>`, every boundary input is parsed (never cast), and the dev-only `defineComponent(schema, fn)` wraps `schema.parse` so production tree-shakes the runtime check. Triggers on: parse, refine, safeParse, schema, transform, z.infer, z.object, zod, zod 4, ZodError.
+description: "Zod 4 schema authoring for dean-stack — every type comes from `z.infer<typeof Schema>`, every boundary input is parsed (never cast), and the dev-only `defineComponent(schema, fn)` wraps `schema.parse` so production tree-shakes the runtime check. Triggers on: parse, refine, safeParse, schema, transform, z.infer, z.object, zod, zod 4, ZodError."
 license: MIT
 ---
 

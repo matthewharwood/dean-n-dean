@@ -1,5 +1,5 @@
 // fallow-ignore-file unused-file
-import type { Progress, Settings } from "@dean-stack/schemas";
+import type { AlchemistGuildBoardState, Progress, Settings } from "@dean-stack/schemas";
 
 import { getDB } from "./db";
 import type { StoreName } from "./hydration";
@@ -19,6 +19,15 @@ function schedule(key: string, run: () => Promise<void>): void {
       void run();
     }, DEBOUNCE_MS),
   );
+}
+
+// fallow-ignore-next-line unused-export
+export function persistAlchemistGuildBoard(value: AlchemistGuildBoardState): void {
+  schedule(`alchemistGuildBoard:${value.id}`, async () => {
+    const db = await getDB();
+    await db.put("alchemistGuildBoards", value);
+    channel?.postMessage({ store: "alchemistGuildBoard", key: value.id });
+  });
 }
 
 // fallow-ignore-next-line unused-export

@@ -1,6 +1,6 @@
 ---
 name: tanstack-devtools
-description: TanStack DevTools for dean-stack — `@tanstack/react-devtools` (the floating dev-only host panel), `@tanstack/react-router-devtools` (router plugin into that host), and `@tanstack/devtools-vite` (the Vite plugin that wires browser-element → editor source-file linking). All three are dev-only; production tree-shakes via `import.meta.env.DEV`. Triggers on: TanStackDevtools, TanStackRouterDevtoolsPanel, devtools-vite, tanstack devtools, click to source, browser to editor, router devtools, dev panel.
+description: "TanStack DevTools for dean-stack — `@tanstack/react-devtools` (the floating dev-only host panel), `@tanstack/react-router-devtools` (router plugin into that host), and `@tanstack/devtools-vite` (the Vite plugin that wires browser-element → editor source-file linking). All three are dev-only; production tree-shakes via `import.meta.env.DEV`. Triggers on: TanStackDevtools, TanStackRouterDevtoolsPanel, devtools-vite, tanstack devtools, click to source, browser to editor, router devtools, dev panel."
 license: MIT
 ---
 

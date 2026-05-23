@@ -1,6 +1,6 @@
 ---
 name: idb
-description: Jake Archibald's `idb` v8 wrapper for IndexedDB in dean-stack — owns the IDB primitives (`openDB`, `IDBPDatabase<Schema>`, transactions, indexes, cursors), schema-versioned `upgrade` migrations, the root `idbHydrationPromise` consumed by `use()` at the app shell, and the `BroadcastChannel` re-hydration broadcast that keeps tabs/iframes in sync. Triggers on: atomWithIDB storage, BroadcastChannel sync, idb, IDBPDatabase, idb hydration, idb migration, idb migration test, IndexedDB, object store, openDB, upgrade callback.
+description: "Jake Archibald's `idb` v8 wrapper for IndexedDB in dean-stack — owns the IDB primitives (`openDB`, `IDBPDatabase<Schema>`, transactions, indexes, cursors), schema-versioned `upgrade` migrations, the root `idbHydrationPromise` consumed by `use()` at the app shell, and the `BroadcastChannel` re-hydration broadcast that keeps tabs/iframes in sync. Triggers on: atomWithIDB storage, BroadcastChannel sync, idb, IDBPDatabase, idb hydration, idb migration, idb migration test, IndexedDB, object store, openDB, upgrade callback."
 license: MIT
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: tailwind
-description: Tailwind v4 with the Vite plugin for dean-stack — CSS-first config via `@theme`, `@import "tailwindcss"` as the only entry point, `@apply` for component composition, and a single shared Vite config that Storybook reuses. Triggers on: tailwind, tailwind v4, tailwindcss, @theme, @import "tailwindcss", tailwind vite plugin, design tokens.
+description: "Tailwind v4 with the Vite plugin for dean-stack — CSS-first config via `@theme`, `@import \"tailwindcss\"` as the only entry point, `@apply` for component composition, and a single shared Vite config that Storybook reuses. Triggers on: tailwind, tailwind v4, tailwindcss, @theme, @import \"tailwindcss\", tailwind vite plugin, design tokens."
 license: MIT
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: bun-runtime
-description: Bun 1.3.13 runtime APIs for tooling and scripts in dean-stack — Bun.serve, Bun.file, Bun.$, bunx — with the rule that browser code is bundled by Vite, never executed directly by Bun. Triggers on: bun runtime, Bun.serve, Bun.file, Bun.$, bun shell, bunx, bun script.
+description: "Bun 1.3.13 runtime APIs for tooling and scripts in dean-stack — Bun.serve, Bun.file, Bun.$, bunx — with the rule that browser code is bundled by Vite, never executed directly by Bun. Triggers on: bun runtime, Bun.serve, Bun.file, Bun.$, bun shell, bunx, bun script."
 license: MIT
 ---
 
