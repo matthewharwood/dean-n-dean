@@ -1,6 +1,6 @@
 ---
 name: storybook-config
-description: Storybook 10 with the Vite builder for dean-stack — shares the app's Vite, Tailwind, and alias config from a single source (never forked), wires `@storybook/react-vite` in `main.ts`, and registers global decorators in `preview.tsx`. Triggers on: storybook config, storybook vite builder, storybook main.ts, storybook preview.ts, shared vite config, storybook addon.
+description: "Storybook 10 with the Vite builder for dean-stack — shares the app's Vite, Tailwind, and alias config from a single source (never forked), wires `@storybook/react-vite` in `main.ts`, and registers global decorators in `preview.tsx`. Triggers on: storybook config, storybook vite builder, storybook main.ts, storybook preview.ts, shared vite config, storybook addon."
 license: MIT
 ---
 

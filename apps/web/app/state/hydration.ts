@@ -1,4 +1,8 @@
 import {
+  ALCHEMIST_GUILD_BOARD_DEFAULT,
+  ALCHEMIST_GUILD_BOARD_ID,
+  type AlchemistGuildBoardState,
+  AlchemistGuildBoardStateSchema,
   type Progress,
   ProgressSchema,
   SETTINGS_DEFAULT,
@@ -9,6 +13,7 @@ import {
 import { getDB } from "./db";
 
 export type HydratedState = {
+  alchemistGuildBoard: AlchemistGuildBoardState;
   progress: ReadonlyMap<string, Progress>;
   settings: Settings;
 };
@@ -26,12 +31,17 @@ export function getHydratedSnapshot(): HydratedState | null {
 // In a prerender / SSR-shell context (no indexedDB), resolves with empty state.
 export const idbHydrationPromise: Promise<HydratedState> = (async () => {
   if (typeof indexedDB === "undefined") {
-    const empty: HydratedState = { progress: new Map(), settings: SETTINGS_DEFAULT };
+    const empty: HydratedState = {
+      alchemistGuildBoard: ALCHEMIST_GUILD_BOARD_DEFAULT,
+      progress: new Map(),
+      settings: SETTINGS_DEFAULT,
+    };
     resolvedSnapshot = empty;
     return empty;
   }
   const db = await getDB();
-  const [rawProgress, rawSettings] = await Promise.all([
+  const [rawAlchemistGuildBoard, rawProgress, rawSettings] = await Promise.all([
+    db.get("alchemistGuildBoards", ALCHEMIST_GUILD_BOARD_ID),
     db.getAll("progress"),
     db.get("settings", "settings"),
   ]);
@@ -40,8 +50,11 @@ export const idbHydrationPromise: Promise<HydratedState> = (async () => {
     const parsed = ProgressSchema.safeParse(raw);
     if (parsed.success) progress.set(parsed.data.id, parsed.data);
   }
+  const alchemistGuildBoard = AlchemistGuildBoardStateSchema.parse(
+    rawAlchemistGuildBoard ?? ALCHEMIST_GUILD_BOARD_DEFAULT,
+  );
   const settings = SettingsSchema.parse(rawSettings ?? SETTINGS_DEFAULT);
-  const snapshot: HydratedState = { progress, settings };
+  const snapshot: HydratedState = { alchemistGuildBoard, progress, settings };
   resolvedSnapshot = snapshot;
   return snapshot;
 })();

@@ -1,6 +1,6 @@
 ---
 name: bun-test
-description: Bun 1.3.13 unit-test runner for dean-stack — pure-logic tests (atom reducers, IDB migration logic, Zod edge cases, parsers) using `bun:test` matchers, mocks, and snapshots. Anything that touches a real DOM or IndexedDB belongs in Playwright. Triggers on: bun test, bun:test, bun matcher, bun mock, bun snapshot, bun coverage, bun watch test, unit test.
+description: "Bun 1.3.13 unit-test runner for dean-stack — pure-logic tests (atom reducers, IDB migration logic, Zod edge cases, parsers) using `bun:test` matchers, mocks, and snapshots. Anything that touches a real DOM or IndexedDB belongs in Playwright. Triggers on: bun test, bun:test, bun matcher, bun mock, bun snapshot, bun coverage, bun watch test, unit test."
 license: MIT
 ---
 

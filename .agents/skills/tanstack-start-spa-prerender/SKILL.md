@@ -1,6 +1,6 @@
 ---
 name: tanstack-start-spa-prerender
-description: TanStack Start configured for SPA mode + full prerender on GitHub Pages — `@tanstack/react-start/plugin/vite`, `prerender.enabled: true`, `ssr: false` per-route opt-out semantics, no server functions, no server loaders. Triggers on: tanstack start spa, tanstack prerender, ssr false, spa mode, prerender route, server functions disabled, server loaders disabled.
+description: "TanStack Start configured for SPA mode + full prerender on GitHub Pages — `@tanstack/react-start/plugin/vite`, `prerender.enabled: true`, `ssr: false` per-route opt-out semantics, no server functions, no server loaders. Triggers on: tanstack start spa, tanstack prerender, ssr false, spa mode, prerender route, server functions disabled, server loaders disabled."
 license: MIT
 ---
 

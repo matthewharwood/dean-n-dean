@@ -1,6 +1,6 @@
 ---
 name: micro-utilities
-description: Zero-dependency TypeScript utilities for dean-stack — native ECMAScript first (`structuredClone`, `Object.groupBy`, `Map.groupBy`, `toSorted`, `replaceAll`, `Intl.NumberFormat`), then Bun built-ins (`Bun.deepEquals`, `Bun.escapeHTML`, `Bun.password`, `Bun.file`) for tooling/scripts only, then a one-line typed inline helper, then `just-*` micro-packages, then `memoize-one` (module scope only). Calibrated for Bun 1.3.13 / Node 25 / TypeScript 7 with React 19 + Compiler. Triggers on: structuredClone, deep clone, deep merge, deep equality, group by, partition, pick omit, debounce, throttle, memoize-one, just-extend, micro utilities, lodash alternative.
+description: "Zero-dependency TypeScript utilities for dean-stack — native ECMAScript first (`structuredClone`, `Object.groupBy`, `Map.groupBy`, `toSorted`, `replaceAll`, `Intl.NumberFormat`), then Bun built-ins (`Bun.deepEquals`, `Bun.escapeHTML`, `Bun.password`, `Bun.file`) for tooling/scripts only, then a one-line typed inline helper, then `just-*` micro-packages, then `memoize-one` (module scope only). Calibrated for Bun 1.3.13 / Node 25 / TypeScript 7 with React 19 + Compiler. Triggers on: structuredClone, deep clone, deep merge, deep equality, group by, partition, pick omit, debounce, throttle, memoize-one, just-extend, micro utilities, lodash alternative."
 license: MIT
 ---
 

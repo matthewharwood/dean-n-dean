@@ -1,6 +1,6 @@
 ---
 name: tanstack-router-routing
-description: TanStack Router file-based routing for dean-stack — `createFileRoute`, route trees, route params, search params, `Link` / `useNavigate` / `useRouter`, and Zod-validated params via `validateSearch` (defers to zod for the schemas). Triggers on: tanstack router, file-based routing, createRoute, route param, search params, useNavigate, Link, route tree.
+description: "TanStack Router file-based routing for dean-stack — `createFileRoute`, route trees, route params, search params, `Link` / `useNavigate` / `useRouter`, and Zod-validated params via `validateSearch` (defers to zod for the schemas). Triggers on: tanstack router, file-based routing, createRoute, route param, search params, useNavigate, Link, route tree."
 license: MIT
 ---
 

@@ -1,8 +1,12 @@
 import { devtools as tanstackDevtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type UserConfig } from "vite";
 
 import { sharedPlugins } from "./vite.shared";
+
+type BuildConfig = Exclude<UserConfig["build"], false | undefined>;
+type RollupOptions = NonNullable<BuildConfig["rollupOptions"]>;
+type RollupOnWarn = NonNullable<RollupOptions["onwarn"]>;
 
 // PWA layer (vite-plugin-pwa + Workbox) is intentionally OFF.
 // Reason: vite-plugin-pwa's `closeBundle` hook fires before TanStack Start's
@@ -24,6 +28,25 @@ function resolveBase(): string {
   return raw.endsWith("/") ? raw : `${raw}/`;
 }
 
+function enableTanStackDevtools(): boolean {
+  return process.env.VITE_ENABLE_TANSTACK_DEVTOOLS === "true";
+}
+
+function manualChunks(id: string): string | undefined {
+  if (!id.includes("node_modules")) return undefined;
+  if (id.includes("@tanstack")) return "vendor-tanstack";
+  if (id.includes("react")) return "vendor-react";
+  if (id.includes("zod")) return "vendor-zod";
+  return undefined;
+}
+
+const onRollupWarn: RollupOnWarn = (warning, warn) => {
+  if (warning.code === "MODULE_LEVEL_DIRECTIVE" && warning.message.includes('"use client"')) {
+    return;
+  }
+  warn(warning);
+};
+
 export default defineConfig(async ({ mode }) => {
   // Vite's config bundler runs in a Node subprocess that does NOT inherit
   // Bun's auto-loaded .env. Fill in missing vars from .env files, but never
@@ -40,6 +63,12 @@ export default defineConfig(async ({ mode }) => {
 
   return {
     base: resolveBase(),
+    build: {
+      rollupOptions: {
+        onwarn: onRollupWarn,
+        output: { manualChunks },
+      },
+    },
     // Force a single copy of React + React DOM + TanStack Router. Bun's
     // hashed `.bun/...@<hash>` deduping leaves multiple resolution paths to
     // the same package; without this, HeadContent and StartClient can each
@@ -49,9 +78,10 @@ export default defineConfig(async ({ mode }) => {
     },
     plugins: [
       // Browser → editor source linking via the TanStack DevTools client.
-      // Pure Vite plugin; injects a tiny dev-mode runtime that the @tanstack/react-devtools
-      // host picks up. Runs in dev only — no-op for `vite build`.
-      tanstackDevtools(),
+      // Opt-in locally: the plugin annotates the rendered DOM and starts a
+      // source-linking sidecar during `vite dev`; keep the default dev page as
+      // close to production behavior as possible.
+      ...(enableTanStackDevtools() ? tanstackDevtools() : []),
       ...sharedPlugins(),
       tanstackStart({
         srcDirectory: "app",

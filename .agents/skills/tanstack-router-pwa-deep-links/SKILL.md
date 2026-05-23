@@ -1,6 +1,6 @@
 ---
 name: tanstack-router-pwa-deep-links
-description: TanStack Router's interaction with the Workbox NavigationRoute for dean-stack — the navigation fallback points at the prerendered shell, the router resolves deep links offline from cache without a server round-trip. Triggers on: spa fallback, navigation fallback, deep link offline, NavigationRoute, router pwa, offline route resolution.
+description: "TanStack Router's interaction with the Workbox NavigationRoute for dean-stack — the navigation fallback points at the prerendered shell, the router resolves deep links offline from cache without a server round-trip. Triggers on: spa fallback, navigation fallback, deep link offline, NavigationRoute, router pwa, offline route resolution."
 license: MIT
 ---
 

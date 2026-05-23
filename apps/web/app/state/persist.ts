@@ -1,5 +1,4 @@
-// fallow-ignore-file unused-file
-import type { Progress, Settings } from "@dean-stack/schemas";
+import type { AlchemistGuildBoardState, Progress, Settings } from "@dean-stack/schemas";
 
 import { getDB } from "./db";
 import type { StoreName } from "./hydration";
@@ -21,7 +20,14 @@ function schedule(key: string, run: () => Promise<void>): void {
   );
 }
 
-// fallow-ignore-next-line unused-export
+export function persistAlchemistGuildBoard(value: AlchemistGuildBoardState): void {
+  schedule(`alchemistGuildBoard:${value.id}`, async () => {
+    const db = await getDB();
+    await db.put("alchemistGuildBoards", value);
+    channel?.postMessage({ store: "alchemistGuildBoard", key: value.id });
+  });
+}
+
 export function persistProgress(value: Progress): void {
   schedule(`progress:${value.id}`, async () => {
     const db = await getDB();
@@ -30,7 +36,6 @@ export function persistProgress(value: Progress): void {
   });
 }
 
-// fallow-ignore-next-line unused-export
 export function persistSettings(value: Settings): void {
   schedule(`settings:${value.id}`, async () => {
     const db = await getDB();

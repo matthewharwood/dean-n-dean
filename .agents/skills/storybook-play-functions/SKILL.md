@@ -1,6 +1,6 @@
 ---
 name: storybook-play-functions
-description: Storybook `play` functions in dean-stack — interaction tests authored INSIDE the story using `@storybook/test` (`expect`, `userEvent`, `within`), executed inside Storybook's iframe at story render. Distinct from external Playwright story tests. Triggers on: play function, @storybook/test, userEvent, interaction test, story interaction, play step.
+description: "Storybook `play` functions in dean-stack — interaction tests authored INSIDE the story using `@storybook/test` (`expect`, `userEvent`, `within`), executed inside Storybook's iframe at story render. Distinct from external Playwright story tests. Triggers on: play function, @storybook/test, userEvent, interaction test, story interaction, play step."
 license: MIT
 ---
 

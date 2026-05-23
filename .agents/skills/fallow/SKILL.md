@@ -359,6 +359,8 @@ export const keepThisToo = 2;
 export const deprecatedHelper = () => {};
 ```
 
+Prefer removal over suppression. Before adding `fallow-ignore`, confirm the export is intentionally unused and has a near-term consumer; otherwise delete the unused export/type. When `stale-suppressions` fires, remove the stale comment in the same change. Do not leave file-level suppressions on modules that now have live imports; replace them with the narrowest symbol-level suppression only when fallow still reports an intentional unused export.
+
 ## Key Gotchas
 
 - **`fix --yes` is required** in non-TTY (agent) environments. Without it, `fix` exits with code 2

@@ -1,6 +1,6 @@
 ---
 name: ts
-description: TypeScript 7 (Go-based `tsgo` compiler from `@typescript/native-preview`, source at microsoft/typescript-go) for dean-stack — strict configuration with `tsconfig` bases in `packages/tsconfig`, `tsgo --noEmit` is the gate, and any type that has a Zod schema MUST use `z.infer` instead of a hand-written shape. Triggers on: typescript, typescript 7, tsgo, native-preview, ts strict, tsconfig, tsgo --noEmit, ts compiler, isolatedDeclarations, ts project references.
+description: "TypeScript 7 (Go-based `tsgo` compiler from `@typescript/native-preview`, source at microsoft/typescript-go) for dean-stack — strict configuration with `tsconfig` bases in `packages/tsconfig`, `tsgo --noEmit` is the gate, and any type that has a Zod schema MUST use `z.infer` instead of a hand-written shape. Triggers on: typescript, typescript 7, tsgo, native-preview, ts strict, tsconfig, tsgo --noEmit, ts compiler, isolatedDeclarations, ts project references."
 license: MIT
 ---
 

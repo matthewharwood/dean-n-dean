@@ -1,6 +1,6 @@
 ---
 name: tanstack
-description: Router skill for TanStack Start (`@tanstack/react-start`) in dean-stack — dispatches to the SPA-prerender sub-skill, the routing sub-skill, or the PWA-deep-links sub-skill. SPA mode + full prerender targets GitHub Pages; no server functions, no server loaders. Triggers on: tanstack, tanstack start, tanstack router overview, which tanstack skill.
+description: "Router skill for TanStack Start (`@tanstack/react-start`) in dean-stack — dispatches to the SPA-prerender sub-skill, the routing sub-skill, or the PWA-deep-links sub-skill. SPA mode + full prerender targets GitHub Pages; no server functions, no server loaders. Triggers on: tanstack, tanstack start, tanstack router overview, which tanstack skill."
 license: MIT
 ---
 

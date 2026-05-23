@@ -1,6 +1,6 @@
 ---
 name: sfx
-description: Use when asked to generate a sound effect via the ElevenLabs MCP and save it to disk. Pairs with the `sound-design` skill: that skill authors the six-slot prompt using `docs/sound-design/CONSOLIDATED.md`, and this skill executes one generation. Recreates the old /sfx command as a Codex skill.
+description: "Use when asked to generate a sound effect via the ElevenLabs MCP and save it to disk. Pairs with the `sound-design` skill: that skill authors the six-slot prompt using `docs/sound-design/CONSOLIDATED.md`, and this skill executes one generation. Recreates the old /sfx command as a Codex skill."
 ---
 
 <objective>

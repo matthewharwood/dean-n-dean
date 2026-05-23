@@ -1,6 +1,6 @@
 ---
 name: bun-package-manager
-description: Bun 1.3.13 package manager for the dean-stack monorepo — `bun install`, `bun add`, the text lockfile `bun.lock`, workspace globs, the `packageManager` pin, and overrides. Triggers on: bun install, bun add, bun remove, bun.lockb, bun workspace, bun overrides, bun lockfile.
+description: "Bun 1.3.13 package manager for the dean-stack monorepo — `bun install`, `bun add`, the text lockfile `bun.lock`, workspace globs, the `packageManager` pin, and overrides. Triggers on: bun install, bun add, bun remove, bun.lockb, bun workspace, bun overrides, bun lockfile."
 license: MIT
 ---
 

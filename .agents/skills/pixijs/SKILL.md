@@ -12,10 +12,11 @@ PixiJS is **first-party** in dean-stack at `pixi.js@^8.18.1` for any canvas-base
 
 The canonical lifecycle wrapper is **`usePixiApp(canvasRef, setup, deps)`** in `apps/<name>/app/canvas/use-pixi-app.ts`:
 
-- Owns async `Application.init({ canvas, resizeTo, preference: "webgl", autoStart: !reducedMotion })`.
+- Owns async `Application.init({ canvas, resizeTo, preference: "webgl", autoStart: options.autoStart ?? !reducedMotion })`.
 - Calls the user `setup(app, { reducedMotion })` callback once init resolves; the callback registers children and Ticker tasks and may return a cleanup function.
 - Tears down on unmount via `app.destroy(true, { children: true, texture: true })`, with cancellation that survives StrictMode double-mount.
 - Detects `prefers-reduced-motion: reduce` once at mount and passes it to `setup`; callers must skip Ticker registration when true (static frames still render).
+- Static scenes that only update on resize or pointer input should pass `autoStart: false` and call `app.render()` from those handlers.
 - React owns the `<canvas>` DOM node; Pixi only paints into it. The wrapping component renders `<canvas ref={canvasRef}>` inside a sized container.
 
 **Pillar mapping (same constraints as the rest of the stack):**

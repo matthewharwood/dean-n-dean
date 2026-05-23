@@ -1,6 +1,6 @@
 ---
 name: nitro
-description: Nitro v3 in dean-stack — driven internally by TanStack Start, NOT via a standalone `nitro.config.ts`. Owns the GH Pages base-path env contract (`BASE_PATH`), the SPA-fallback `404.html`, the `.nojekyll` marker, and the prerender→`dist/client/` output. Triggers on: nitro, github_pages, BASE_PATH, baseURL, prerender, SPA fallback 404, .nojekyll, GH Pages deploy.
+description: "Nitro v3 in dean-stack — driven internally by TanStack Start, NOT via a standalone `nitro.config.ts`. Owns the GH Pages base-path env contract (`BASE_PATH`), the SPA-fallback `404.html`, the `.nojekyll` marker, and the prerender→`dist/client/` output. Triggers on: nitro, github_pages, BASE_PATH, baseURL, prerender, SPA fallback 404, .nojekyll, GH Pages deploy."
 license: MIT
 ---
 

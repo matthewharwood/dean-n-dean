@@ -1,10 +1,10 @@
 ---
 name: tanstack-devtools
-description: TanStack DevTools for dean-stack — `@tanstack/react-devtools` (the floating dev-only host panel), `@tanstack/react-router-devtools` (router plugin into that host), and `@tanstack/devtools-vite` (the Vite plugin that wires browser-element → editor source-file linking). All three are dev-only; production tree-shakes via `import.meta.env.DEV`. Triggers on: TanStackDevtools, TanStackRouterDevtoolsPanel, devtools-vite, tanstack devtools, click to source, browser to editor, router devtools, dev panel.
+description: "TanStack DevTools for dean-stack — `@tanstack/react-devtools` (the floating dev-only host panel), `@tanstack/react-router-devtools` (router plugin into that host), and `@tanstack/devtools-vite` (the Vite plugin that wires browser-element → editor source-file linking). All three are dev-only AND opt-in via `VITE_ENABLE_TANSTACK_DEVTOOLS=true`; production tree-shakes via `import.meta.env.DEV`. Triggers on: TanStackDevtools, TanStackRouterDevtoolsPanel, devtools-vite, tanstack devtools, click to source, browser to editor, router devtools, dev panel."
 license: MIT
 ---
 
-Sub-skill of `tanstack`. Owns the dev-only debugging panel that ships with TanStack: a floating host (`@tanstack/react-devtools`) that other devtools (router today, more later) plug into, plus the Vite plugin (`@tanstack/devtools-vite`) that injects the runtime which makes "click an element in the browser → jump to its source file" work. The point: tighten the iPad-over-LAN debug loop — see what's broken, click straight to the source line.
+Sub-skill of `tanstack`. Owns the dev-only, opt-in debugging panel that ships with TanStack: a floating host (`@tanstack/react-devtools`) that other devtools (router today, more later) plug into, plus the Vite plugin (`@tanstack/devtools-vite`) that injects the runtime which makes "click an element in the browser → jump to its source file" work. The point: tighten the iPad-over-LAN debug loop when explicitly requested — see what's broken, click straight to the source line.
 
 ## When to invoke
 - Adding a new TanStack devtool surface (a Query devtool, a Form devtool, etc.) — they all plug into `<TanStackDevtools>` as a `plugins[]` entry.
@@ -23,61 +23,67 @@ The dev-only mount of `<TanStackDevtools>` in `apps/web/app/routes/__root.tsx`, 
 - `react-compiler-rules` — the side-channel rule applies: the devtool host mounts once at the root boundary, never inside a render function.
 
 ## Dean-stack rules
-- **Dev-only is enforced by `import.meta.env.DEV`.** The pattern in `apps/web/app/routes/__root.tsx` is:
+- **Devtools are opt-in in dev, and absent in production.** The default `bun run dev` page must stay close to production behavior: no root devtools host, no `@tanstack/devtools-vite` DOM source annotations, and no sidecar event-bus unless `VITE_ENABLE_TANSTACK_DEVTOOLS=true` is set. The pattern in `apps/web/app/lib/root-shell.tsx` is:
   ```tsx
-  const TanStackDevtools = import.meta.env.DEV
-    ? lazy(async () => { ... })
-    : null;
+  const TanStackDevtools =
+    import.meta.env.DEV && import.meta.env.VITE_ENABLE_TANSTACK_DEVTOOLS === "true"
+      ? lazy(async () => { ... })
+      : null;
   ```
-  Vite's static-replacement of `import.meta.env.DEV` lets dead-code elimination drop the entire `lazy()` branch (and its dynamic imports) from the production bundle. Verify with `grep -r '@tanstack/react-devtools' apps/web/dist/client/assets/` — must return zero hits.
-- **`@tanstack/devtools-vite` is a Vite plugin, not a runtime.** It's loaded by `vite.config.ts` and its effect is dev-mode only — `vite build` doesn't run it for production output. No runtime import needed in `app/`.
+  Vite's static-replacement of `import.meta.env.DEV` lets dead-code elimination drop the entire `lazy()` branch (and its dynamic imports) from the production bundle. The env flag prevents default dev-load freezes from source-link instrumentation. Verify with `grep -r '@tanstack/react-devtools' apps/web/dist/client/assets/` — must return zero hits.
+- **`@tanstack/devtools-vite` is a Vite plugin, not a runtime, and it is opt-in.** It belongs in `vite.config.ts` behind the same `VITE_ENABLE_TANSTACK_DEVTOOLS === "true"` guard. The plugin annotates DOM nodes with source metadata and starts source-linking machinery during `vite dev`; do not enable it by default.
 - **Devtool components are NOT dean-stack components and do NOT need a Storybook story (Pillar 1 exemption).** They're third-party panels; the "no component without a story" rule applies to components authored under `apps/<name>/app/components/`, not to dev-time host panels mounted at the root.
 - **Devtools introduce zero app-level state (Pillar 3).** Their internal panel-state (open/closed, active tab) lives in the devtool's own scope; never persist any of it through `atomWithIDB`.
 - **Pillar 4 (CLI-gate-first):** all three packages are `devDependencies`, never `dependencies`. The gate enforces this by ensuring the production bundle stays free of devtool symbols.
-- **`bun run dev` is when devtools live.** `bun run preview` (which Playwright drives) runs the production build, so devtools are absent there. That's correct — Playwright tests assert app behavior, not devtool UI.
+- **`VITE_ENABLE_TANSTACK_DEVTOOLS=true bun run dev` is when devtools live.** Plain `bun run dev` keeps devtools off. `bun run preview` (which Playwright app tests usually drive) runs the production build, so devtools are absent there. That's correct — app tests assert app behavior, not devtool UI.
 - **The headliner is browser→source linking.** `@tanstack/devtools-vite`'s `devtools()` plugin is the reason this skill exists: clicking a rendered element in the running browser opens the source file at the exact line in your editor. That's the iPad-LAN debug payoff.
 
 ## Patterns
 
-### `vite.config.ts` — load the plugin first
+### `vite.config.ts` — opt into the plugin first
 
 ```ts
 // apps/web/vite.config.ts
 import { devtools as tanstackDevtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 
+function enableTanStackDevtools(): boolean {
+  return process.env.VITE_ENABLE_TANSTACK_DEVTOOLS === "true";
+}
+
 export default defineConfig({
   plugins: [
-    tanstackDevtools(),       // ← first: injects the dev-mode runtime hook
+    ...(enableTanStackDevtools() ? tanstackDevtools() : []),
     ...sharedPlugins(),
     tanstackStart({ /* ... */ }),
   ],
 });
 ```
 
-The plugin is a no-op for `vite build`. No production cost.
+Keep the conditional plugin first when enabled. The plugin is a no-op for `vite build`, but it still changes the dev browser runtime, so it must remain opt-in.
 
 ### `routes/__root.tsx` — lazy + DEV-gate the host
 
 ```tsx
 import { type ReactNode, Suspense, lazy } from "react";
 
-const TanStackDevtools = import.meta.env.DEV
-  ? lazy(async () => {
-      const [{ TanStackDevtools: Host }, { TanStackRouterDevtoolsPanel }] = await Promise.all([
-        import("@tanstack/react-devtools"),
-        import("@tanstack/react-router-devtools"),
-      ]);
-      return {
-        default: () => (
-          <Host
-            config={{ position: "bottom-right" }}
-            plugins={[{ name: "TanStack Router", render: <TanStackRouterDevtoolsPanel /> }]}
-          />
-        ),
-      };
-    })
-  : null;
+const TanStackDevtools =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_TANSTACK_DEVTOOLS === "true"
+    ? lazy(async () => {
+        const [{ TanStackDevtools: Host }, { TanStackRouterDevtoolsPanel }] = await Promise.all([
+          import("@tanstack/react-devtools"),
+          import("@tanstack/react-router-devtools"),
+        ]);
+        return {
+          default: () => (
+            <Host
+              config={{ position: "bottom-right" }}
+              plugins={[{ name: "TanStack Router", render: <TanStackRouterDevtoolsPanel /> }]}
+            />
+          ),
+        };
+      })
+    : null;
 
 function RootComponent(): ReactNode {
   return (
@@ -97,7 +103,7 @@ function RootComponent(): ReactNode {
 }
 ```
 
-Why this shape: `import.meta.env.DEV ? lazy(...) : null` is a static ternary that Vite resolves at build time. Production sees `null` → the `{TanStackDevtools ? ... : null}` JSX becomes `null` → the dynamic imports never get bundled.
+Why this shape: production sees `null` → the `{TanStackDevtools ? ... : null}` JSX becomes `null` → the dynamic imports never get bundled. Default dev also sees `null` unless the opt-in flag is set, keeping source-link instrumentation away from normal game iteration.
 
 ### Adding a new TanStack devtool plugin
 
@@ -125,7 +131,8 @@ If any return hits, the DEV gate isn't tree-shaking — investigate before mergi
 
 ## Anti-patterns
 
-- **Don't import the devtool packages at the top of `__root.tsx` without the DEV gate.** Static imports always end up in the bundle; the lazy + ternary is the only safe shape.
+- **Don't enable TanStack Devtools by default.** Both the Vite plugin and the React host require `VITE_ENABLE_TANSTACK_DEVTOOLS=true`. Always-on devtools can inject source metadata into the live DOM and stall default dev loads.
+- **Don't import the devtool packages at the top of `__root.tsx` or `root-shell.tsx` without the DEV/env gate.** Static imports always end up in the bundle; the lazy + ternary is the only safe shape.
 - **Don't put the devtool packages in `dependencies`.** They're dev tools — `devDependencies` only. The gate doesn't catch this on its own; reviewers must.
 - **Don't add `click-to-react-component`, `@locator/runtime`, or another browser-→-source tool.** `@tanstack/devtools-vite` already provides this. A second one is duplicate weight in `node_modules` and a new place for source-link logic to drift.
 - **Don't mount `<TanStackDevtools>` inside a route component or anywhere besides the root.** Mounting it deeper means it gets unmounted on navigation and loses its panel state.

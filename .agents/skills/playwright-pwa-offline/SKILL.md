@@ -1,6 +1,6 @@
 ---
 name: playwright-pwa-offline
-description: The load-bearing offline-deep-link Playwright contract for dean-stack — install the Workbox SW, go offline with `context.setOffline(true)`, deep-link to a route the prerender did NOT emit, assert the router resolves it from cache without a server round-trip. Triggers on: offline test, pwa offline test, deep link offline test, network offline, service worker test, navigation fallback test.
+description: "The load-bearing offline-deep-link Playwright contract for dean-stack — install the Workbox SW, go offline with `context.setOffline(true)`, deep-link to a route the prerender did NOT emit, assert the router resolves it from cache without a server round-trip. Triggers on: offline test, pwa offline test, deep link offline test, network offline, service worker test, navigation fallback test."
 license: MIT
 ---
 

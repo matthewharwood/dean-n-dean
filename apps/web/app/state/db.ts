@@ -1,13 +1,19 @@
-import type { Progress, Settings } from "@dean-stack/schemas";
+import {
+  ALCHEMIST_GUILD_BOARD_DEFAULT,
+  type AlchemistGuildBoardState,
+  type Progress,
+  type Settings,
+} from "@dean-stack/schemas";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 
 export interface AppDB extends DBSchema {
+  alchemistGuildBoards: { key: string; value: AlchemistGuildBoardState };
   progress: { key: string; value: Progress };
   settings: { key: string; value: Settings };
 }
 
 const DB_NAME = "web";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<AppDB>> | undefined;
 let closed = false;
@@ -28,6 +34,12 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
       if (oldVersion < 2) {
         const settings = db.createObjectStore("settings", { keyPath: "id" });
         void settings.put({ id: "settings", theme: "light", reducedMotion: false });
+      }
+      if (oldVersion < 3) {
+        const alchemistGuildBoards = db.createObjectStore("alchemistGuildBoards", {
+          keyPath: "id",
+        });
+        void alchemistGuildBoards.put(ALCHEMIST_GUILD_BOARD_DEFAULT);
       }
     },
     blocked() {

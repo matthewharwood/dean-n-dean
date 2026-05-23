@@ -1,6 +1,6 @@
 ---
 name: pixijs-application
-description: "Use this skill when creating and configuring a PixiJS v8 Application. Covers new Application() + async app.init() options (width, height, background, antialias, resolution, autoDensity, preference, resizeTo, autoStart, sharedTicker, canvas, useBackBuffer, powerPreference, eventFeatures, accessibilityOptions, gcActive, bezierSmoothness, webgl/webgpu/canvasOptions per-renderer overrides), app.stage/renderer/canvas/screen/domContainerRoot access, ResizePlugin, TickerPlugin, CullerPlugin (cullable, cullArea), custom ApplicationPlugin creation via ExtensionType.Application, start/stop lifecycle, and app.destroy() with releaseGlobalResources. Triggers on: Application, app.init, app.stage, app.renderer, app.canvas, app.screen, app.domContainerRoot, ApplicationOptions, ApplicationPlugin, ExtensionType.Application, resizeTo, preference, autoStart, sharedTicker, useBackBuffer, powerPreference, skipExtensionImports, preferWebGLVersion, preserveDrawingBuffer, cullable, CullerPlugin, app.start, app.stop, app.destroy, releaseGlobalResources."
+description: "Use this skill when creating and configuring a PixiJS v8 Application. Covers async app.init options, renderer/canvas/stage access, ResizePlugin, TickerPlugin, CullerPlugin, custom ApplicationPlugin creation, start/stop lifecycle, and app.destroy cleanup. Triggers on: Application, app.init, app.stage, app.renderer, app.canvas, app.screen, ApplicationOptions, ApplicationPlugin, resizeTo, preference, autoStart, sharedTicker, powerPreference, CullerPlugin, app.start, app.stop, app.destroy, releaseGlobalResources."
 license: MIT
 ---
 
@@ -31,7 +31,7 @@ document.body.appendChild(app.canvas);
 
 Inside a dean-stack component, **never call `new Application()` or `await app.init(...)` from render**. The canonical wrapper is `usePixiApp(canvasRef, setup, deps)` at `apps/<name>/app/canvas/use-pixi-app.ts`. It runs init in `useEffect`, exposes the resolved `Application` to a `setup(app, { reducedMotion })` callback, and tears down via `app.destroy(true, { children: true, texture: true })` on unmount — surviving React StrictMode's double-mount via cancellation. This satisfies the React-Compiler purity rule (the side channel never enters render) and the `prefers-reduced-motion` contract (Ticker registration is skipped under `reduce`). React owns the `<canvas>` element via ref; Pixi paints into it. Game state lives in `atomWithIDB` (Pillar 3), never on `DisplayObject`s.
 
-Defaults the wrapper sets that you should override consciously: `preference: "webgl"` (most reliable in headless Chromium for the Playwright story project), `autoStart: !reducedMotion` (Ticker doesn't run when motion is suppressed), `resizeTo: canvas.parentElement ?? canvas` (the wrapping `<div>` controls layout).
+Defaults the wrapper sets that you should override consciously: `preference: "webgl"` (most reliable in headless Chromium for the Playwright story project), `autoStart: !reducedMotion` (Ticker doesn't run when motion is suppressed), `resizeTo: canvas.parentElement ?? canvas` (the wrapping `<div>` controls layout). For static scenes that only change on resize or pointer input, pass `autoStart: false` and call `app.render()` from those handlers; do not pay for an idle render loop.
 
 ## Core Patterns
 
