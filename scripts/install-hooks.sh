@@ -23,3 +23,14 @@ HOOK
 chmod +x "$HOOKS_DIR/pre-push"
 
 echo "✓ pre-push hook installed → $HOOKS_DIR/pre-push"
+
+# Playwright needs its browser binaries on disk before any e2e test can run —
+# the pre-push hook above will otherwise hit `Executable doesn't exist at …
+# /chrome-headless-shell` the first time it fires. `playwright install` is
+# idempotent (it no-ops if the binary is already cached), so we call it
+# unconditionally here. Scoped to chromium only because that's the single
+# device Playwright launches (see apps/<name>/playwright.config.ts).
+if [ -d apps/web/node_modules/@playwright/test ]; then
+  (cd apps/web && bun x --bun playwright install chromium) || \
+    echo "⚠ playwright browser install failed — run \`cd apps/web && bun x playwright install chromium\` manually before pushing"
+fi

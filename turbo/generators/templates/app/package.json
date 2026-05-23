@@ -14,7 +14,7 @@
     "typecheck": "tsgo --noEmit",
     "test:unit": "bun test app/",
     "test:e2e": "playwright test",
-    "test:e2e:fast": "playwright test --project=storybook",
+    "test:e2e:fast": "PLAYWRIGHT_FAST=1 playwright test --project=storybook",
     "check:sonar": "eslint --config eslint.sonar.config.mjs --no-warn-ignored --max-warnings 0 \"app/**/*.{ts,tsx}\" \"tests/**/*.ts\" \"scripts/**/*.ts\""
   },
   "dependencies": {
