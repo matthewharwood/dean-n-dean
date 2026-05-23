@@ -4,7 +4,7 @@ import { getDB } from "./db";
 import type { StoreName } from "./hydration";
 
 const DEBOUNCE_MS = 150;
-const CHANNEL_NAME = "{{name}}:idb";
+const CHANNEL_NAME = "web:idb";
 
 const channel = typeof window !== "undefined" ? new BroadcastChannel(CHANNEL_NAME) : null;
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
