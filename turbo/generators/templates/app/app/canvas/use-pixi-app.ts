@@ -16,6 +16,7 @@ type SetupContext = { reducedMotion: boolean };
 type Setup = (app: Application, ctx: SetupContext) => SetupCleanup;
 type PixiRendererPreference = "webgl" | "canvas";
 type PixiAppOptions = {
+  autoStart?: boolean;
   maxResolution?: number;
   preference?: PixiRendererPreference;
 };
@@ -27,6 +28,8 @@ type PixiAppOptions = {
 // and `app.destroy(false, { children: true, texture: true })` on unmount.
 // `prefers-reduced-motion: reduce` is detected once and passed to setup so the
 // caller can skip Ticker-driven animations the same way `useAnime` short-circuits.
+// Static scenes can pass `autoStart: false` and call `app.render()` from their
+// own resize/input handlers instead of paying for a continuous render loop.
 export function usePixiApp(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   setup: Setup,
@@ -58,7 +61,7 @@ export function usePixiApp(
           // WebGL is the most reliable backend in headless Chromium (Playwright);
           // pixi will fall back to canvas if WebGL is unavailable.
           preference: options.preference ?? "webgl",
-          autoStart: !reducedMotion,
+          autoStart: options.autoStart ?? !reducedMotion,
         });
         if (cancelled) {
           next.destroy(false, { children: true, texture: true });

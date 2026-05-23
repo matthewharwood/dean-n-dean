@@ -31,7 +31,7 @@ document.body.appendChild(app.canvas);
 
 Inside a dean-stack component, **never call `new Application()` or `await app.init(...)` from render**. The canonical wrapper is `usePixiApp(canvasRef, setup, deps)` at `apps/<name>/app/canvas/use-pixi-app.ts`. It runs init in `useEffect`, exposes the resolved `Application` to a `setup(app, { reducedMotion })` callback, and tears down via `app.destroy(true, { children: true, texture: true })` on unmount — surviving React StrictMode's double-mount via cancellation. This satisfies the React-Compiler purity rule (the side channel never enters render) and the `prefers-reduced-motion` contract (Ticker registration is skipped under `reduce`). React owns the `<canvas>` element via ref; Pixi paints into it. Game state lives in `atomWithIDB` (Pillar 3), never on `DisplayObject`s.
 
-Defaults the wrapper sets that you should override consciously: `preference: "webgl"` (most reliable in headless Chromium for the Playwright story project), `autoStart: !reducedMotion` (Ticker doesn't run when motion is suppressed), `resizeTo: canvas.parentElement ?? canvas` (the wrapping `<div>` controls layout).
+Defaults the wrapper sets that you should override consciously: `preference: "webgl"` (most reliable in headless Chromium for the Playwright story project), `autoStart: !reducedMotion` (Ticker doesn't run when motion is suppressed), `resizeTo: canvas.parentElement ?? canvas` (the wrapping `<div>` controls layout). For static scenes that only change on resize or pointer input, pass `autoStart: false` and call `app.render()` from those handlers; do not pay for an idle render loop.
 
 ## Core Patterns
 

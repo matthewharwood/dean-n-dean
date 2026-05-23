@@ -90,6 +90,10 @@ type SlotRect = {
   width: number;
 };
 
+type SlotHitRect = SlotRect & {
+  slotId: AlchemistGuildReagentSlotId;
+};
+
 type SwapAnimation = {
   card: PeriodicElementCard;
   durationMs: number;
@@ -309,7 +313,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     periodicTableCanvasRef,
     (app) => setupPeriodicTableScene(app, { onElementGrab: beginElementDrag }),
     [],
-    { preference: "canvas" },
+    { autoStart: false, preference: "canvas" },
   );
 
   useBrowserLayoutEffect(() => {
@@ -371,6 +375,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     let velocityY = 0;
     let currentLeft = activeDraggedCard.startClientX - grabOffsetX;
     let currentTop = activeDraggedCard.startClientY - grabOffsetY;
+    const slotHitRects = getSlotHitRects();
     let animationFrame = 0;
     let released = false;
     let releaseComplete = false;
@@ -385,7 +390,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     const syncDropIntent = () => {
       const nextDropIntent = resolveDropIntent(
         activeDraggedCard,
-        getDropSlotIdAtCardCenter(currentLeft, currentTop),
+        getDropSlotIdAtCardCenter(currentLeft, currentTop, slotHitRects),
         boardStateRef.current,
       );
 
@@ -495,7 +500,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         animationFrame = 0;
         paintDrag();
       }
-      commitRelease(getDropSlotIdAtCardCenter(currentLeft, currentTop));
+      commitRelease(getDropSlotIdAtCardCenter(currentLeft, currentTop, slotHitRects));
 
       if (reducedMotion) {
         clearDragState();
@@ -771,17 +776,18 @@ function getSourceSwapGhostCard(
 function getDropSlotIdAtCardCenter(
   cardLeft: number,
   cardTop: number,
+  slotHitRects: readonly SlotHitRect[],
 ): AlchemistGuildReagentSlotId | null {
   const clientX = cardLeft + FLOATING_ELEMENT_CARD_WIDTH / 2;
   const clientY = cardTop + FLOATING_ELEMENT_CARD_HEIGHT / 2;
-  const elements = document.elementsFromPoint(clientX, clientY);
 
-  for (const element of elements) {
-    const slotElement = element.closest("[data-reagent-slot-id]");
-    if (!(slotElement instanceof HTMLElement)) continue;
-
-    const result = AlchemistGuildReagentSlotIdSchema.safeParse(slotElement.dataset.reagentSlotId);
-    if (result.success) return result.data;
+  for (const rect of slotHitRects) {
+    const isInside =
+      clientX >= rect.left &&
+      clientX <= rect.left + rect.width &&
+      clientY >= rect.top &&
+      clientY <= rect.top + rect.height;
+    if (isInside) return rect.slotId;
   }
 
   return null;
@@ -824,6 +830,17 @@ function getSlotRect(slotId: AlchemistGuildReagentSlotId): SlotRect | null {
     top: rect.top,
     width: rect.width,
   };
+}
+
+function getSlotHitRects(): SlotHitRect[] {
+  const slotHitRects: SlotHitRect[] = [];
+
+  for (const slot of reagentSlots) {
+    const rect = getSlotRect(slot.id);
+    if (rect) slotHitRects.push({ ...rect, slotId: slot.id });
+  }
+
+  return slotHitRects;
 }
 
 function getSwapDurationMs(

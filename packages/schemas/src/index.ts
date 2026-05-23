@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { ElementAlchemyCardSchema } from "./data";
+import { ElementAlchemyCardSchema } from "./data/element-cards";
 
 export * from "./adding-game";
 export * from "./data";
