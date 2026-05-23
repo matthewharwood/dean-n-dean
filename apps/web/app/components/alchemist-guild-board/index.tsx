@@ -19,7 +19,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
+import * as z from "zod";
 
 import { usePixiApp } from "~/canvas/use-pixi-app";
 import { defineComponent } from "~/lib/define-component";
@@ -106,6 +106,145 @@ type PointerSample = {
   time: number;
 };
 
+const ElementCardFacePropsSchema = z.object({
+  card: z.custom<PeriodicElementCard>(),
+});
+
+const ElementCardFace = defineComponent(ElementCardFacePropsSchema, ({ card }) => (
+  <>
+    <div
+      className="absolute left-1.5 right-1.5 top-1.5 h-2 rounded-full"
+      style={{ backgroundColor: card.visual.familyColor }}
+    />
+    <span className="absolute left-2 top-4 text-[13px] font-bold leading-none text-neutral-950">
+      {card.element.atomicNumber}
+    </span>
+    <span className="absolute inset-x-0 top-[38px] text-center text-[54px] font-bold leading-none text-neutral-950">
+      {card.symbol}
+    </span>
+    <span className="absolute inset-x-1 bottom-7 truncate text-center text-[12px] leading-none text-neutral-900">
+      {card.name}
+    </span>
+    <span className="absolute inset-x-1 bottom-3 text-center text-[10px] leading-none text-neutral-700">
+      {card.element.atomicMass}
+    </span>
+  </>
+));
+
+const SlottedElementCardPropsSchema = z.object({
+  card: z.custom<PeriodicElementCard | null>(),
+  feedback: z.custom<DropFeedback>(),
+  hidden: z.boolean(),
+  onPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
+  slotName: z.string(),
+});
+
+const SlottedElementCard = defineComponent(
+  SlottedElementCardPropsSchema,
+  ({ card, feedback, hidden, onPointerDown, slotName }) => {
+    if (!card || hidden) return null;
+
+    return (
+      <button
+        type="button"
+        data-board-section="slotted-element-card"
+        data-board-name={`${card.name} slotted element card`}
+        data-card-id={card.id}
+        className={getCardShellClass(feedback, "slotted")}
+        style={{
+          contain: "layout style paint",
+          fontFamily: "Arial, sans-serif",
+        }}
+        aria-label={`Pick up ${card.name} from ${slotName}`}
+        onPointerDown={onPointerDown}
+      >
+        <ElementCardFace card={card} />
+      </button>
+    );
+  },
+);
+
+const DropGhostPropsSchema = z.object({
+  card: z.custom<PeriodicElementCard>(),
+  feedback: z.custom<DropFeedback>(),
+});
+
+const DropGhost = defineComponent(DropGhostPropsSchema, ({ card, feedback }) => (
+  <div
+    data-board-section="drop-preview-card"
+    data-board-name={`${card.name} drop preview card`}
+    data-card-id={card.id}
+    className={getDropGhostClass(feedback)}
+    aria-hidden="true"
+  >
+    <ElementCardFace card={card} />
+  </div>
+));
+
+const ReagentSlotPropsSchema = z.object({
+  draggedCard: z.custom<DraggedElementCard | null>(),
+  dropFeedback: z.custom<DropFeedback>(),
+  onSlottedCardPointerDown:
+    z.custom<
+      (
+        slotId: AlchemistGuildReagentSlotId,
+        card: PeriodicElementCard,
+        event: ReactPointerEvent<HTMLButtonElement>,
+      ) => void
+    >(),
+  slotId: AlchemistGuildReagentSlotIdSchema,
+  slotName: z.string(),
+  slottedCard: z.custom<PeriodicElementCard | null>(),
+  sourceSwapGhostCard: z.custom<PeriodicElementCard | null>(),
+  swapAnimation: z.custom<SwapAnimation | null>(),
+});
+
+const ReagentSlot = defineComponent(
+  ReagentSlotPropsSchema,
+  ({
+    draggedCard,
+    dropFeedback,
+    onSlottedCardPointerDown,
+    sourceSwapGhostCard,
+    slotId,
+    slotName,
+    slottedCard,
+    swapAnimation,
+  }) => {
+    const isSourceSlot =
+      draggedCard?.source.kind === "slot" && draggedCard.source.slotId === slotId;
+    const isSwapAnimationDestination =
+      swapAnimation?.toSlotId === slotId && swapAnimation.card.id === slottedCard?.id;
+    const targetGhostCard =
+      draggedCard && dropFeedback !== "none" && dropFeedback !== "blocked"
+        ? draggedCard.card
+        : null;
+    const ghostCard = sourceSwapGhostCard ?? targetGhostCard;
+    const ghostFeedback: DropFeedback = sourceSwapGhostCard ? "swap" : dropFeedback;
+
+    return (
+      <div
+        data-reagent-slot-id={slotId}
+        data-board-section={slotId}
+        data-board-name={slotName}
+        data-drop-feedback={dropFeedback}
+        className={getSlotShellClass(dropFeedback)}
+      >
+        <SlottedElementCard
+          card={slottedCard}
+          feedback={dropFeedback}
+          hidden={isSourceSlot || isSwapAnimationDestination}
+          onPointerDown={(event) => {
+            if (slottedCard) onSlottedCardPointerDown(slotId, slottedCard, event);
+          }}
+          slotName={slotName}
+        />
+        {ghostCard ? <DropGhost card={ghostCard} feedback={ghostFeedback} /> : null}
+      </div>
+    );
+  },
+);
+
 export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchema, () => {
   const boardState = useAtomValue(alchemistGuildBoardAtom);
   const setBoardState = useSetAtom(alchemistGuildBoardAtom);
@@ -134,11 +273,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       startClientY: grab.clientY,
     };
 
-    flushSync(() => {
-      dropIntentRef.current = EMPTY_DROP_INTENT;
-      setDropIntent(EMPTY_DROP_INTENT);
-      setDraggedCard(nextDraggedCard);
-    });
+    dropIntentRef.current = EMPTY_DROP_INTENT;
+    setDropIntent(EMPTY_DROP_INTENT);
+    setDraggedCard(nextDraggedCard);
     void sfx.play("card.pickup");
   };
 
@@ -162,11 +299,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       startClientY: event.clientY,
     };
 
-    flushSync(() => {
-      dropIntentRef.current = EMPTY_DROP_INTENT;
-      setDropIntent(EMPTY_DROP_INTENT);
-      setDraggedCard(nextDraggedCard);
-    });
+    dropIntentRef.current = EMPTY_DROP_INTENT;
+    setDropIntent(EMPTY_DROP_INTENT);
+    setDraggedCard(nextDraggedCard);
     void sfx.play("card.slot.pickup");
   };
 
@@ -443,22 +578,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           <h1 className="font-serif text-4xl leading-none lg:text-5xl">Alchemist Guild</h1>
         </header>
 
-        <div
+        <progress
           data-board-section="progress-track"
           data-board-name="Progress track"
-          className="h-3 bg-indigo-200"
-          role="progressbar"
+          className="h-3 w-full appearance-none overflow-hidden bg-indigo-200 accent-indigo-600 [&::-moz-progress-bar]:bg-indigo-600 [&::-webkit-progress-bar]:bg-indigo-200 [&::-webkit-progress-value]:bg-indigo-600"
           aria-label="Alchemy progress"
-          aria-valuemax={100}
-          aria-valuemin={0}
-          aria-valuenow={41}
+          max={100}
+          value={41}
         >
-          <div
-            data-board-section="progress-fill"
-            data-board-name="Progress fill"
-            className="h-full w-[41%] bg-indigo-600"
-          />
-        </div>
+          41%
+        </progress>
 
         <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
           <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
@@ -496,23 +625,24 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               data-board-name="Alchemy workbench"
               className="grid min-h-0 grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 bg-neutral-300 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8"
             >
-              {reagentSlots.map((slot) =>
-                renderReagentSlot({
-                  draggedCard,
-                  dropFeedback: getSlotDropFeedback(dropIntent, slot.id),
-                  onSlottedCardPointerDown: beginSlottedCardDrag,
-                  sourceSwapGhostCard: getSourceSwapGhostCard(
+              {reagentSlots.map((slot) => (
+                <ReagentSlot
+                  key={slot.id}
+                  draggedCard={draggedCard}
+                  dropFeedback={getSlotDropFeedback(dropIntent, slot.id)}
+                  onSlottedCardPointerDown={beginSlottedCardDrag}
+                  sourceSwapGhostCard={getSourceSwapGhostCard(
                     dropIntent,
                     draggedCard,
                     boardState,
                     slot.id,
-                  ),
-                  slotId: slot.id,
-                  slotName: slot.name,
-                  slottedCard: getElementCard(boardState.reagentSlots[slot.id]),
-                  swapAnimation,
-                }),
-              )}
+                  )}
+                  slotId={slot.id}
+                  slotName={slot.name}
+                  slottedCard={getElementCard(boardState.reagentSlots[slot.id])}
+                  swapAnimation={swapAnimation}
+                />
+              ))}
 
               <div
                 data-board-section="transmutation-pad"
@@ -574,10 +704,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               height: `${FLOATING_ELEMENT_CARD_HEIGHT}px`,
               touchAction: "none",
               width: `${FLOATING_ELEMENT_CARD_WIDTH}px`,
-              willChange: "transform, opacity",
             }}
           >
-            {renderElementCardFace(draggedCard.card)}
+            <ElementCardFace card={draggedCard.card} />
           </div>
         </div>
       ) : null}
@@ -600,66 +729,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             width: `${swapAnimation.fromRect.width}px`,
           }}
         >
-          {renderElementCardFace(swapAnimation.card)}
+          <ElementCardFace card={swapAnimation.card} />
         </div>
       ) : null}
     </main>
   );
 });
-
-function renderReagentSlot({
-  draggedCard,
-  dropFeedback,
-  onSlottedCardPointerDown,
-  sourceSwapGhostCard,
-  slotId,
-  slotName,
-  slottedCard,
-  swapAnimation,
-}: {
-  draggedCard: DraggedElementCard | null;
-  dropFeedback: DropFeedback;
-  onSlottedCardPointerDown: (
-    slotId: AlchemistGuildReagentSlotId,
-    card: PeriodicElementCard,
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) => void;
-  sourceSwapGhostCard: PeriodicElementCard | null;
-  slotId: AlchemistGuildReagentSlotId;
-  slotName: string;
-  slottedCard: PeriodicElementCard | null;
-  swapAnimation: SwapAnimation | null;
-}) {
-  const isSourceSlot = draggedCard?.source.kind === "slot" && draggedCard.source.slotId === slotId;
-  const isSwapAnimationDestination =
-    swapAnimation?.toSlotId === slotId && swapAnimation.card.id === slottedCard?.id;
-  const targetGhostCard =
-    draggedCard && dropFeedback !== "none" && dropFeedback !== "blocked" ? draggedCard.card : null;
-  const ghostCard = sourceSwapGhostCard ?? targetGhostCard;
-  const ghostFeedback: DropFeedback = sourceSwapGhostCard ? "swap" : dropFeedback;
-
-  return (
-    <div
-      key={slotId}
-      data-reagent-slot-id={slotId}
-      data-board-section={slotId}
-      data-board-name={slotName}
-      data-drop-feedback={dropFeedback}
-      className={getSlotShellClass(dropFeedback)}
-    >
-      {renderSlottedElementCard({
-        card: slottedCard,
-        feedback: dropFeedback,
-        hidden: isSourceSlot || isSwapAnimationDestination,
-        onPointerDown: (event) => {
-          if (slottedCard) onSlottedCardPointerDown(slotId, slottedCard, event);
-        },
-        slotName,
-      })}
-      {ghostCard ? renderDropGhost(ghostCard, ghostFeedback) : null}
-    </div>
-  );
-}
 
 function setMotionProperty(
   motion: AnimatableObject,
@@ -675,77 +750,6 @@ function setMotionProperty(
     return;
   }
   setter(value, duration);
-}
-
-function renderSlottedElementCard({
-  card,
-  feedback,
-  hidden,
-  onPointerDown,
-  slotName,
-}: {
-  card: PeriodicElementCard | null;
-  feedback: DropFeedback;
-  hidden: boolean;
-  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  slotName: string;
-}) {
-  if (!card || hidden) return null;
-
-  return (
-    <button
-      type="button"
-      data-board-section="slotted-element-card"
-      data-board-name={`${card.name} slotted element card`}
-      data-card-id={card.id}
-      className={getCardShellClass(feedback, "slotted")}
-      style={{
-        contain: "layout style paint",
-        fontFamily: "Arial, sans-serif",
-      }}
-      aria-label={`Pick up ${card.name} from ${slotName}`}
-      onPointerDown={onPointerDown}
-    >
-      {renderElementCardFace(card)}
-    </button>
-  );
-}
-
-function renderDropGhost(card: PeriodicElementCard, feedback: DropFeedback) {
-  return (
-    <div
-      data-board-section="drop-preview-card"
-      data-board-name={`${card.name} drop preview card`}
-      data-card-id={card.id}
-      className={getDropGhostClass(feedback)}
-      aria-hidden="true"
-    >
-      {renderElementCardFace(card)}
-    </div>
-  );
-}
-
-function renderElementCardFace(card: PeriodicElementCard) {
-  return (
-    <>
-      <div
-        className="absolute left-1.5 right-1.5 top-1.5 h-2 rounded-full"
-        style={{ backgroundColor: card.visual.familyColor }}
-      />
-      <span className="absolute left-2 top-4 text-[13px] font-bold leading-none text-neutral-950">
-        {card.element.atomicNumber}
-      </span>
-      <span className="absolute inset-x-0 top-[38px] text-center text-[54px] font-bold leading-none text-neutral-950">
-        {card.symbol}
-      </span>
-      <span className="absolute inset-x-1 bottom-7 truncate text-center text-[12px] leading-none text-neutral-900">
-        {card.name}
-      </span>
-      <span className="absolute inset-x-1 bottom-3 text-center text-[10px] leading-none text-neutral-700">
-        {card.element.atomicMass}
-      </span>
-    </>
-  );
 }
 
 function getElementCard(cardId: string | null): PeriodicElementCard | null {

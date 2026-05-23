@@ -14,6 +14,13 @@ Run `npx -y react-doctor@latest . --verbose --diff` and check the score did not 
 
 If the score dropped, fix the regressions before committing.
 
+Common dean-stack fixes:
+
+- Do not call JSX-returning helpers from render. Promote repeated JSX to a real Zod-wrapped component and render it with JSX.
+- Avoid `flushSync` for normal interaction state. Use ordinary state updates unless there is a proven DOM measurement requirement that cannot be modeled another way.
+- Do not keep `will-change` in rendered styles. If a transient compositor hint is truly needed, set and clear it from the animation side channel.
+- Use semantic elements before ARIA role overrides. For progress UI, prefer `<progress>` over `role="progressbar"` on a generic element.
+
 ## For general cleanup or code improvement:
 
 Run `npx -y react-doctor@latest . --verbose` (without `--diff`) to scan the full codebase. Fix issues by severity — errors first, then warnings.

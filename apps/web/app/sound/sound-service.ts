@@ -56,8 +56,9 @@ const DEFAULT_BUS_GAIN: Record<SoundBus, number> = {
   ui: 1,
   voice: 1,
 };
-const NOOP_SOUND_ID = "card.pickup";
 const MIN_GAIN = 0.0001;
+const PUBLIC_URL_PROTOCOL_PATTERN = /^(blob:|data:|https?:)/;
+const noop = (): void => undefined;
 
 export function createSoundService(registry: readonly SoundDefinition[]): SoundService {
   const definitions = new Map<SoundId, SoundDefinition>(
@@ -265,7 +266,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     source.connect(gain);
     gain.connect(bus.input);
 
-    let resolveFinished = () => {};
+    let resolveFinished = noop;
     const finished = new Promise<void>((resolve) => {
       resolveFinished = resolve;
     });
@@ -349,12 +350,12 @@ function createNoopHandle(soundId: SoundId): SoundHandle {
     finished: Promise.resolve(),
     id: `noop:${soundId}`,
     soundId,
-    stop() {},
+    stop: noop,
   };
 }
 
 function resolvePublicUrl(url: string): string {
-  if (/^(blob:|data:|https?:)/.test(url)) return url;
+  if (PUBLIC_URL_PROTOCOL_PATTERN.test(url)) return url;
 
   const baseUrl = import.meta.env.BASE_URL.endsWith("/")
     ? import.meta.env.BASE_URL
@@ -367,17 +368,3 @@ function resolvePublicUrl(url: string): string {
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
-
-export const noopSoundService: SoundService = {
-  cancelAll() {},
-  cancelBus() {},
-  cancelSound() {},
-  dispose() {},
-  async play() {
-    return createNoopHandle(NOOP_SOUND_ID);
-  },
-  async preload() {},
-  setBusVolume() {},
-  setEnabled() {},
-  setMasterVolume() {},
-};

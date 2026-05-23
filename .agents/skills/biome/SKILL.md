@@ -93,6 +93,11 @@ const value: any = legacyApi();
 ```
 Always include the rule path and a reason. Never use the legacy parenthesized form, never `// rome-ignore`.
 
+### Common rule fixes that must stay clean
+
+- `lint/suspicious/noEmptyBlockStatements`: do not write `() => {}`, `stop() {}`, or empty noop methods. Use a shared expression-body helper such as `const noop = (): void => undefined;` and assign it (`stop: noop`, `cancelAll: noop`). For async noops, use `const noopAsync = async (): Promise<void> => undefined;`.
+- `lint/performance/useTopLevelRegex`: hoist regex literals used inside functions to module scope, e.g. `const PUBLIC_URL_PATTERN = /.../;`.
+
 ### Organize imports as an assist action
 ```jsonc
 // biome.json (excerpt)

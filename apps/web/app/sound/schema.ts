@@ -4,7 +4,6 @@ export const SoundBusSchema = z.enum(["sfx", "ui", "music", "voice", "ambience"]
 export type SoundBus = z.infer<typeof SoundBusSchema>;
 
 export const SoundReplayPolicySchema = z.enum(["overlap", "restart", "ignore", "cancel-bus"]);
-export type SoundReplayPolicy = z.infer<typeof SoundReplayPolicySchema>;
 
 export const SoundIdSchema = z.enum([
   "card.pickup",

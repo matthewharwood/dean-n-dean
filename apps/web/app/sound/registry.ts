@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { type SoundDefinition, SoundDefinitionSchema, type SoundId } from "./schema";
+import { type SoundDefinition, SoundDefinitionSchema } from "./schema";
 
 export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).parse([
   {
@@ -79,7 +79,3 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     volume: 0.72,
   },
 ]);
-
-export const SOUND_REGISTRY_BY_ID = new Map<SoundId, SoundDefinition>(
-  SOUND_REGISTRY.map((definition) => [definition.id, definition]),
-);
