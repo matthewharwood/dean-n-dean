@@ -2,7 +2,7 @@
 
 A rapid-prototyping platform for browser games, optimized for live iPad-over-LAN iteration. Static-only deploy to GitHub Pages, all state in IndexedDB, and a single `bun run check` that gates every change.
 
-> Read [CLAUDE.md](./CLAUDE.md) for the architectural spec — the *why* behind every constraint here. This README is the **operator's manual**: how to install, develop, test, build, deploy, and review.
+> Read [AGENTS.md](./AGENTS.md) for the architectural spec — the *why* behind every constraint here. This README is the **operator's manual**: how to install, develop, test, build, deploy, and review.
 
 ---
 
@@ -50,7 +50,7 @@ Every change in this repo is judged against these four rules. Anything that viol
 | UI | React | `19` (Compiler enabled) |
 | Styling | Tailwind | `v4` (CSS-first via `@theme`) |
 | Animation | anime.js | `v4` (named imports only) |
-| Canvas / 2D rendering | PixiJS | `8.18.1` — first-party for all canvas-based UI. Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `app/canvas/`. Same side-channel discipline as anime.js: render stays pure; all `Application.init` / `Ticker` / sprite mutation lives in `useEffect`; `prefers-reduced-motion: reduce` short-circuits Ticker animations. See the 24 `pixijs-*` skills under `.claude/skills/` for the full API surface. |
+| Canvas / 2D rendering | PixiJS | `8.18.1` — first-party for all canvas-based UI. Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `app/canvas/`. Same side-channel discipline as anime.js: render stays pure; all `Application.init` / `Ticker` / sprite mutation lives in `useEffect`; `prefers-reduced-motion: reduce` short-circuits Ticker animations. See the 24 `pixijs-*` skills under `.agents/skills/` for the full API surface. |
 | State | Jotai | `2.x` (parameterized atoms via the `atomWithIDB` key + a module-scope `Map<id, atom>`; `selectAtom` from `jotai/utils` for derived per-id slices — dean-stack does not use `atomFamily`) |
 | Persistence | IndexedDB via `idb` | `8.x` |
 | Validation | Zod | `4` |
@@ -161,7 +161,7 @@ Edit `apps/web/app/components/<name>/index.tsx` — its sibling `index.stories.t
 - An unstable atom return (a new object identity each `get` instead of a stable reference)
 - A missed React Compiler optimization (a Component-defined-inside-Component, a non-pure render, etc.)
 
-**Fix the cause, not the symptom.** Manual `useMemo` / `useCallback` / `React.memo` is forbidden in dean-stack (the React Compiler handles memoization — see `.claude/skills/react-compiler-rules/SKILL.md`). Suppressing the highlight by adding manual memo defeats the diagnostic.
+**Fix the cause, not the symptom.** Manual `useMemo` / `useCallback` / `React.memo` is forbidden in dean-stack (the React Compiler handles memoization — see `.agents/skills/react-compiler-rules/SKILL.md`). Suppressing the highlight by adding manual memo defeats the diagnostic.
 
 react-scan has no version-specific deprecations, no opinionated patterns, no migration cliffs — there is intentionally **no skill for it**. Just look at the boxes; fix what's bad.
 
@@ -504,7 +504,7 @@ dean-stack/
 ├── tsconfig.json
 ├── turbo.json                        # task graph + with-co-runners for dev
 ├── package.json                      # workspaces + packageManager pin
-└── CLAUDE.md                         # full architectural spec — read first
+└── AGENTS.md                         # full architectural spec — read first
 ```
 
 ---
@@ -628,6 +628,6 @@ Vite cold-prebundles new dependencies the first time Storybook starts. The Story
 
 ## Further reading
 
-- [CLAUDE.md](./CLAUDE.md) — the full architectural spec, including the *why* behind every constraint.
-- [`.claude/skills/_OWNERSHIP_MATRIX.md`](./.claude/skills/_OWNERSHIP_MATRIX.md) — which skill owns which API surface.
+- [AGENTS.md](./AGENTS.md) — the full architectural spec, including the *why* behind every constraint.
+- [`.agents/skills/_OWNERSHIP_MATRIX.md`](./.agents/skills/_OWNERSHIP_MATRIX.md) — which skill owns which API surface.
 - [`apps/web/tests/maze-deep-link.offline.spec.ts`](./apps/web/tests/maze-deep-link.offline.spec.ts) — the load-bearing offline-deep-link test the architecture diagram describes.

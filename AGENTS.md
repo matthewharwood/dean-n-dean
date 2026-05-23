@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex and other agentic coding tools when working with code in this repository.
 
 ## Project context
 
@@ -18,7 +18,7 @@ The architecture below is **load-bearing** — it is what makes the iPad live-re
 - **UI**: React 19 with React Compiler enabled
 - **Styling**: Tailwind
 - **Animation**: anime.js v4 (named-import API only — `createTimeline`, `createAnimatable`, etc.)
-- **Canvas / 2D rendering**: PixiJS 8.18.1 — first-party for any canvas-based UI (game scenes, sprites, particle effects, custom rendering). Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `apps/<name>/app/canvas/`. Same side-channel rule as anime.js: render is pure; all `new Application()` / `Ticker` / sprite mutation lives in `useEffect`. `prefers-reduced-motion: reduce` short-circuits Ticker animations. Game **state** stays in `atomWithIDB` (Pillar 3) — Pixi DisplayObjects never own data. The 24 `pixijs-*` skills under `.claude/skills/` cover the API surface; `usePixiApp` is the dean-stack lifecycle wrapper.
+- **Canvas / 2D rendering**: PixiJS 8.18.1 — first-party for any canvas-based UI (game scenes, sprites, particle effects, custom rendering). Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `apps/<name>/app/canvas/`. Same side-channel rule as anime.js: render is pure; all `new Application()` / `Ticker` / sprite mutation lives in `useEffect`. `prefers-reduced-motion: reduce` short-circuits Ticker animations. Game **state** stays in `atomWithIDB` (Pillar 3) — Pixi DisplayObjects never own data. The 24 `pixijs-*` skills under `.agents/skills/` cover the API surface; `usePixiApp` is the dean-stack lifecycle wrapper.
 - **State**: Jotai — and only Jotai. Do not introduce Zustand, Redux, Recoil, or Context-as-state.
 - **Persistence**: IndexedDB via the `idb` library
 - **Validation**: Zod 4 — the source of truth for every type
@@ -110,7 +110,7 @@ There are no server functions, no server loaders, no runtime server code. All "d
 
 ### Error & notFound boundaries — exact rules
 
-Every dean-stack app wires **four** TanStack Router boundary slots, and the wiring is gate-asserted in `apps/<name>/app/router.test.ts` so a future refactor can't silently drop them. Read the patterns + rationale in `.claude/skills/tanstack-router-routing/SKILL.md` ("Error & notFound boundaries"); the rules below are the load-bearing summary.
+Every dean-stack app wires **four** TanStack Router boundary slots, and the wiring is gate-asserted in `apps/<name>/app/router.test.ts` so a future refactor can't silently drop them. Read the patterns + rationale in `.agents/skills/tanstack-router-routing/SKILL.md` ("Error & notFound boundaries"); the rules below are the load-bearing summary.
 
 - **`__root__.tsx` `errorComponent`** — per-route boundary catches throws from anywhere inside the route tree (the common case: an atom getter that hits a Zod-mismatched IDB record, a side-channel setup throw, a render bug deep in a game route).
 - **`__root__.tsx` `notFoundComponent`** — handles `notFound()` calls that bubble up through the route tree.
@@ -156,7 +156,7 @@ PixiJS is a **side channel** the same way anime.js is. The Pixi scene graph muta
 - **Game state stays in `atomWithIDB`** (Pillar 3). Pixi `DisplayObject`s never own data — they read derived values via refs that the React component updates from atom subscriptions. Lose this and the iPad-over-LAN reload erases progress.
 - **Component props stay Zod-validated** (Pillar 2). `defineComponent(schema, fn)` wraps any pixi-mounting component the same as any other.
 - Pixi's `Application.init` is browser-only. Importing types/values from `pixi.js` at module load is safe (no Canvas/WebGL touched until `init`); the `useEffect`-only init keeps SSR / TanStack Start prerender safe — they emit an empty `<canvas>` and the SPA paints into it on hydration.
-- Use the **single `pixi.js` package** (v8) — never the deprecated `@pixi/*` sub-packages. Import names: `Application`, `Container`, `Sprite`, `Graphics`, `Text`, `Ticker`, `Assets`, etc. The 24 `pixijs-*` skills under `.claude/skills/` cover every surface area (scene graph, application options, assets, events, color, math, ticker, accessibility, performance, environments, filters, blend modes, custom rendering, migration from v7).
+- Use the **single `pixi.js` package** (v8) — never the deprecated `@pixi/*` sub-packages. Import names: `Application`, `Container`, `Sprite`, `Graphics`, `Text`, `Ticker`, `Assets`, etc. The 24 `pixijs-*` skills under `.agents/skills/` cover every surface area (scene graph, application options, assets, events, color, math, ticker, accessibility, performance, environments, filters, blend modes, custom rendering, migration from v7).
 - Headless test reliability: `preference: "webgl"` is the default in `usePixiApp` because Playwright's headless Chromium runs WebGL via SwiftShader more reliably than WebGPU. Pixi falls back to canvas if WebGL is unavailable.
 
 ### Linting split
@@ -235,7 +235,7 @@ dean-stack/
 ├── .github/workflows/
 ├── turbo.json
 ├── package.json                 # workspaces + packageManager pin
-└── CLAUDE.md
+└── AGENTS.md
 ```
 
 `packages/` exists so Storybook, the web app, and any future second app share schemas and config without duplication. **Co-locate stories and tests with their source files** — never split them into parallel `__stories__` / `__tests__` trees.
@@ -259,6 +259,16 @@ These commands are the standard interface. Every script is a Turbo task with app
 | `bun run test:e2e` | Playwright across stories + application workflows |
 | `bun run test:e2e -- <pattern>` | Playwright filtered to a pattern |
 | `bun run deploy` | Invoked by GitHub Actions only — wraps `actions/deploy-pages` |
+
+## Agent workflow skills
+
+The reusable command workflows are available as Codex skills under `.agents/skills/`:
+
+- `.agents/skills/five-phase-pass/SKILL.md` — propagate stack changes through app, template, regenerated test project, docs, and skill audit.
+- `.agents/skills/kill-servers/SKILL.md` — clear stale Vite, preview, Storybook, Biome watch, and Stylelint watch processes before gates.
+- `.agents/skills/prompt/SKILL.md` — create numbered prompts under `./prompts/` with scope, acceptance criteria, and verification.
+- `.agents/skills/run-prompt/SKILL.md` — execute numbered prompts from `./prompts/`, sequentially or in parallel when multi-agent tooling is available.
+- `.agents/skills/sfx/SKILL.md` — generate one ElevenLabs sound effect via the MCP when the audio tool is available.
 
 ## Milestone order (each gated by green `bun run check`)
 
@@ -302,4 +312,4 @@ No milestone starts until the prior one ships green CI.
   | `react-hooks/rules-of-hooks` on `use` (Playwright fixture) | Rename the fixture-callback parameter from `use` to `runFixture`. Playwright accepts any identifier; only position matters. |
   | `useExhaustiveDependencies` on a `[playerId]`-style trigger-only dep | Lift the reset to the parent via `<PlayerAvatar key={playerId} ... />`. Component remounts on key change; useState/useRef defaults re-initialize; the in-component effect goes away. |
 - **No circular imports.** When two modules need to reach into each other, extract the shared symbol(s) into a leaf module and have BOTH original modules depend on the leaf. Never resolve a cycle with `// fallow-ignore-next-line circular-dependency`. Worked example: `attack-fx/runtime.ts` once exported `tintedSoftCircle` AND imported every `runX` from `attack-fx/kinds/*.ts`; the kinds re-imported `tintedSoftCircle` back from runtime — 7 cycles. Fixed by moving `tintedSoftCircle` (and its texture cache) to `attack-fx/textures.ts` (a leaf); now runtime depends on kinds + textures, kinds depend on textures, no cycle. `fallow dead-code` is the gate that catches this.
-- **Skill files** for the techs in this stack are added by the user over time. When a skill exists, follow it; when one is missing, ask before guessing.
+- **Skill files** for the techs in this stack live under `.agents/skills/` and are added by the user over time. When a skill exists, follow it; when one is missing, ask before guessing.

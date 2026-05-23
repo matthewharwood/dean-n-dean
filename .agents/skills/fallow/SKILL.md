@@ -383,7 +383,7 @@ If `$ARGUMENTS` is provided, use it as the `--root` path or pass it as the targe
 
 ## Dean-stack rules
 
-This project pins fallow as part of the gate. When working in this repo, follow these conventions — they are load-bearing and documented in CLAUDE.md.
+This project pins fallow as part of the gate. When working in this repo, follow these conventions — they are load-bearing and documented in AGENTS.md.
 
 ### Project config (`.fallowrc.json` at repo root)
 
@@ -407,7 +407,7 @@ This project pins fallow as part of the gate. When working in this repo, follow 
 }
 ```
 
-Each entry has a documented reason in CLAUDE.md's gate description. **Don't add to either ignore list without first proving the symbol is genuinely used and fallow simply can't see the consumer** (e.g., `extends`-style references, runtime-only entry points). Adding an actually-unused symbol here hides real dead code.
+Each entry has a documented reason in AGENTS.md's gate description. **Don't add to either ignore list without first proving the symbol is genuinely used and fallow simply can't see the consumer** (e.g., `extends`-style references, runtime-only entry points). Adding an actually-unused symbol here hides real dead code.
 
 ### Dead-code gate vs health advisory — the dean-stack partition
 
