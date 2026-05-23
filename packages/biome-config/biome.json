@@ -1,0 +1,92 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
+  "root": false,
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noConfusingVoidType": "off",
+        "noEvolvingTypes": "error",
+        "noEmptyBlockStatements": "error",
+        "noConsole": { "level": "error", "options": { "allow": ["error", "warn"] } }
+      },
+      "style": {
+        "noNonNullAssertion": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "lodash": "micro-utilities skill: use native ECMAScript (structuredClone / Object.groupBy / toSorted / replaceAll) or a just-* micro-package.",
+              "lodash-es": "micro-utilities skill: see lodash entry.",
+              "lodash.merge": "micro-utilities skill: see lodash entry.",
+              "moment": "micro-utilities skill: use Intl.DateTimeFormat or Temporal.",
+              "underscore": "micro-utilities skill: use native ECMAScript.",
+              "ramda": "micro-utilities skill: use native ECMAScript.",
+              "@tanstack/start": "Wrong package — dean-stack uses @tanstack/react-start.",
+              "nitropack": "v2 package — dean-stack uses Nitro v3, import from `nitro`."
+            }
+          }
+        },
+        "useConsistentArrayType": {
+          "level": "error",
+          "options": { "syntax": "shorthand" }
+        },
+        "useDefaultSwitchClause": "error"
+      },
+      "performance": {
+        "useTopLevelRegex": "error"
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "css": {
+    "linter": { "enabled": false },
+    "formatter": { "enabled": false }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.test.ts", "**/*.spec.ts", "**/tests/**"],
+      "linter": {
+        "rules": {
+          "style": { "noNonNullAssertion": "off" },
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noConsole": "off",
+            "noEmptyBlockStatements": "off"
+          },
+          "correctness": { "useExhaustiveDependencies": "off" },
+          "performance": { "useTopLevelRegex": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.config.ts", "**/*.config.mjs", "**/*.config.js", "**/turbo/generators/**"],
+      "linter": {
+        "rules": {
+          "performance": { "useTopLevelRegex": "off" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "ui": "tui",
+  "globalDependencies": ["**/.env.*local", "tsconfig.json"],
+  "globalEnv": ["NODE_ENV", "CI"],
+  "tasks": {
+    "check": {
+      "dependsOn": ["typecheck", "check:sonar", "test:unit", "test:e2e"]
+    },
+    "check:fast": {
+      "dependsOn": ["typecheck", "check:sonar", "test:unit", "test:e2e:fast"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "check:sonar": {
+      "outputs": []
+    },
+    "test:unit": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
+    },
+    "test:e2e": {
+      "dependsOn": ["build"],
+      "outputs": ["playwright-report/**", "test-results/**"]
+    },
+    "test:e2e:fast": {
+      "outputs": ["playwright-report/**", "test-results/**"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["BASE_PATH", "VITE_*"],
+      "outputs": [".output/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "with": ["storybook", "biome:watch", "stylelint:watch"]
+    },
+    "storybook": {
+      "cache": false,
+      "persistent": true
+    },
+    "biome:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "stylelint:watch": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
