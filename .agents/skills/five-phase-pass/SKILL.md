@@ -71,9 +71,9 @@ const errs = []; const failed = [];
 page.on("pageerror", (e) => errs.push(`PAGE: ${e.message}`));
 page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errs.push(`[${m.type()}] ${m.text()}`); });
 page.on("response", (r) => { if (r.status() >= 400) failed.push(`${r.status()} ${r.url()}`); });
-// Don't use `networkidle` — TanStack DevTools (dev-only) keeps a
-// websocket open and the wait would never resolve. DOM + an explicit
-// h1-wait is the contract: every dean-stack route renders an h1.
+// Don't use `networkidle` — Vite HMR and opt-in TanStack DevTools can keep
+// websockets open and the wait would never resolve. DOM + an explicit h1-wait
+// is the contract: every dean-stack route renders an h1.
 await page.goto("http://localhost:5173/", { waitUntil: "domcontentloaded", timeout: 30000 });
 await page.waitForSelector("h1", { timeout: 15000 });
 await page.waitForTimeout(1500);

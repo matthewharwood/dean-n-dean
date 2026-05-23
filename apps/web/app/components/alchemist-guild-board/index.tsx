@@ -123,9 +123,16 @@ const ElementCardFace = defineComponent(ElementCardFacePropsSchema, ({ card }) =
     <span className="absolute left-2 top-4 text-[13px] font-bold leading-none text-neutral-950">
       {card.element.atomicNumber}
     </span>
-    <span className="absolute inset-x-0 top-[38px] text-center text-[54px] font-bold leading-none text-neutral-950">
+    <span className="absolute inset-x-0 top-[19px] z-10 text-center text-[31px] font-bold leading-none text-neutral-950">
       {card.symbol}
     </span>
+    <img
+      src={getElementCardArtSrc(card)}
+      alt=""
+      aria-hidden="true"
+      className="absolute left-1/2 top-[51px] size-[62px] -translate-x-1/2 object-contain"
+      draggable={false}
+    />
     <span className="absolute inset-x-1 bottom-7 truncate text-center text-[12px] leading-none text-neutral-900">
       {card.name}
     </span>
@@ -755,6 +762,10 @@ function setMotionProperty(
     return;
   }
   setter(value, duration);
+}
+
+function getElementCardArtSrc(card: PeriodicElementCard): string {
+  return `${import.meta.env.BASE_URL}${card.visual.imagePath}`;
 }
 
 function getElementCard(cardId: string | null): PeriodicElementCard | null {

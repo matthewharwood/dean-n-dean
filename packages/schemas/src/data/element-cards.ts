@@ -237,6 +237,7 @@ export type ElementMetadata = z.infer<typeof ElementMetadataSchema>;
 export const ElementCardVisualSchema = z.object({
   accentColor: HexColorSchema,
   familyColor: HexColorSchema,
+  imagePath: z.string().regex(/^element-card-art\/[a-z]{1,3}\.webp$/),
 });
 export type ElementCardVisual = z.infer<typeof ElementCardVisualSchema>;
 
@@ -284,6 +285,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFFFFF",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/h.webp",
     },
     element: {
       atomicNumber: 1,
@@ -328,6 +330,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D9FFFF",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/he.webp",
     },
     element: {
       atomicNumber: 2,
@@ -372,6 +375,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#CC80FF",
       familyColor: "#F28C52",
+      imagePath: "element-card-art/li.webp",
     },
     element: {
       atomicNumber: 3,
@@ -416,6 +420,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C2FF00",
       familyColor: "#E7B54A",
+      imagePath: "element-card-art/be.webp",
     },
     element: {
       atomicNumber: 4,
@@ -460,6 +465,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFB5B5",
       familyColor: "#63B995",
+      imagePath: "element-card-art/b.webp",
     },
     element: {
       atomicNumber: 5,
@@ -504,6 +510,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#909090",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/c.webp",
     },
     element: {
       atomicNumber: 6,
@@ -548,6 +555,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#3050F8",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/n.webp",
     },
     element: {
       atomicNumber: 7,
@@ -592,6 +600,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FF0D0D",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/o.webp",
     },
     element: {
       atomicNumber: 8,
@@ -636,6 +645,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#90E050",
       familyColor: "#7BD389",
+      imagePath: "element-card-art/f.webp",
     },
     element: {
       atomicNumber: 9,
@@ -680,6 +690,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#B3E3F5",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/ne.webp",
     },
     element: {
       atomicNumber: 10,
@@ -724,6 +735,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#AB5CF2",
       familyColor: "#F28C52",
+      imagePath: "element-card-art/na.webp",
     },
     element: {
       atomicNumber: 11,
@@ -768,6 +780,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8AFF00",
       familyColor: "#E7B54A",
+      imagePath: "element-card-art/mg.webp",
     },
     element: {
       atomicNumber: 12,
@@ -812,6 +825,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#BFA6A6",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/al.webp",
     },
     element: {
       atomicNumber: 13,
@@ -856,6 +870,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#F0C8A0",
       familyColor: "#63B995",
+      imagePath: "element-card-art/si.webp",
     },
     element: {
       atomicNumber: 14,
@@ -900,6 +915,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FF8000",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/p.webp",
     },
     element: {
       atomicNumber: 15,
@@ -944,6 +960,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFFF30",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/s.webp",
     },
     element: {
       atomicNumber: 16,
@@ -988,6 +1005,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#1FF01F",
       familyColor: "#7BD389",
+      imagePath: "element-card-art/cl.webp",
     },
     element: {
       atomicNumber: 17,
@@ -1032,6 +1050,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#80D1E3",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/ar.webp",
     },
     element: {
       atomicNumber: 18,
@@ -1076,6 +1095,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8F40D4",
       familyColor: "#F28C52",
+      imagePath: "element-card-art/k.webp",
     },
     element: {
       atomicNumber: 19,
@@ -1120,6 +1140,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#3DFF00",
       familyColor: "#E7B54A",
+      imagePath: "element-card-art/ca.webp",
     },
     element: {
       atomicNumber: 20,
@@ -1164,6 +1185,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#E6E6E6",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/sc.webp",
     },
     element: {
       atomicNumber: 21,
@@ -1208,6 +1230,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#BFC2C7",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ti.webp",
     },
     element: {
       atomicNumber: 22,
@@ -1252,6 +1275,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#A6A6AB",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/v.webp",
     },
     element: {
       atomicNumber: 23,
@@ -1296,6 +1320,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8A99C7",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/cr.webp",
     },
     element: {
       atomicNumber: 24,
@@ -1340,6 +1365,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#9C7AC7",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/mn.webp",
     },
     element: {
       atomicNumber: 25,
@@ -1384,6 +1410,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#E06633",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/fe.webp",
     },
     element: {
       atomicNumber: 26,
@@ -1428,6 +1455,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#F090A0",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/co.webp",
     },
     element: {
       atomicNumber: 27,
@@ -1472,6 +1500,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#50D050",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ni.webp",
     },
     element: {
       atomicNumber: 28,
@@ -1516,6 +1545,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C88033",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/cu.webp",
     },
     element: {
       atomicNumber: 29,
@@ -1560,6 +1590,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#7D80B0",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/zn.webp",
     },
     element: {
       atomicNumber: 30,
@@ -1604,6 +1635,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C28F8F",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/ga.webp",
     },
     element: {
       atomicNumber: 31,
@@ -1648,6 +1680,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#668F8F",
       familyColor: "#63B995",
+      imagePath: "element-card-art/ge.webp",
     },
     element: {
       atomicNumber: 32,
@@ -1692,6 +1725,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#BD80E3",
       familyColor: "#63B995",
+      imagePath: "element-card-art/as.webp",
     },
     element: {
       atomicNumber: 33,
@@ -1736,6 +1770,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFA100",
       familyColor: "#66C7F4",
+      imagePath: "element-card-art/se.webp",
     },
     element: {
       atomicNumber: 34,
@@ -1780,6 +1815,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#A62929",
       familyColor: "#7BD389",
+      imagePath: "element-card-art/br.webp",
     },
     element: {
       atomicNumber: 35,
@@ -1824,6 +1860,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#5CB8D1",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/kr.webp",
     },
     element: {
       atomicNumber: 36,
@@ -1868,6 +1905,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#702EB0",
       familyColor: "#F28C52",
+      imagePath: "element-card-art/rb.webp",
     },
     element: {
       atomicNumber: 37,
@@ -1912,6 +1950,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00FF00",
       familyColor: "#E7B54A",
+      imagePath: "element-card-art/sr.webp",
     },
     element: {
       atomicNumber: 38,
@@ -1956,6 +1995,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#94FFFF",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/y.webp",
     },
     element: {
       atomicNumber: 39,
@@ -2000,6 +2040,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#94E0E0",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/zr.webp",
     },
     element: {
       atomicNumber: 40,
@@ -2044,6 +2085,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#73C2C9",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/nb.webp",
     },
     element: {
       atomicNumber: 41,
@@ -2088,6 +2130,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#54B5B5",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/mo.webp",
     },
     element: {
       atomicNumber: 42,
@@ -2132,6 +2175,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#3B9E9E",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/tc.webp",
     },
     element: {
       atomicNumber: 43,
@@ -2176,6 +2220,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#248F8F",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ru.webp",
     },
     element: {
       atomicNumber: 44,
@@ -2220,6 +2265,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#0A7D8C",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/rh.webp",
     },
     element: {
       atomicNumber: 45,
@@ -2264,6 +2310,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#006985",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/pd.webp",
     },
     element: {
       atomicNumber: 46,
@@ -2308,6 +2355,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C0C0C0",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ag.webp",
     },
     element: {
       atomicNumber: 47,
@@ -2352,6 +2400,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFD98F",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/cd.webp",
     },
     element: {
       atomicNumber: 48,
@@ -2396,6 +2445,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#A67573",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/in.webp",
     },
     element: {
       atomicNumber: 49,
@@ -2440,6 +2490,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#668080",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/sn.webp",
     },
     element: {
       atomicNumber: 50,
@@ -2484,6 +2535,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#9E63B5",
       familyColor: "#63B995",
+      imagePath: "element-card-art/sb.webp",
     },
     element: {
       atomicNumber: 51,
@@ -2528,6 +2580,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D47A00",
       familyColor: "#63B995",
+      imagePath: "element-card-art/te.webp",
     },
     element: {
       atomicNumber: 52,
@@ -2572,6 +2625,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#940094",
       familyColor: "#7BD389",
+      imagePath: "element-card-art/i.webp",
     },
     element: {
       atomicNumber: 53,
@@ -2616,6 +2670,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#429EB0",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/xe.webp",
     },
     element: {
       atomicNumber: 54,
@@ -2660,6 +2715,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#57178F",
       familyColor: "#F28C52",
+      imagePath: "element-card-art/cs.webp",
     },
     element: {
       atomicNumber: 55,
@@ -2704,6 +2760,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00C900",
       familyColor: "#E7B54A",
+      imagePath: "element-card-art/ba.webp",
     },
     element: {
       atomicNumber: 56,
@@ -2748,6 +2805,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#70D4FF",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/la.webp",
     },
     element: {
       atomicNumber: 57,
@@ -2792,6 +2850,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFFFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/ce.webp",
     },
     element: {
       atomicNumber: 58,
@@ -2836,6 +2895,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D9FFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/pr.webp",
     },
     element: {
       atomicNumber: 59,
@@ -2880,6 +2940,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C7FFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/nd.webp",
     },
     element: {
       atomicNumber: 60,
@@ -2924,6 +2985,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#A3FFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/pm.webp",
     },
     element: {
       atomicNumber: 61,
@@ -2968,6 +3030,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8FFFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/sm.webp",
     },
     element: {
       atomicNumber: 62,
@@ -3012,6 +3075,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#61FFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/eu.webp",
     },
     element: {
       atomicNumber: 63,
@@ -3056,6 +3120,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#45FFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/gd.webp",
     },
     element: {
       atomicNumber: 64,
@@ -3100,6 +3165,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#30FFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/tb.webp",
     },
     element: {
       atomicNumber: 65,
@@ -3144,6 +3210,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#1FFFC7",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/dy.webp",
     },
     element: {
       atomicNumber: 66,
@@ -3188,6 +3255,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00FF9C",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/ho.webp",
     },
     element: {
       atomicNumber: 67,
@@ -3232,6 +3300,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C79BF2",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/er.webp",
     },
     element: {
       atomicNumber: 68,
@@ -3276,6 +3345,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00D452",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/tm.webp",
     },
     element: {
       atomicNumber: 69,
@@ -3320,6 +3390,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00BF38",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/yb.webp",
     },
     element: {
       atomicNumber: 70,
@@ -3364,6 +3435,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00AB24",
       familyColor: "#C79BF2",
+      imagePath: "element-card-art/lu.webp",
     },
     element: {
       atomicNumber: 71,
@@ -3408,6 +3480,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#4DC2FF",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/hf.webp",
     },
     element: {
       atomicNumber: 72,
@@ -3452,6 +3525,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#4DA6FF",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ta.webp",
     },
     element: {
       atomicNumber: 73,
@@ -3496,6 +3570,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#2194D6",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/w.webp",
     },
     element: {
       atomicNumber: 74,
@@ -3540,6 +3615,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#267DAB",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/re.webp",
     },
     element: {
       atomicNumber: 75,
@@ -3584,6 +3660,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#266696",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/os.webp",
     },
     element: {
       atomicNumber: 76,
@@ -3628,6 +3705,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#175487",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ir.webp",
     },
     element: {
       atomicNumber: 77,
@@ -3672,6 +3750,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D0D0E0",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/pt.webp",
     },
     element: {
       atomicNumber: 78,
@@ -3716,6 +3795,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#FFD123",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/au.webp",
     },
     element: {
       atomicNumber: 79,
@@ -3760,6 +3840,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#B8B8D0",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/hg.webp",
     },
     element: {
       atomicNumber: 80,
@@ -3804,6 +3885,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#A6544D",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/tl.webp",
     },
     element: {
       atomicNumber: 81,
@@ -3848,6 +3930,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#575961",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/pb.webp",
     },
     element: {
       atomicNumber: 82,
@@ -3892,6 +3975,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#9E4FB5",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/bi.webp",
     },
     element: {
       atomicNumber: 83,
@@ -3936,6 +4020,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#AB5C00",
       familyColor: "#63B995",
+      imagePath: "element-card-art/po.webp",
     },
     element: {
       atomicNumber: 84,
@@ -3980,6 +4065,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#754F45",
       familyColor: "#7BD389",
+      imagePath: "element-card-art/at.webp",
     },
     element: {
       atomicNumber: 85,
@@ -4024,6 +4110,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#428296",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/rn.webp",
     },
     element: {
       atomicNumber: 86,
@@ -4068,6 +4155,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#420066",
       familyColor: "#F28C52",
+      imagePath: "element-card-art/fr.webp",
     },
     element: {
       atomicNumber: 87,
@@ -4112,6 +4200,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#007D00",
       familyColor: "#E7B54A",
+      imagePath: "element-card-art/ra.webp",
     },
     element: {
       atomicNumber: 88,
@@ -4156,6 +4245,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#70ABFA",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/ac.webp",
     },
     element: {
       atomicNumber: 89,
@@ -4200,6 +4290,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00BAFF",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/th.webp",
     },
     element: {
       atomicNumber: 90,
@@ -4244,6 +4335,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#00A1FF",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/pa.webp",
     },
     element: {
       atomicNumber: 91,
@@ -4288,6 +4380,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#008FFF",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/u.webp",
     },
     element: {
       atomicNumber: 92,
@@ -4332,6 +4425,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#0080FF",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/np.webp",
     },
     element: {
       atomicNumber: 93,
@@ -4376,6 +4470,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#006BFF",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/pu.webp",
     },
     element: {
       atomicNumber: 94,
@@ -4420,6 +4515,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#545CF2",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/am.webp",
     },
     element: {
       atomicNumber: 95,
@@ -4464,6 +4560,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#785CE3",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/cm.webp",
     },
     element: {
       atomicNumber: 96,
@@ -4508,6 +4605,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8A4FE3",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/bk.webp",
     },
     element: {
       atomicNumber: 97,
@@ -4552,6 +4650,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#A136D4",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/cf.webp",
     },
     element: {
       atomicNumber: 98,
@@ -4596,6 +4695,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#B31FD4",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/es.webp",
     },
     element: {
       atomicNumber: 99,
@@ -4640,6 +4740,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#B31FBA",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/fm.webp",
     },
     element: {
       atomicNumber: 100,
@@ -4684,6 +4785,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#B30DA6",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/md.webp",
     },
     element: {
       atomicNumber: 101,
@@ -4728,6 +4830,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#BD0D87",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/no.webp",
     },
     element: {
       atomicNumber: 102,
@@ -4772,6 +4875,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#C70066",
       familyColor: "#E06C75",
+      imagePath: "element-card-art/lr.webp",
     },
     element: {
       atomicNumber: 103,
@@ -4816,6 +4920,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#CC0059",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/rf.webp",
     },
     element: {
       atomicNumber: 104,
@@ -4860,6 +4965,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D1004F",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/db.webp",
     },
     element: {
       atomicNumber: 105,
@@ -4904,6 +5010,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D90045",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/sg.webp",
     },
     element: {
       atomicNumber: 106,
@@ -4948,6 +5055,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#E00038",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/bh.webp",
     },
     element: {
       atomicNumber: 107,
@@ -4992,6 +5100,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#E6002E",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/hs.webp",
     },
     element: {
       atomicNumber: 108,
@@ -5036,6 +5145,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#EB0026",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/mt.webp",
     },
     element: {
       atomicNumber: 109,
@@ -5080,6 +5190,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D67AB1",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/ds.webp",
     },
     element: {
       atomicNumber: 110,
@@ -5124,6 +5235,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D67AB1",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/rg.webp",
     },
     element: {
       atomicNumber: 111,
@@ -5168,6 +5280,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#D67AB1",
       familyColor: "#D67AB1",
+      imagePath: "element-card-art/cn.webp",
     },
     element: {
       atomicNumber: 112,
@@ -5212,6 +5325,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8FA7B3",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/nh.webp",
     },
     element: {
       atomicNumber: 113,
@@ -5256,6 +5370,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8FA7B3",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/fl.webp",
     },
     element: {
       atomicNumber: 114,
@@ -5300,6 +5415,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8FA7B3",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/mc.webp",
     },
     element: {
       atomicNumber: 115,
@@ -5344,6 +5460,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#8FA7B3",
       familyColor: "#8FA7B3",
+      imagePath: "element-card-art/lv.webp",
     },
     element: {
       atomicNumber: 116,
@@ -5388,6 +5505,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#7BD389",
       familyColor: "#7BD389",
+      imagePath: "element-card-art/ts.webp",
     },
     element: {
       atomicNumber: 117,
@@ -5432,6 +5550,7 @@ export const ELEMENT_CARDS = [
     visual: {
       accentColor: "#9B8CFF",
       familyColor: "#9B8CFF",
+      imagePath: "element-card-art/og.webp",
     },
     element: {
       atomicNumber: 118,

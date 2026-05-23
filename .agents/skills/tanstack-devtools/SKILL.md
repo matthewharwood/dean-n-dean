@@ -14,7 +14,7 @@ Sub-skill of `tanstack`. Owns the dev-only, opt-in debugging panel that ships wi
 - Anyone proposing `click-to-react-component`, `@locator/runtime`, or another browser-→-source tool — `@tanstack/devtools-vite` already does this. Don't add a competitor.
 
 ## Owns
-The dev-only mount of `<TanStackDevtools>` in `apps/web/app/routes/__root.tsx`, the `tanstackDevtools()` Vite plugin in `apps/web/vite.config.ts`, the `import.meta.env.DEV` + `lazy()` tree-shaking pattern, and the policy that all three devtool packages stay in `devDependencies`.
+The dev-only mount of `<TanStackDevtools>` in `apps/web/app/lib/root-shell.tsx`, the opt-in `tanstackDevtools()` Vite plugin in `apps/web/vite.config.ts`, the `import.meta.env.DEV` + `VITE_ENABLE_TANSTACK_DEVTOOLS` + `lazy()` tree-shaking pattern, and the policy that all three devtool packages stay in `devDependencies`.
 
 ## Defers to
 - `tanstack` (parent) — version pin and dispatch.
@@ -62,7 +62,7 @@ export default defineConfig({
 
 Keep the conditional plugin first when enabled. The plugin is a no-op for `vite build`, but it still changes the dev browser runtime, so it must remain opt-in.
 
-### `routes/__root.tsx` — lazy + DEV-gate the host
+### `root-shell.tsx` — lazy + DEV/env-gate the host
 
 ```tsx
 import { type ReactNode, Suspense, lazy } from "react";
