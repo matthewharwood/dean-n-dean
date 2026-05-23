@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { NotFound, RouteError } from "./lib/route-boundaries";
 import { getRouter } from "./router";
-import { NotFound, Route as RootRoute, RouteError } from "./routes/__root";
+import { Route as RootRoute } from "./routes/__root";
 
 // The Pillar-adjacent contract: every dean-stack app MUST wire both a
 // route-level error/notFound boundary on __root__ AND a router-level

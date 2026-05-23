@@ -12,7 +12,6 @@
     "@dean-stack/tsconfig",
     "@turbo/gen",
     "babel-plugin-react-compiler",
-    "nitro",
     "@dreamsicle.io/stylelint-config-tailwindcss",
     "chokidar-cli"
   ],
