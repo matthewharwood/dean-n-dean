@@ -2,7 +2,7 @@
 
 Authoritative contract for the dean-stack skill collection. Every later prompt that builds a `SKILL.md` must read and obey this file. AGENTS.md owns the Four Pillars and stack pins; skills do not restate Pillar text — they reference Pillars by name only.
 
-The 17 techs in `potential_skills/` map onto a mix of **narrow** skills (one `SKILL.md` covers the whole tech) and **broad** skills (a `<tech>` router skill plus several `<tech>-<topic>` sub-skills, mirroring the pixijs collection pattern). Final inventory is **35 skills** (34 tech-bound + 1 cross-cutting authoring policy: `micro-utilities`).
+The techs in `potential_skills/` map onto a mix of **narrow** skills (one `SKILL.md` covers the whole tech) and **broad** skills (a `<tech>` router skill plus several `<tech>-<topic>` sub-skills, mirroring the pixijs collection pattern). Final inventory is **37 skills** (36 tech-bound + 1 cross-cutting authoring policy: `micro-utilities`).
 
 ---
 
@@ -18,6 +18,7 @@ The 17 techs in `potential_skills/` map onto a mix of **narrow** skills (one `SK
 | stylelint | narrow | — | Stylelint config with the Tailwind plugin for `.css`, `--max-warnings 0`, CLI watcher (the source of truth, not the IDE), and the rule that Stylelint owns CSS exclusively. | stylelint, stylelintrc, stylelint tailwind, stylelint css, stylelint watch, stylelint plugin, max-warnings |
 | animejs | narrow | — | anime.js v4 named-import API (`createTimeline`, `createAnimatable`, `createDraggable`, `createScope`, `stagger`, `utils`), the `useAnime(ref, params, deps)` hook, and `prefers-reduced-motion` short-circuiting. | anime.js, animejs, anime v4, createTimeline, createAnimatable, createScope, createDraggable, useAnime, prefers-reduced-motion, anime utils |
 | turborepo | narrow | — | `turbo.json` task graph, `dependsOn`, cache keys, workspace topology for `apps/web` + `packages/*`, and orchestration of every `bun run` script. | turbo, turborepo, turbo.json, turbo task, turbo cache, dependsOn, turbo pipeline, workspace orchestration |
+| symphony | narrow | — | OpenAI Symphony reference-runner integration: ignored local install under `tmp/symphony`, workflow/spec package `@dean-stack/symphony-first-five`, Linear env wiring, generated-app-safe `bun run symphony` / `bun run dev:symphony`, and `.symphony/` runtime artifacts. | symphony, OpenAI Symphony, Linear orchestrator, dev:symphony, WORKFLOW.md, first-five backlog |
 | nitro | narrow | — | Nitro v3 driven internally by TanStack Start (no standalone `nitro.config.ts`); owns the GH Pages `BASE_PATH` env contract sourced from `actions/configure-pages@v5`, the post-build `cp index.html → 404.html` and `.nojekyll`, the deploy workflow's app selector, and the `dist/client/` upload path. | nitro, github_pages, BASE_PATH, baseURL, prerender, SPA fallback 404, .nojekyll, GH Pages deploy |
 | node | narrow | — | Node 25 install via `.nvmrc` only (the single source of truth — no `.tool-versions`, no `volta` block in package.json), and the rule that Node is **only** for tooling — never a runtime target. Routes questions about asdf/Volta to the "we don't use these" callout. | node 25, node version, .nvmrc, .tool-versions, volta, asdf, node tooling, node toolchain |
 | ts | narrow | — | TypeScript 7 strict config, `tsconfig` bases in `packages/tsconfig`, `tsgo --noEmit` gate behavior, and the "no hand-written type when a Zod schema exists" rule. | typescript 7, ts strict, tsconfig, tsgo --noEmit, ts compiler, isolatedDeclarations, ts project references |
@@ -47,7 +48,7 @@ The 17 techs in `potential_skills/` map onto a mix of **narrow** skills (one `SK
 | playwright-conventions | sub | playwright | Selectors (role-based first, then test-id, then text), fixtures, fresh-IDB-per-test, reduced-motion forcing, retry policy, and the load-bearing **ASK-FIRST** prompt rule for every test design decision. | playwright fixture, playwright selector, role selector, getByRole, test-id, fresh idb fixture, reduced motion playwright, ask first test |
 | eslint-plugin-sonarjs | narrow | — | Local-only second-opinion ESLint pass via `eslint-plugin-sonarjs`: cognitive-complexity, code-smell, bug-pattern rules layered on top of Biome. Owns `apps/<name>/eslint.sonar.config.mjs` (sonar-only flat config, NO Biome/eslint-recommended overlap), the calibrated rule policy with rationale comments (`pseudo-random` off, `void-use` off, `cognitive-complexity` ≥50, `no-nested-functions` off for tests), the `check:sonar` per-app turbo task, and `.github/workflows/sonarjs.yml`. Explicitly NOT SonarQube/SonarCloud — no `sonar-scanner`, no project token, no server. | sonar, sonarjs, eslint-plugin-sonarjs, cognitive-complexity, pseudo-random, no-nested-conditional, no-nested-functions, void-use, second-opinion lint, eslint.sonar.config.mjs |
 
-**Totals:** 18 techs + 1 cross-cutting authoring policy → 14 narrow skills + 5 router skills + 17 sub-skills = **36 skills**.
+**Totals:** 19 techs + 1 cross-cutting authoring policy → 15 narrow skills + 5 router skills + 17 sub-skills = **37 skills**.
 
 ---
 

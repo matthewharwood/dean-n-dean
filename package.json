@@ -12,11 +12,13 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=@dean-stack/web && turbo run test:e2e --filter=@dean-stack/web && npx -y react-doctor@latest . --diff main && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
-    "check:fast": "bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=@dean-stack/web && turbo run test:e2e:fast --filter=@dean-stack/web && npx -y react-doctor@latest . --diff main && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
+    "check": "APP_FILTER=$(bun scripts/resolve-app-filter.ts) && bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=$APP_FILTER && turbo run test:e2e --filter=$APP_FILTER && npx -y react-doctor@latest . --diff main && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
+    "check:fast": "APP_FILTER=$(bun scripts/resolve-app-filter.ts) && bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=$APP_FILTER && turbo run test:e2e:fast --filter=$APP_FILTER && npx -y react-doctor@latest . --diff main && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
     "build": "turbo run build",
     "convert:avatars": "bun run scripts/convert-generated-avatars.ts",
-    "dev": "turbo run dev --filter=@dean-stack/web",
+    "dev": "turbo run dev --filter=$(bun scripts/resolve-app-filter.ts)",
+    "dev:symphony": "turbo run dev symphony --filter=$(bun scripts/resolve-app-filter.ts)",
+    "symphony": "turbo run symphony --filter=$(bun scripts/resolve-app-filter.ts)",
     "biome:watch": "biome check --write --watch .",
     "gen:app": "turbo gen app",
     "prepare": "bash scripts/install-hooks.sh"
