@@ -17,6 +17,7 @@ type Setup = (app: Application, ctx: SetupContext) => SetupCleanup;
 type PixiRendererPreference = "webgl" | "canvas";
 type PixiAppOptions = {
   autoStart?: boolean;
+  backgroundAlpha?: number;
   maxResolution?: number;
   preference?: PixiRendererPreference;
 };
@@ -56,6 +57,9 @@ export function usePixiApp(
           resizeTo: canvas.parentElement ?? canvas,
           antialias: true,
           autoDensity: true,
+          ...(options.backgroundAlpha === undefined
+            ? {}
+            : { backgroundAlpha: options.backgroundAlpha }),
           resolution,
           roundPixels: true,
           // WebGL is the most reliable backend in headless Chromium (Playwright);

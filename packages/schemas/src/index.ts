@@ -59,8 +59,18 @@ export type AlchemistGuildBoardSlots = z.infer<typeof AlchemistGuildBoardSlotsSc
 export const ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT: AlchemistGuildBoardSlots =
   AlchemistGuildBoardSlotsSchema.parse({});
 
+export const AlchemistGuildProfileSchema = z.object({
+  level: z.int().min(1).default(1),
+  playerName: z.string().trim().min(1).max(24).default("Apprentice"),
+});
+export type AlchemistGuildProfile = z.infer<typeof AlchemistGuildProfileSchema>;
+
+export const ALCHEMIST_GUILD_PROFILE_DEFAULT: AlchemistGuildProfile =
+  AlchemistGuildProfileSchema.parse({});
+
 export const AlchemistGuildBoardStateSchema = z.object({
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
+  profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
 });
 export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;
