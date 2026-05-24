@@ -66,6 +66,21 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
   {
     bus: "sfx",
     ducking: [
+      { attackMs: 14, bus: "music", gain: 0.78, holdMs: 90, releaseMs: 160 },
+      { attackMs: 12, bus: "ambience", gain: 0.86, holdMs: 80, releaseMs: 150 },
+    ],
+    generatorPrompt:
+      "Thin elemental card replacing another in a wooden slot, crisp paper slap and polished brass tick, old card side-chain dissolves into airy sparkling dust underneath, dry close-miked mobile game UI, compact one-shot, clever and clean.",
+    id: "card.replace",
+    interruptFadeMs: 20,
+    maxVoices: 16,
+    replay: "overlap",
+    url: "/sfx/ui/card-replace-dissolve.mp3",
+    volume: 0.78,
+  },
+  {
+    bus: "sfx",
+    ducking: [
       { attackMs: 10, bus: "music", gain: 0.84, holdMs: 40, releaseMs: 110 },
       { attackMs: 8, bus: "ambience", gain: 0.92, holdMs: 35, releaseMs: 100 },
     ],

@@ -61,6 +61,7 @@ Every change in this repo is judged against these four rules. Anything that viol
 | PWA | Vite PWA + Workbox | latest |
 | Unit tests | `bun:test` | bundled with Bun |
 | Browser tests | Playwright | `1.59+` |
+| Local agent orchestration | OpenAI Symphony | Reference runner cloned to ignored `tmp/symphony/`; workflow/spec package in `packages/symphony-first-five`; run with `bun run symphony` or `bun run dev:symphony`. |
 
 ---
 
@@ -134,7 +135,7 @@ Open `apps/web/.env` and confirm `VITE_GAME_TITLE` is set (the committed default
 bun run dev
 ```
 
-`bun run dev` invokes `turbo run dev`, which co-runs every persistent task in `apps/web` via Turbo's `with` co-runner:
+`bun run dev` invokes `turbo run dev`, which co-runs every persistent task in the resolved app workspace via Turbo's `with` co-runner. `apps/web` is selected by default while it exists; use `DEAN_APP=<name>` for a generated app.
 
 | Task | URL | Owns |
 |---|---|---|
@@ -144,6 +145,13 @@ bun run dev
 | `stylelint:watch` | (terminal) | Lints `.css` on save |
 
 The watchers print findings in the terminal — **the IDE is not the source of truth** and may not be running.
+
+To run Symphony alongside the same dev stack:
+
+```bash
+bun run dev:symphony
+DEAN_APP=my-new-game bun run dev:symphony
+```
 
 Edit `apps/web/app/components/<name>/index.tsx` — its sibling `index.stories.tsx` lights up immediately. Edit `apps/web/app/styles/index.css` — Tailwind tokens regenerate live. Add a route under `apps/web/app/routes/` — TanStack Router regenerates `routeTree.gen.ts` automatically.
 
@@ -448,6 +456,7 @@ bunx turbo gen run app                         # interactive
 The generator asks for a kebab-case name (e.g. `test-project`), then scaffolds `apps/<name>/` from `turbo/generators/templates/app/`:
 
 - Full toolchain wiring (Vite + TanStack Start + Tailwind v4 + Storybook + Playwright + Biome + Stylelint)
+- Symphony task wiring (`symphony` workspace script) so generated apps work with `bun run symphony` and `bun run dev:symphony`
 - Pillar-3 state plumbing (db, hydration, persist, atomWithIDB, migration test)
 - Pillar-2 helper (`defineComponent`)
 - Motion plumbing (`useAnime`, presets, engine defaults)
@@ -462,6 +471,16 @@ bun run check                                  # runs the gate across every app
 ```
 
 The generator templates substitute `{{name}}` everywhere it matters: `package.json`'s `@dean-stack/<name>`, the IDB database name, the `BroadcastChannel` name, the PWA manifest, the `index.html` `<title>`, the `vite.config.ts` `base` path for project pages, and the default `VITE_GAME_TITLE` in `.env`.
+
+Root app-targeted commands resolve the app workspace through `scripts/resolve-app-filter.ts`: `apps/web` is the default while it exists; if `web` is deleted and only one generated app remains, that app is selected automatically. Use `DEAN_APP=<name>` or `DEAN_APP_FILTER=@scope/name` when multiple apps exist:
+
+```bash
+DEAN_APP=my-new-game bun run dev
+DEAN_APP=my-new-game bun run dev:symphony
+DEAN_APP=my-new-game bun run check:fast
+```
+
+Symphony itself is repo-level. Keep the reference runner under ignored `tmp/symphony/` and local Linear credentials under ignored `.symphony/secrets.env`; generated apps reuse `scripts/run-symphony.ts` and `packages/symphony-first-five/WORKFLOW.md`.
 
 > The repo's deploy workflow (`/.github/workflows/deploy.yml`) currently builds and uploads `apps/web` only. To deploy a generator-scaffolded app, either point the workflow at the new app's `dist/client/` or add a parallel workflow per app.
 
@@ -489,6 +508,7 @@ dean-stack/
 │       └── playwright.config.ts
 ├── packages/
 │   ├── schemas/                      # shared Zod schemas (Score, Settings, Progress)
+│   ├── symphony-first-five/          # typed Symphony/Linear issue specs + WORKFLOW.md
 │   ├── tsconfig/                     # base.json — every workspace extends this
 │   ├── biome-config/                 # extended by root biome.json (root: false)
 │   └── stylelint-config/             # extended by root stylelint.config.mjs
@@ -502,6 +522,9 @@ dean-stack/
 ├── biome.json                        # extends @dean-stack/biome-config
 ├── stylelint.config.mjs              # extends @dean-stack/stylelint-config
 ├── tsconfig.json
+├── scripts/
+│   ├── resolve-app-filter.ts         # picks apps/web, DEAN_APP, or the only generated app
+│   └── run-symphony.ts               # local OpenAI Symphony wrapper
 ├── turbo.json                        # task graph + with-co-runners for dev
 ├── package.json                      # workspaces + packageManager pin
 └── AGENTS.md                         # full architectural spec — read first

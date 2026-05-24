@@ -60,7 +60,20 @@ bun x biome ci --vcs-use-ignore-file=false "$DEST"
 # Node's resolution walking up from apps/test-project finds no node_modules
 # with sonarjs. Borrow the install by symlinking apps/web/node_modules into
 # place for the duration of the eslint run, then drop it.
-ln -sf "$(pwd)/apps/web/node_modules" "$DEST/node_modules"
+NODE_MODULES_SOURCE=""
+for candidate in apps/web/node_modules apps/*/node_modules; do
+  if [ -d "$candidate" ]; then
+    NODE_MODULES_SOURCE="$(pwd)/$candidate"
+    break
+  fi
+done
+
+if [ -z "$NODE_MODULES_SOURCE" ]; then
+  echo "No app node_modules directory found; run bun install before checking the generator template." >&2
+  exit 1
+fi
+
+ln -sf "$NODE_MODULES_SOURCE" "$DEST/node_modules"
 (cd "$DEST" && bun x eslint --config eslint.sonar.config.mjs --no-warn-ignored --max-warnings 0 "app/**/*.{ts,tsx}" "tests/**/*.ts" "scripts/**/*.ts")
 
 # Reached only on success (set -e). Drop the rendered workspace so the

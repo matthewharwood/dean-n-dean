@@ -2,20 +2,19 @@
 tracker:
   kind: linear
   api_key: "$LINEAR_API_KEY"
-  project_slug: "$LINEAR_PROJECT_SLUG"
+  project_slug: "DEA"
 polling:
   interval_ms: 30000
+agent:
   max_concurrent_agents: 1
+  max_turns: 20
 workspace:
-  root: ".symphony/workspaces/first-five-minutes"
+  root: "$SYMPHONY_WORKSPACE_ROOT"
 hooks:
   timeout_ms: 60000
   before_run: "bun install --frozen-lockfile"
-agent:
-  command: "codex"
-  args: []
 codex:
-  model: "gpt-5-codex"
+  command: "codex app-server"
 ---
 
 # Elemental Guild First Five Minutes Workflow
@@ -45,7 +44,7 @@ Execution rules:
   consumes the state.
 - Treat the first five minutes as a single child-facing loop:
   quest -> vault -> drag cards -> craft water -> wait -> collect -> deliver ->
-  reward -> slot IV shop unlock -> Discovery Draft -> next board state.
+  reward -> Workbench Slot IV purchase unlock -> Discovery Draft -> next board state.
 - Keep the iPad interaction large, readable, and touch-safe.
 
 Definition of done:

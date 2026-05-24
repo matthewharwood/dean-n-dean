@@ -27,6 +27,7 @@ The architecture below is **load-bearing** — it is what makes the iPad live-re
 - **Component dev**: Storybook (Vite builder, shares app config)
 - **PWA**: Vite PWA plugin (Workbox)
 - **Testing**: Bun test (unit) + Playwright (every Storybook story and every application workflow, including offline smoke)
+- **Local agent orchestration**: OpenAI Symphony reference runner — cloned locally under ignored `tmp/symphony/`, driven by `scripts/run-symphony.ts`, with workflow/spec data in `packages/symphony-first-five/`. Secrets and logs stay in ignored `.symphony/`; never commit Linear keys.
 - **CI/Deploy**: GitHub Actions → GitHub Pages
 
 If you find yourself reaching for a tech outside this list, stop and ask. Anything in skill files referencing pre-v4 anime.js, pre-v4 Zod, or pre-19 React idioms is wrong by definition — rewrite to the latest API.
@@ -225,6 +226,7 @@ dean-stack/
 │       └── vite.shared.ts       # plugins shared with .storybook/main.ts (NEVER fork)
 ├── packages/
 │   ├── schemas/                 # shared Zod schemas
+│   ├── symphony-first-five/      # Symphony/Linear issue specs + WORKFLOW.md
 │   ├── tsconfig/                # shared tsconfig bases
 │   ├── biome-config/            # shared Biome config (root: false)
 │   └── stylelint-config/        # shared Stylelint config
@@ -233,6 +235,9 @@ dean-stack/
 │       ├── config.ts            # `turbo gen run app` — scaffolds new apps
 │       └── templates/app/       # template tree mirroring apps/web minus demos
 ├── .github/workflows/
+├── scripts/
+│   ├── resolve-app-filter.ts    # picks apps/web, DEAN_APP, or the only generated app
+│   └── run-symphony.ts          # local OpenAI Symphony wrapper
 ├── turbo.json
 ├── package.json                 # workspaces + packageManager pin
 └── AGENTS.md
@@ -244,10 +249,14 @@ dean-stack/
 
 These commands are the standard interface. Every script is a Turbo task with appropriate `dependsOn` so cached output is reused. If a script is missing when you need it, add it to the right workspace and to `turbo.json` — do not run tools ad-hoc.
 
+Root commands that target a single app (`dev`, `check`, `check:fast`, `symphony`, `dev:symphony`) resolve through `scripts/resolve-app-filter.ts`: `DEAN_APP_FILTER` first, then `DEAN_APP`, then `apps/web`, then the only app under `apps/`. This is load-bearing for generator-first work where `apps/web` may be deleted and replaced by `bun gen:app`.
+
 | Command | What it does |
 |---|---|
 | `bun install` | Install workspace deps; `prepare` runs `scripts/install-hooks.sh` to install the pre-push hook |
 | `bun run dev` | Vite + Stylelint watch + Biome watch + Storybook in parallel; first error stops dev |
+| `bun run symphony` | Run the local OpenAI Symphony orchestrator for the resolved app workspace |
+| `bun run dev:symphony` | Run the dev stack and Symphony together for the resolved app workspace |
 | `bun run check` | The full gate (CI): biome ci → stylelint → tsc → bun test → build → playwright (storybook + app + app-offline) |
 | `bun run check:fast` | The pre-push gate: same chain except `playwright --project=storybook`. Auto-runs on `git push`; bypass with `git push --no-verify` |
 | `bun run build` | Turbo build → Vite client + SSR bundle → TanStack Start prerender → cp index.html → 404.html → touch .nojekyll |
@@ -264,6 +273,7 @@ These commands are the standard interface. Every script is a Turbo task with app
 
 The reusable command workflows are available as Codex skills under `.agents/skills/`:
 
+- `.agents/skills/symphony/SKILL.md` — run and maintain the local OpenAI Symphony + Linear workflow integration.
 - `.agents/skills/five-phase-pass/SKILL.md` — propagate stack changes through app, template, regenerated test project, docs, and skill audit.
 - `.agents/skills/kill-servers/SKILL.md` — clear stale Vite, preview, Storybook, Biome watch, and Stylelint watch processes before gates.
 - `.agents/skills/prompt/SKILL.md` — create numbered prompts under `./prompts/` with scope, acceptance criteria, and verification.

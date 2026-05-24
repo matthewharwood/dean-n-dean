@@ -42,6 +42,11 @@
       "cache": false,
       "persistent": true
     },
+    "symphony": {
+      "cache": false,
+      "env": ["LINEAR_*", "SYMPHONY_*", "LANG", "LC_*"],
+      "persistent": true
+    },
     "biome:watch": {
       "cache": false,
       "persistent": true

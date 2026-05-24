@@ -94,7 +94,7 @@ describe("alchemy quest graph", () => {
     );
   });
 
-  test("starts the table at three slots and caps recipes at five", () => {
+  test("starts the Alchemy Workbench at three slots and caps recipes at five", () => {
     expect(ALCHEMY_STARTING_TABLE_SLOT_COUNT).toBe(3);
     expect(ALCHEMY_MAX_TABLE_SLOT_COUNT).toBe(5);
 
@@ -105,7 +105,7 @@ describe("alchemy quest graph", () => {
     }
   });
 
-  test("unlocks table slot purchases before quests require them", () => {
+  test("unlocks Alchemy Workbench slot purchases before quests require them", () => {
     expect(ALCHEMY_TABLE_SLOT_UPGRADES.map((upgrade) => upgrade.slotCount)).toEqual([4, 5]);
     expect(
       getAvailableAlchemyTableSlotUpgrades(["quest:first-water"]).map((upgrade) => upgrade.id),

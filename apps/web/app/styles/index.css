@@ -1,9 +1,13 @@
+@import "https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..900&family=JetBrains+Mono:wght@400;700;800&display=swap";
 @import "tailwindcss";
 
 @theme {
   --color-brand-500: oklch(62% 0.20 260deg);
   --color-brand-900: oklch(30% 0.10 260deg);
-  --font-display: "Satoshi", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, georgia, serif;
+  --font-serif: "Fraunces", ui-serif, georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --spacing: 0.25rem;
   --radius-card: 1rem;
@@ -11,3 +15,9 @@
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body {
+  font-family: var(--font-sans);
+  text-rendering: optimizelegibility;
+}

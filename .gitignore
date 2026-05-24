@@ -16,6 +16,7 @@ tmp/*
 *.tsbuildinfo
 .stylelintcache
 playwright/.cache/
+.symphony/
 
 # Test outputs
 playwright-report/

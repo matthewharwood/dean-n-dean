@@ -6,6 +6,7 @@ Expected generated files:
 - `card-dissolve.mp3`
 - `card-drop.mp3`
 - `card-swap.mp3`
+- `card-replace-dissolve.mp3`
 - `card-slot-pickup.mp3`
 
 The exact ElevenLabs prompts live in `apps/web/app/sound/registry.ts`.

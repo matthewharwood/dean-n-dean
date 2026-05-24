@@ -12,6 +12,7 @@ Owns the task graph that schedules every script in the dean-stack monorepo. Turb
 - Diagnosing cache misses, missing outputs, or wrong task ordering.
 - Wiring `dependsOn` between workspaces.
 - Adding or editing a generator under `turbo/generators/config.ts` (Plop-based; runs via `turbo gen run <name>`). The dean-stack `app` generator scaffolds `apps/<name>/` from `turbo/generators/templates/app/` — see README's "Scaffolding new apps".
+- Changing app-targeted root scripts (`dev`, `check`, `check:fast`, `symphony`, `dev:symphony`) or the generated app's `package.json` scripts.
 
 ## Owns
 `turbo.json` task graph, `dependsOn`, cache keys, workspace topology for `apps/web` + `packages/*`, and orchestration of every `bun run` script.
@@ -27,6 +28,7 @@ Owns the task graph that schedules every script in the dean-stack monorepo. Turb
 - Top-level key is `tasks` (v2), never `pipeline`.
 - Every cacheable task lists `outputs` explicitly (use `"outputs": []` for typecheck-style tasks that produce nothing but should still cache).
 - Strict env mode is the default — env vars used by a task must be listed in its `env` array.
+- Root app-targeted commands must resolve their workspace through `scripts/resolve-app-filter.ts`; do not hard-code `@dean-stack/web` in new scripts. This keeps `bun gen:app` viable after `apps/web` is deleted.
 
 ## Patterns
 
@@ -68,11 +70,25 @@ The order inside `check.dependsOn` is the gate's order. Each named task's body i
     "test:unit": "bun test",
     "test:e2e":  "playwright test",
     "build":     "vite build",
-    "dev":       "vite dev"
+    "dev":       "vite dev",
+    "symphony":  "bun run ../../scripts/run-symphony.ts"
   }
 }
 ```
 `turbo run check` resolves each task in each workspace; the workspace's `package.json` defines what the verb actually does.
+
+### App filter resolution
+```jsonc
+// package.json (repo root)
+{
+  "scripts": {
+    "dev": "turbo run dev --filter=$(bun scripts/resolve-app-filter.ts)",
+    "dev:symphony": "turbo run dev symphony --filter=$(bun scripts/resolve-app-filter.ts)",
+    "symphony": "turbo run symphony --filter=$(bun scripts/resolve-app-filter.ts)"
+  }
+}
+```
+`scripts/resolve-app-filter.ts` selects `DEAN_APP_FILTER`, then `DEAN_APP`, then `apps/web`, then the only app under `apps/`. This is load-bearing for generator-first workflows: after deleting `apps/web` and scaffolding a new app, root scripts still work without editing package.json.
 
 ### Persistent dev with `with`
 ```jsonc
@@ -85,7 +101,12 @@ The order inside `check.dependsOn` is the gate's order. Each named task's body i
     },
     "storybook":       { "cache": false, "persistent": true },
     "biome:watch":     { "cache": false, "persistent": true },
-    "stylelint:watch": { "cache": false, "persistent": true }
+    "stylelint:watch": { "cache": false, "persistent": true },
+    "symphony": {
+      "cache": false,
+      "env": ["LINEAR_*", "SYMPHONY_*", "LANG", "LC_*"],
+      "persistent": true
+    }
   }
 }
 ```
@@ -107,6 +128,7 @@ The collapsed `--cache=…` flag replaces `--no-cache`, `--remote-only`, etc. �
 - **Don't omit `outputs`** on a cacheable task — silent cache misses follow. Use `"outputs": []` for "cacheable, produces no files."
 - **Don't reference env vars with `$` in `dependsOn`** — list them in `env` / `globalEnv` instead.
 - **Don't reorder `check.dependsOn`** without updating AGENTS.md — the order is part of the gate's contract.
+- **Don't hard-code `@dean-stack/web` in app-targeted root scripts** — use `scripts/resolve-app-filter.ts` and document `DEAN_APP=<name>` for multi-app repos.
 
 ## Triggers on
 turbo, turborepo, turbo.json, turbo task, turbo cache, dependsOn, turbo pipeline, workspace orchestration

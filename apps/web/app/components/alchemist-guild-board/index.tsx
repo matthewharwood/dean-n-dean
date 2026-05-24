@@ -13,6 +13,7 @@ import {
 } from "animejs";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -33,6 +34,12 @@ import {
   type PeriodicTableElementGrab,
   setupPeriodicTableScene,
 } from "./periodic-table-scene";
+import { FIRST_PROFILE_CARD_PROPS, ProfileCard } from "./profile-card";
+import { FIRST_QUEST_BRIEFING_CARD_PROPS, QuestBriefingCard } from "./quest-briefing-card";
+import {
+  type AlchemyWorkbenchRecipePreview,
+  getAlchemyWorkbenchRecipePreview,
+} from "./recipe-preview";
 import { AlchemistGuildBoardPropsSchema } from "./schema";
 
 const PRM = "(prefers-reduced-motion: reduce)";
@@ -43,6 +50,32 @@ const RELEASE_DURATION_MS = 180;
 const SWAP_MIN_DURATION_MS = 180;
 const SWAP_MAX_DURATION_MS = 300;
 const EMPTY_DROP_INTENT: DropIntent = { kind: "none" };
+const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const TOKEN_PREFIX_PATTERN = /^[a-z-]+:/;
+const BOARD_DOT_GRID_STYLE = {
+  backgroundColor: "#f7f7f7",
+  backgroundImage: "radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.22) 1px, transparent 0)",
+  backgroundSize: "12px 12px",
+} satisfies CSSProperties;
+const GLASS_PANEL_CLASS =
+  "pointer-events-auto relative min-h-0 rounded-[8px] border border-white/50 bg-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)] backdrop-blur-md backdrop-saturate-150";
+const CLEAR_TABLE_WINDOW_CLASS =
+  "pointer-events-none relative min-h-0 overflow-hidden rounded-[8px] border border-white/40 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
+const BOARD_DESCRIPTIONS = {
+  alchemyWorkbench:
+    "The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items.",
+  alchemyWorkbenchInfo:
+    "Explains the recipe or output currently previewed by the Alchemy Workbench output slot.",
+  guildBanner: "Names the current board and anchors the Alchemist Guild play space.",
+  inventory:
+    "Stores crafted cards, gathered materials, and quest outputs the player can use later.",
+  outputSlot: "Previews what the current Alchemy Workbench card arrangement is about to make.",
+  periodicTableVault: "Holds the unlocked elemental cards that can be picked up for crafting.",
+  profile: "Shows the player profile, guild rank, and long-term progression summary.",
+  progressTrack: "Shows broad story progress as the player clears Muddlefog from the guild.",
+  questBriefing: "Shows the active quest request, hint, and completion context.",
+  transmutationPad: "Confirms the current workbench recipe and starts the crafting transformation.",
+} as const;
 
 const reagentSlots = [
   { id: "reagent-slot-1", name: "Reagent slot 1" },
@@ -79,6 +112,7 @@ type DropIntent =
   | { kind: "none" }
   | { kind: "drop"; slotId: AlchemistGuildReagentSlotId }
   | { kind: "swap"; slotId: AlchemistGuildReagentSlotId }
+  | { kind: "replace"; slotId: AlchemistGuildReagentSlotId }
   | { kind: "blocked"; slotId: AlchemistGuildReagentSlotId };
 
 type DropFeedback = DropIntent["kind"];
@@ -164,7 +198,7 @@ const SlottedElementCard = defineComponent(
         className={getCardShellClass(feedback, "slotted")}
         style={{
           contain: "layout style paint",
-          fontFamily: "Arial, sans-serif",
+          fontFamily: "var(--font-sans)",
         }}
         aria-label={`Pick up ${card.name} from ${slotName}`}
         onPointerDown={onPointerDown}
@@ -191,6 +225,30 @@ const DropGhost = defineComponent(DropGhostPropsSchema, ({ card, feedback }) => 
     <ElementCardFace card={card} />
   </div>
 ));
+
+const BoardDebugBadgePropsSchema = z.object({
+  description: z.string().min(1),
+  label: z.string().min(1),
+  visible: z.boolean(),
+});
+
+const BoardDebugBadge = defineComponent(
+  BoardDebugBadgePropsSchema,
+  ({ description, label, visible }) =>
+    visible ? (
+      <span className="pointer-events-none absolute left-1 top-1 z-[80] max-w-[min(22rem,calc(100%-0.5rem))]">
+        <span
+          data-board-debug-badge=""
+          className="inline-block rounded-[2px] bg-red-600 px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-normal text-white shadow-[0_1px_0_rgba(0,0,0,0.5)]"
+        >
+          {label}
+        </span>
+        <span className="mt-1 block rounded-[2px] bg-neutral-950/85 px-2 py-1.5 text-[11px] font-semibold leading-snug tracking-normal text-white shadow-[0_1px_0_rgba(0,0,0,0.5)]">
+          {description}
+        </span>
+      </span>
+    ) : null,
+);
 
 const ReagentSlotPropsSchema = z.object({
   draggedCard: z.custom<DraggedElementCard | null>(),
@@ -256,10 +314,235 @@ const ReagentSlot = defineComponent(
   },
 );
 
+const OutputSlotPreviewPropsSchema = z.object({
+  preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+});
+
+const OutputSlotPreview = defineComponent(OutputSlotPreviewPropsSchema, ({ preview }) => (
+  <div className="absolute inset-0 min-h-0" aria-live="polite">
+    {preview ? (
+      <OutputRecipeCard key={preview.recipe.id} preview={preview} />
+    ) : (
+      <span
+        data-output-slot-empty=""
+        className="grid size-full place-items-center px-2 text-center text-[11px] font-bold uppercase leading-snug tracking-normal text-neutral-700/70"
+      >
+        No output
+      </span>
+    )}
+  </div>
+));
+
+const OutputRecipeCardPropsSchema = z.object({
+  preview: z.custom<AlchemyWorkbenchRecipePreview>(),
+});
+
+const OutputRecipeCard = defineComponent(OutputRecipeCardPropsSchema, ({ preview }) => {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setVisible(true);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  return (
+    <article
+      data-output-recipe-card=""
+      data-recipe-id={preview.recipe.id}
+      className={`absolute -inset-px grid select-none grid-rows-[auto_1fr_auto] overflow-hidden rounded-[6px] border-2 border-sky-800/55 bg-sky-50/95 p-1.5 text-center shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+      aria-label={`${preview.recipe.output.name} output preview`}
+    >
+      <span className="justify-self-end rounded-[3px] bg-sky-950 px-1.5 py-0.5 font-mono text-[10px] font-black leading-none text-white">
+        {preview.formula}
+      </span>
+      <img
+        src={resolvePublicAssetPath(preview.recipe.output.imagePath)}
+        alt=""
+        aria-hidden="true"
+        className="mx-auto size-16 self-center object-contain"
+        draggable={false}
+      />
+      <span className="grid gap-0.5">
+        <span className="truncate font-serif text-lg font-bold leading-none text-sky-950">
+          {preview.recipe.output.name}
+        </span>
+        <span className="truncate text-[9px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
+          {formatTokenLabel(preview.recipe.output.kind)}
+        </span>
+      </span>
+    </article>
+  );
+});
+
+const AlchemyWorkbenchInfoPanelPropsSchema = z.object({
+  preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+});
+
+const AlchemyWorkbenchInfoPanel = defineComponent(
+  AlchemyWorkbenchInfoPanelPropsSchema,
+  ({ preview }) => {
+    if (!preview) {
+      return (
+        <div
+          data-workbench-info-empty=""
+          className="grid h-full min-h-0 place-items-center p-4 text-center"
+        >
+          <p className="max-w-52 text-sm font-semibold leading-snug text-neutral-800/70">
+            Match a recipe exactly in the Alchemy Workbench to preview its output here.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <article
+        data-workbench-info-recipe=""
+        data-recipe-id={preview.recipe.id}
+        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-3 text-neutral-950"
+      >
+        <header className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3">
+          <div className="grid size-14 place-items-center rounded-[5px] border border-sky-900/30 bg-white/75">
+            <img
+              src={resolvePublicAssetPath(preview.recipe.output.imagePath)}
+              alt=""
+              aria-hidden="true"
+              className="size-12 object-contain"
+              draggable={false}
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
+              {preview.recipe.id}
+            </p>
+            <h2 className="truncate font-serif text-2xl leading-none text-sky-950">
+              {preview.recipe.output.name}
+            </h2>
+            <div className="mt-1 flex flex-wrap gap-1">
+              <InfoBadge label={formatTokenLabel(preview.recipe.action)} />
+              <InfoBadge label={formatTokenLabel(preview.recipe.station)} />
+              <InfoBadge label={formatTokenLabel(preview.recipe.output.kind)} />
+            </div>
+          </div>
+        </header>
+
+        <div className="min-h-0 overflow-y-auto pr-1">
+          <section className="grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+            <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+              Recipe
+            </h3>
+            <p className="font-mono text-sm font-black leading-none text-sky-950">
+              {preview.formula}
+            </p>
+            <dl className="grid gap-1">
+              {preview.ingredientRows.map((ingredient) => (
+                <div
+                  key={`${ingredient.cardId}:${ingredient.role}`}
+                  className="grid grid-cols-[1fr_auto] gap-2 text-xs leading-tight"
+                >
+                  <dt className="min-w-0 truncate font-bold text-neutral-900">
+                    {ingredient.label}
+                  </dt>
+                  <dd className="font-semibold text-neutral-700">
+                    x{ingredient.quantity} · {ingredient.role}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+          <section className="mt-2 grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+            <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+              What it means
+            </h3>
+            {(preview.kidInfo?.sentences ?? [preview.recipe.education.note]).map((sentence) => (
+              <p key={sentence} className="text-xs font-semibold leading-snug text-neutral-800">
+                {sentence}
+              </p>
+            ))}
+          </section>
+
+          <section className="mt-2 grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+            <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+              Guild notes
+            </h3>
+            <p className="text-xs font-semibold leading-snug text-neutral-800">
+              {preview.recipe.education.note}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {preview.recipe.education.concepts.map((concept) => (
+                <InfoBadge key={concept} label={concept} />
+              ))}
+              <InfoBadge label={formatTokenLabel(preview.recipe.education.safetyTier)} />
+            </div>
+          </section>
+
+          <section className="mt-2 grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+            <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+              Progression
+            </h3>
+            <dl className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs leading-tight">
+              <InfoFact label="Cohort" value={String(preview.recipe.progression.cohort)} />
+              <InfoFact label="Unlock" value={`${preview.recipe.progression.unlockMinute} min`} />
+              <InfoFact label="Depth" value={String(preview.recipe.progression.graphDepth)} />
+              <InfoFact
+                label="Complexity"
+                value={`${Math.round(preview.recipe.progression.normalizedComplexity * 100)}%`}
+              />
+            </dl>
+          </section>
+
+          {preview.kidInfo ? (
+            <section className="mt-2 grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+              <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+                Sources
+              </h3>
+              <div className="flex flex-wrap gap-1">
+                {preview.kidInfo.sourceIds.map((sourceId) => (
+                  <InfoBadge key={sourceId} label={formatTokenLabel(sourceId)} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </article>
+    );
+  },
+);
+
+const InfoBadgePropsSchema = z.object({
+  label: z.string().min(1),
+});
+
+const InfoBadge = defineComponent(InfoBadgePropsSchema, ({ label }) => (
+  <span className="rounded-full border border-sky-900/20 bg-sky-50/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-sky-950">
+    {label}
+  </span>
+));
+
+const InfoFactPropsSchema = z.object({
+  label: z.string().min(1),
+  value: z.string().min(1),
+});
+
+const InfoFact = defineComponent(InfoFactPropsSchema, ({ label, value }) => (
+  <>
+    <dt className="font-bold text-neutral-700">{label}</dt>
+    <dd className="font-black text-neutral-950">{value}</dd>
+  </>
+));
+
 export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchema, () => {
   const boardState = useAtomValue(alchemistGuildBoardAtom);
   const setBoardState = useSetAtom(alchemistGuildBoardAtom);
   const periodicTableCanvasRef = useRef<HTMLCanvasElement>(null);
+  const periodicTableViewportRef = useRef<HTMLDivElement>(null);
   const draggedCardElementRef = useRef<HTMLDivElement>(null);
   const swapAnimationElementRef = useRef<HTMLDivElement>(null);
   const boardStateRef = useRef(boardState);
@@ -269,6 +552,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [draggedCard, setDraggedCard] = useState<DraggedElementCard | null>(null);
   const [dropIntent, setDropIntent] = useState<DropIntent>(EMPTY_DROP_INTENT);
   const [swapAnimation, setSwapAnimation] = useState<SwapAnimation | null>(null);
+  const showBoardDebugBadges = useLocalhostMetaKeyDebugBadges();
+  const recipePreview = getAlchemyWorkbenchRecipePreview(getWorkbenchCardIds(boardState));
   boardStateRef.current = boardState;
 
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
@@ -318,9 +603,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   usePixiApp(
     periodicTableCanvasRef,
-    (app) => setupPeriodicTableScene(app, { onElementGrab: beginElementDrag }),
+    (app) =>
+      setupPeriodicTableScene(app, {
+        getInteractionRect: () => periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
+        onElementGrab: beginElementDrag,
+      }),
     [],
-    { autoStart: false, preference: "canvas" },
+    { autoStart: false, backgroundAlpha: 0, preference: "canvas" },
   );
 
   useBrowserLayoutEffect(() => {
@@ -428,11 +717,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
       const targetCardId = currentBoardState.reagentSlots[dropSlotId];
 
-      if (source.kind === "table" && targetCardId) {
-        void sfx.play("card.dissolve");
-        return;
-      }
-
       if (source.kind === "slot" && targetCardId) {
         const swapAnimationCard = getElementCard(targetCardId);
         const nextSwapAnimation = swapAnimationCard
@@ -461,7 +745,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         return { ...previous, reagentSlots: nextReagentSlots };
       });
 
-      void sfx.play(source.kind === "slot" && targetCardId ? "card.swap" : "card.drop");
+      if (source.kind === "slot" && targetCardId) {
+        void sfx.play("card.swap");
+        return;
+      }
+
+      void sfx.play(targetCardId ? "card.replace" : "card.drop");
     };
 
     const paintDrag = () => {
@@ -578,65 +867,121 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       data-test="alchemist-guild-board"
       data-board-section="alchemy-board"
       data-board-name="Alchemy board"
-      className="h-dvh overflow-hidden bg-neutral-100 p-3 font-display text-neutral-950 lg:p-4"
+      className="relative isolate h-dvh overflow-hidden p-3 font-sans text-neutral-950 lg:p-4"
+      style={BOARD_DOT_GRID_STYLE}
       aria-label="Alchemist Guild board"
     >
-      <div className="mx-auto grid h-full min-h-0 max-w-[1332px] grid-rows-[5rem_0.75rem_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_0.75rem_minmax(0,1fr)]">
+      <canvas
+        ref={periodicTableCanvasRef}
+        data-board-section="periodic-table-canvas"
+        data-board-name="Periodic table Pixi canvas"
+        className="absolute inset-0 z-0 block size-full touch-none"
+        aria-label="Periodic table Pixi canvas"
+      >
+        Periodic table Pixi canvas
+      </canvas>
+      <div className="pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px] grid-rows-[5rem_0.75rem_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_0.75rem_minmax(0,1fr)]">
         <header
           data-board-section="guild-banner"
-          data-board-name="Guild banner"
-          className="grid min-h-0 place-items-center bg-neutral-300"
+          data-board-name="Guild Banner"
+          data-board-description={BOARD_DESCRIPTIONS.guildBanner}
+          className={`${GLASS_PANEL_CLASS} grid place-items-center`}
         >
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.guildBanner}
+            label="Guild Banner"
+            visible={showBoardDebugBadges}
+          />
           <h1 className="font-serif text-4xl leading-none lg:text-5xl">Alchemist Guild</h1>
         </header>
 
-        <progress
-          data-board-section="progress-track"
-          data-board-name="Progress track"
-          className="h-3 w-full appearance-none overflow-hidden bg-indigo-200 accent-indigo-600 [&::-moz-progress-bar]:bg-indigo-600 [&::-webkit-progress-bar]:bg-indigo-200 [&::-webkit-progress-value]:bg-indigo-600"
-          aria-label="Alchemy progress"
-          max={100}
-          value={41}
-        >
-          41%
-        </progress>
+        <div className={`${GLASS_PANEL_CLASS} p-0`}>
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.progressTrack}
+            label="Progress track"
+            visible={showBoardDebugBadges}
+          />
+          <progress
+            data-board-section="progress-track"
+            data-board-name="Progress track"
+            data-board-description={BOARD_DESCRIPTIONS.progressTrack}
+            className="block h-3 w-full appearance-none overflow-hidden rounded-[8px] bg-indigo-200/55 accent-indigo-600 [&::-moz-progress-bar]:bg-indigo-600 [&::-webkit-progress-bar]:bg-indigo-200/55 [&::-webkit-progress-value]:bg-indigo-600"
+            aria-label="Alchemy progress"
+            max={100}
+            value={41}
+          >
+            41%
+          </progress>
+        </div>
 
         <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
           <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
             <div
-              data-board-section="left-briefing-panel"
-              data-board-name="Left briefing panel"
-              className="min-h-0 bg-neutral-300"
-            />
+              data-board-section="left-profile-panel"
+              data-board-name="Profile"
+              data-board-description={BOARD_DESCRIPTIONS.profile}
+              className={`${GLASS_PANEL_CLASS} p-3`}
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.profile}
+                label="Profile"
+                visible={showBoardDebugBadges}
+              />
+              <ProfileCard
+                {...FIRST_PROFILE_CARD_PROPS}
+                playerName={boardState.profile.playerName}
+                onPlayerNameChange={(nextPlayerName) => {
+                  setBoardState((previous) => ({
+                    ...previous,
+                    profile: { ...previous.profile, playerName: nextPlayerName },
+                  }));
+                }}
+              />
+            </div>
             <div
-              data-board-section="left-ledger-panel"
-              data-board-name="Left ledger panel"
-              className="min-h-0 bg-neutral-300"
-            />
+              data-board-section="left-briefing-panel"
+              data-board-name="Quest Briefing"
+              data-board-description={BOARD_DESCRIPTIONS.questBriefing}
+              className={`${GLASS_PANEL_CLASS} grid content-start gap-2 overflow-y-auto p-3`}
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.questBriefing}
+                label="Quest Briefing"
+                visible={showBoardDebugBadges}
+              />
+              <QuestBriefingCard
+                {...FIRST_QUEST_BRIEFING_CARD_PROPS}
+                developerNotesVisible={showBoardDebugBadges}
+              />
+            </div>
           </aside>
 
           <section className="grid min-h-0 gap-2.5 lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]">
             <div
+              ref={periodicTableViewportRef}
               data-board-section="periodic-table-dock"
-              data-board-name="Periodic table dock"
-              className="min-h-0 overflow-hidden rounded-[2px] bg-neutral-300"
+              data-board-name="Periodic Table Vault"
+              data-board-description={BOARD_DESCRIPTIONS.periodicTableVault}
+              className={CLEAR_TABLE_WINDOW_CLASS}
             >
-              <canvas
-                ref={periodicTableCanvasRef}
-                data-board-section="periodic-table-canvas"
-                data-board-name="Periodic table Pixi canvas"
-                className="block size-full touch-none bg-neutral-100"
-                aria-label="Periodic table Pixi canvas"
-              >
-                Periodic table Pixi canvas
-              </canvas>
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.periodicTableVault}
+                label="Periodic Table Vault"
+                visible={showBoardDebugBadges}
+              />
             </div>
 
             <div
               data-board-section="alchemy-workbench"
-              data-board-name="Alchemy workbench"
-              className="grid min-h-0 grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 bg-neutral-300 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8"
+              data-board-name="Alchemy Workbench"
+              data-board-description={BOARD_DESCRIPTIONS.alchemyWorkbench}
+              className={`${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8`}
             >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.alchemyWorkbench}
+                label="Alchemy Workbench"
+                visible={showBoardDebugBadges}
+              />
               {reagentSlots.map((slot) => (
                 <ReagentSlot
                   key={slot.id}
@@ -658,9 +1003,15 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
               <div
                 data-board-section="transmutation-pad"
-                data-board-name="Transmutation pad"
-                className="col-span-full grid min-h-0 grid-cols-[6rem_1fr] items-center border border-neutral-600 bg-neutral-300 p-3 sm:col-span-4 lg:grid-cols-[7rem_1fr]"
+                data-board-name="Transmutation Pad"
+                data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
+                className="relative col-span-full grid min-h-0 grid-cols-[6rem_1fr] items-center rounded-[6px] border border-neutral-600/80 bg-white/25 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-4 lg:grid-cols-[7rem_1fr]"
               >
+                <BoardDebugBadge
+                  description={BOARD_DESCRIPTIONS.transmutationPad}
+                  label="Transmutation Pad"
+                  visible={showBoardDebugBadges}
+                />
                 <div
                   data-board-section="swipe-rune-handle"
                   data-board-name="Swipe rune handle"
@@ -679,23 +1030,46 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
               <div
                 data-board-section="transmutation-output-slot"
-                data-board-name="Transmutation output slot"
-                className="col-span-full min-h-0 border border-neutral-600 bg-neutral-300 sm:col-span-1 sm:col-start-5"
-              />
+                data-board-name="Output Slot"
+                data-board-description={BOARD_DESCRIPTIONS.outputSlot}
+                className="relative col-span-full min-h-0 rounded-[6px] border border-neutral-600/80 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-1 sm:col-start-5"
+              >
+                <BoardDebugBadge
+                  description={BOARD_DESCRIPTIONS.outputSlot}
+                  label="Output Slot"
+                  visible={showBoardDebugBadges}
+                />
+                <OutputSlotPreview preview={recipePreview} />
+              </div>
             </div>
           </section>
 
-          <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,136px)]">
+          <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]">
             <div
               data-board-section="right-inventory-panel"
-              data-board-name="Right inventory panel"
-              className="min-h-0 bg-neutral-300"
-            />
+              data-board-name="Inventory"
+              data-board-description={BOARD_DESCRIPTIONS.inventory}
+              className={GLASS_PANEL_CLASS}
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.inventory}
+                label="Inventory"
+                visible={showBoardDebugBadges}
+              />
+            </div>
             <div
-              data-board-section="right-actions-panel"
-              data-board-name="Right actions panel"
-              className="min-h-0 bg-neutral-300"
-            />
+              data-board-section="alchemy-workbench-info-panel"
+              data-board-name="Alchemy Workbench Info"
+              data-board-description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
+              className={GLASS_PANEL_CLASS}
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
+                label="Alchemy Workbench Info"
+                visible={showBoardDebugBadges}
+              />
+              <AlchemyWorkbenchInfoPanel preview={recipePreview} />
+            </div>
           </aside>
         </section>
       </div>
@@ -712,7 +1086,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             className={getCardShellClass(getFloatingCardFeedback(dropIntent), "floating")}
             style={{
               contain: "layout style paint",
-              fontFamily: "Arial, sans-serif",
+              fontFamily: "var(--font-sans)",
               height: `${FLOATING_ELEMENT_CARD_HEIGHT}px`,
               touchAction: "none",
               width: `${FLOATING_ELEMENT_CARD_WIDTH}px`,
@@ -734,7 +1108,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           className={getSwapAnimationCardClass()}
           style={{
             contain: "layout style paint",
-            fontFamily: "Arial, sans-serif",
+            fontFamily: "var(--font-sans)",
             height: `${swapAnimation.fromRect.height}px`,
             left: `${swapAnimation.fromRect.left}px`,
             top: `${swapAnimation.fromRect.top}px`,
@@ -747,6 +1121,49 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     </main>
   );
 });
+
+function useLocalhostMetaKeyDebugBadges(): boolean {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!isLocalhostDebugHost()) return;
+
+    const show = () => {
+      setVisible(true);
+    };
+    const hide = () => {
+      setVisible(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.key === "Meta") show();
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!event.metaKey || event.key === "Meta") hide();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") hide();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", hide);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", hide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  return visible;
+}
+
+function isLocalhostDebugHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return LOCALHOST_HOSTNAMES.has(window.location.hostname);
+}
 
 function setMotionProperty(
   motion: AnimatableObject,
@@ -771,6 +1188,10 @@ function getElementCardArtSrc(card: PeriodicElementCard): string {
 function getElementCard(cardId: string | null): PeriodicElementCard | null {
   if (!cardId) return null;
   return elementCardsById.get(cardId) ?? null;
+}
+
+function getWorkbenchCardIds(boardState: AlchemistGuildBoardState): (string | null)[] {
+  return reagentSlots.map((slot) => boardState.reagentSlots[slot.id]);
 }
 
 function getSourceSwapGhostCard(
@@ -887,7 +1308,7 @@ function resolveDropIntent(
   const targetCardId = boardState.reagentSlots[slotId];
   if (!targetCardId) return { kind: "drop", slotId };
   if (source.kind === "slot") return { kind: "swap", slotId };
-  return { kind: "blocked", slotId };
+  return { kind: "replace", slotId };
 }
 
 function isSameDropIntent(left: DropIntent, right: DropIntent): boolean {
@@ -915,13 +1336,15 @@ function getSlotShellClass(feedback: DropFeedback): string {
 
   switch (feedback) {
     case "drop":
-      return `${base} border-emerald-500 bg-emerald-100 shadow-[0_0_0_4px_rgba(16,185,129,0.24)]`;
+      return `${base} border-emerald-500 bg-emerald-100/70 shadow-[0_0_0_4px_rgba(16,185,129,0.24)] backdrop-blur-sm`;
     case "swap":
-      return `${base} border-amber-500 bg-amber-100 shadow-[0_0_0_4px_rgba(245,158,11,0.28)]`;
+      return `${base} border-amber-500 bg-amber-100/70 shadow-[0_0_0_4px_rgba(245,158,11,0.28)] backdrop-blur-sm`;
+    case "replace":
+      return `${base} border-cyan-500 bg-cyan-100/70 shadow-[0_0_0_4px_rgba(6,182,212,0.28)] backdrop-blur-sm`;
     case "blocked":
-      return `${base} border-rose-500 bg-rose-100 shadow-[0_0_0_4px_rgba(244,63,94,0.24)]`;
+      return `${base} border-rose-500 bg-rose-100/70 shadow-[0_0_0_4px_rgba(244,63,94,0.24)] backdrop-blur-sm`;
     default:
-      return `${base} border-neutral-600 bg-neutral-300`;
+      return `${base} border-neutral-700/70 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-sm`;
   }
 }
 
@@ -936,6 +1359,8 @@ function getCardShellClass(feedback: DropFeedback, placement: "floating" | "slot
       return `${base} border-emerald-500 bg-emerald-50 shadow-[inset_0_0_0_3px_rgba(16,185,129,0.24),0_8px_18px_rgba(0,0,0,0.18)]`;
     case "swap":
       return `${base} border-amber-500 bg-amber-50 shadow-[inset_0_0_0_3px_rgba(245,158,11,0.3),0_8px_18px_rgba(0,0,0,0.18)]`;
+    case "replace":
+      return `${base} border-cyan-500 bg-cyan-50 shadow-[inset_0_0_0_3px_rgba(6,182,212,0.3),0_8px_18px_rgba(0,0,0,0.18)]`;
     case "blocked":
       return `${base} border-rose-500 bg-rose-50 shadow-[inset_0_0_0_3px_rgba(244,63,94,0.24),0_8px_18px_rgba(0,0,0,0.18)]`;
     default:
@@ -947,13 +1372,33 @@ function getDropGhostClass(feedback: DropFeedback): string {
   const base =
     "pointer-events-none absolute inset-1 z-20 overflow-hidden rounded-[3px] border-2 border-dashed bg-[#eeeeee] opacity-35 shadow-[0_10px_24px_rgba(0,0,0,0.18)]";
 
-  return feedback === "swap"
-    ? `${base} border-amber-600 rotate-2 scale-[0.9]`
-    : `${base} border-emerald-600 scale-[0.92]`;
+  switch (feedback) {
+    case "swap":
+      return `${base} border-amber-600 rotate-2 scale-[0.9]`;
+    case "replace":
+      return `${base} border-cyan-600 -rotate-2 scale-[0.9]`;
+    default:
+      return `${base} border-emerald-600 scale-[0.92]`;
+  }
 }
 
 function getSwapAnimationCardClass(): string {
   return "pointer-events-none fixed z-[60] overflow-hidden rounded-[3px] border-2 border-amber-500 bg-amber-50 shadow-[0_18px_32px_rgba(0,0,0,0.28)]";
+}
+
+function formatTokenLabel(token: string): string {
+  return token
+    .replace(TOKEN_PREFIX_PATTERN, "")
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function resolvePublicAssetPath(path: string): string {
+  const baseUrl = import.meta.env.BASE_URL.endsWith("/")
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`;
+  return `${baseUrl}${path}`;
 }
 
 function clamp(value: number, min: number, max: number): number {

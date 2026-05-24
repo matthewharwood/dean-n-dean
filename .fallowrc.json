@@ -3,6 +3,7 @@
   "ignorePatterns": [
     "turbo/generators/templates/**",
     "turbo/generators/config.ts",
+    "scripts/resolve-app-filter.ts",
     "**/*.gen.ts",
     "tmp/**",
     "apps/test-project/**"
