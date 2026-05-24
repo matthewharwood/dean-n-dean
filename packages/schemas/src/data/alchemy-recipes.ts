@@ -88,6 +88,14 @@ export const AlchemySafetyTierSchema = z.enum(ALCHEMY_SAFETY_TIERS);
 export const AlchemyCardIdSchema = z.string().regex(/^[a-z]+:[a-z0-9-]+$/);
 export type AlchemyCardId = z.infer<typeof AlchemyCardIdSchema>;
 
+export const AlchemyCardImagePathSchema = z
+  .string()
+  .regex(/^alchemy-card-art\/[a-z]+-[a-z0-9-]+\.webp$/);
+export type AlchemyCardImagePath = z.infer<typeof AlchemyCardImagePathSchema>;
+
+export const ALCHEMY_STARTING_TABLE_SLOT_COUNT = 3 as const;
+export const ALCHEMY_MAX_TABLE_SLOT_COUNT = 5 as const;
+
 export const AlchemyGatherableCardSchema = z.object({
   cardId: AlchemyCardIdSchema,
   name: z.string().min(1),
@@ -294,6 +302,7 @@ export const ALCHEMY_PROGRESSION_COHORTS = [
 
 export const AlchemyRecipeOutputSchema = z.object({
   cardId: AlchemyCardIdSchema,
+  imagePath: AlchemyCardImagePathSchema,
   name: z.string().min(1),
   kind: AlchemyItemKindSchema.exclude(["raw-material"]),
   quantity: z.int().positive(),
@@ -343,6 +352,7 @@ export const AlchemyCraftedCardSchema = z.object({
   kind: AlchemyItemKindSchema.exclude(["raw-material"]),
   sourceRecipeId: z.string().regex(/^alchemy:[a-z0-9-]+$/),
   unlockCohort: z.int().min(1),
+  imagePath: AlchemyCardImagePathSchema,
   complexity: AlchemyArgumentComplexitySchema,
   tags: z.array(z.string().min(1)),
 });
@@ -388,7 +398,11 @@ const item = <
   cardId: CardId,
   name: string,
   quantity = 1,
-) => ({ cardId, name, kind, quantity }) as const;
+) => ({ cardId, imagePath: getAlchemyCardImagePath(cardId), name, kind, quantity }) as const;
+
+export function getAlchemyCardImagePath(cardId: string): AlchemyCardImagePath {
+  return AlchemyCardImagePathSchema.parse(`alchemy-card-art/${cardId.replace(":", "-")}.webp`);
+}
 
 const arg = <const CardId extends string>(
   cardId: CardId,
@@ -647,7 +661,7 @@ export const ALCHEMY_RECIPES = [
     name: "Soda Ash",
     output: item("material", "material:soda-ash", "Soda Ash"),
     arguments: [
-      arg("element:na", 2, "reactant"),
+      arg("element:na", 1, "reactant"),
       arg("element:c", 1, "reactant"),
       arg("element:o", 3, "reactant"),
     ],
@@ -655,8 +669,8 @@ export const ALCHEMY_RECIPES = [
     action: "combine",
     progression: progress(2, 3, 1, 0.17),
     education: lesson(
-      ["carbonate", "formula counting"],
-      "Models sodium carbonate as two sodium, one carbon, and three oxygen cards.",
+      ["carbonate", "formula compression"],
+      "Uses a five-slot game model for sodium carbonate; the card note names the real Na2CO3 formula.",
     ),
     fantasy: request(["artificer", "alchemist-guild"], ["glass-chain"]),
   }),
@@ -1394,17 +1408,16 @@ export const ALCHEMY_RECIPES = [
     name: "Baking Soda",
     output: item("material", "material:baking-soda", "Baking Soda"),
     arguments: [
-      arg("element:na", 1, "reactant"),
-      arg("element:h", 1, "reactant"),
-      arg("element:c", 1, "reactant"),
-      arg("element:o", 3, "reactant"),
+      arg("material:soda-ash", 1, "reactant"),
+      arg("material:carbon-dioxide", 1, "reactant"),
+      arg("material:water", 1, "reactant"),
     ],
     station: "cauldron",
     action: "combine",
-    progression: progress(6, 1, 1, 0.51),
+    progression: progress(6, 1, 2, 0.51),
     education: lesson(
-      ["formula counting", "bicarbonate"],
-      "Models sodium bicarbonate with Na, H, C, and three O cards.",
+      ["bicarbonate", "compound reuse"],
+      "Uses soda ash, carbon dioxide, and water as a compressed game route toward sodium bicarbonate.",
     ),
     fantasy: request(["bard", "wizard"], ["acid-base", "fizz-chain"]),
   }),
@@ -1935,16 +1948,16 @@ export const ALCHEMY_RECIPES = [
     name: "Phosphate Salt",
     output: item("material", "material:phosphate-salt", "Phosphate Salt"),
     arguments: [
-      arg("element:ca", 3, "reactant"),
-      arg("element:p", 2, "reactant"),
-      arg("element:o", 8, "reactant"),
+      arg("material:bone-ash", 1, "material"),
+      arg("element:p", 1, "reactant"),
+      arg("element:o", 2, "reactant"),
     ],
     station: "cauldron",
     action: "combine",
-    progression: progress(9, 1, 1, 0.76),
+    progression: progress(9, 1, 2, 0.76),
     education: lesson(
-      ["formula counting", "plant nutrients"],
-      "Models a calcium phosphate ratio for a nutrient chain.",
+      ["formula compression", "plant nutrients"],
+      "Uses bone ash as a compressed calcium source so the visible recipe stays playable while naming the larger phosphate idea.",
     ),
     fantasy: request(["druid", "alchemist-guild"], ["garden", "mineral"]),
   }),
@@ -2369,6 +2382,12 @@ export function getAlchemyRecipeArgumentSlots(recipe: {
   return slots;
 }
 
+export function getAlchemyRecipeVisibleSlotCount(recipe: {
+  readonly arguments: readonly AlchemyArgument[];
+}): number {
+  return getAlchemyRecipeArgumentSlots(recipe).length;
+}
+
 function buildAlchemyArgumentComplexities(
   recipes: readonly StaticAlchemyRecipe[],
 ): Readonly<Record<AlchemyRecipeId, AlchemyArgumentComplexity>> {
@@ -2503,6 +2522,7 @@ export const ALCHEMY_CRAFTED_CARDS = ALCHEMY_RECIPES.map((currentRecipe) => ({
   kind: currentRecipe.output.kind,
   sourceRecipeId: currentRecipe.id,
   unlockCohort: currentRecipe.progression.cohort,
+  imagePath: currentRecipe.output.imagePath,
   complexity: requireAlchemyRecipeArgumentComplexity(currentRecipe.id),
   tags: [...currentRecipe.fantasy.questTags],
 })) satisfies readonly AlchemyCraftedCard[];
@@ -2581,6 +2601,12 @@ export function validateAlchemyRecipeGraph(
     ) {
       throw new Error(
         `Progression complexity for ${currentRecipe.id} is outside cohort ${cohort.cohort}`,
+      );
+    }
+    const visibleSlotCount = getAlchemyRecipeVisibleSlotCount(currentRecipe);
+    if (visibleSlotCount > ALCHEMY_MAX_TABLE_SLOT_COUNT) {
+      throw new Error(
+        `Recipe ${currentRecipe.id} needs ${visibleSlotCount} table slots, but the max is ${ALCHEMY_MAX_TABLE_SLOT_COUNT}`,
       );
     }
 

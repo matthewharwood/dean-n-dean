@@ -83,6 +83,19 @@
         "stylelint-config-standard": "^36.0.0",
       },
     },
+    "packages/symphony-first-five": {
+      "name": "@dean-stack/symphony-first-five",
+      "version": "0.0.0",
+      "dependencies": {
+        "@dean-stack/schemas": "workspace:*",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@dean-stack/tsconfig": "workspace:*",
+        "@types/bun": "^1.3.0",
+        "@typescript/native-preview": "^7.0.0-dev.20260426.1",
+      },
+    },
     "packages/tsconfig": {
       "name": "@dean-stack/tsconfig",
       "version": "0.0.0",
@@ -168,6 +181,8 @@
     "@dean-stack/schemas": ["@dean-stack/schemas@workspace:packages/schemas"],
 
     "@dean-stack/stylelint-config": ["@dean-stack/stylelint-config@workspace:packages/stylelint-config"],
+
+    "@dean-stack/symphony-first-five": ["@dean-stack/symphony-first-five@workspace:packages/symphony-first-five"],
 
     "@dean-stack/tsconfig": ["@dean-stack/tsconfig@workspace:packages/tsconfig"],
 
