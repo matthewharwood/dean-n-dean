@@ -36,6 +36,21 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
   {
     bus: "sfx",
     ducking: [
+      { attackMs: 18, bus: "music", gain: 0.76, holdMs: 120, releaseMs: 180 },
+      { attackMs: 14, bus: "ambience", gain: 0.86, holdMs: 100, releaseMs: 160 },
+    ],
+    generatorPrompt:
+      "Five thin alchemy cards dissolving together into sparkling paper dust, soft layered fizz with tiny glass motes, dry close-miked mobile game UI, fast one-shot with airy fade, magical and clean.",
+    id: "card.massDissolve",
+    interruptFadeMs: 24,
+    maxVoices: 8,
+    replay: "overlap",
+    url: "/sfx/ui/card-mass-dissolve.mp3",
+    volume: 0.82,
+  },
+  {
+    bus: "sfx",
+    ducking: [
       { attackMs: 12, bus: "music", gain: 0.82, holdMs: 60, releaseMs: 130 },
       { attackMs: 10, bus: "ambience", gain: 0.9, holdMs: 50, releaseMs: 120 },
     ],
@@ -92,5 +107,35 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     replay: "overlap",
     url: "/sfx/ui/card-slot-pickup.mp3",
     volume: 0.72,
+  },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.86, holdMs: 45, releaseMs: 120 },
+      { attackMs: 8, bus: "ambience", gain: 0.92, holdMs: 40, releaseMs: 110 },
+    ],
+    generatorPrompt:
+      "Bright alchemy completion ding, single polished bell tone with tiny crystal sparkle, dry centered mobile game UI, instant attack and short clean decay, rewarding and clear.",
+    id: "transmute.complete",
+    interruptFadeMs: 8,
+    maxVoices: 6,
+    replay: "overlap",
+    url: "/sfx/ui/transmute-complete-ding.mp3",
+    volume: 0.72,
+  },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.9, holdMs: 60, releaseMs: 140 },
+      { attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 50, releaseMs: 130 },
+    ],
+    generatorPrompt:
+      "Small tuning fork struck softly, pure warm resonant tone with gentle shimmer, dry centered mobile game UI, clean one-shot with smooth fading tail, ready and calm.",
+    id: "cooldown.ready",
+    interruptFadeMs: 8,
+    maxVoices: 10,
+    replay: "overlap",
+    url: "/sfx/ui/cooldown-ready.mp3",
+    volume: 0.64,
   },
 ]);

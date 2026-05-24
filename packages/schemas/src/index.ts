@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { ElementAlchemyCardSchema } from "./data/element-cards";
+import { AlchemyCardIdSchema } from "./data/alchemy-recipes";
 
 export * from "./adding-game";
 export * from "./data";
@@ -44,7 +44,7 @@ export const AlchemistGuildReagentSlotIdSchema = z.enum([
 ]);
 export type AlchemistGuildReagentSlotId = z.infer<typeof AlchemistGuildReagentSlotIdSchema>;
 
-export const AlchemistGuildCardIdSchema = ElementAlchemyCardSchema.shape.id;
+export const AlchemistGuildCardIdSchema = AlchemyCardIdSchema;
 export type AlchemistGuildCardId = z.infer<typeof AlchemistGuildCardIdSchema>;
 
 export const AlchemistGuildBoardSlotsSchema = z.object({
@@ -59,6 +59,46 @@ export type AlchemistGuildBoardSlots = z.infer<typeof AlchemistGuildBoardSlotsSc
 export const ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT: AlchemistGuildBoardSlots =
   AlchemistGuildBoardSlotsSchema.parse({});
 
+export const AlchemistGuildInventorySlotIdSchema = z.enum([
+  "inventory-slot-1",
+  "inventory-slot-2",
+  "inventory-slot-3",
+  "inventory-slot-4",
+  "inventory-slot-5",
+  "inventory-slot-6",
+  "inventory-slot-7",
+  "inventory-slot-8",
+]);
+export type AlchemistGuildInventorySlotId = z.infer<typeof AlchemistGuildInventorySlotIdSchema>;
+
+export const AlchemistGuildInventoryCooldownSchema = z.object({
+  id: z.string().min(1),
+  readyAtMs: z.number().min(0),
+  startedAtMs: z.number().min(0),
+});
+export type AlchemistGuildInventoryCooldown = z.infer<typeof AlchemistGuildInventoryCooldownSchema>;
+
+export const AlchemistGuildInventoryItemSchema = z.object({
+  cardId: AlchemistGuildCardIdSchema,
+  cooldowns: z.array(AlchemistGuildInventoryCooldownSchema).default([]),
+});
+export type AlchemistGuildInventoryItem = z.infer<typeof AlchemistGuildInventoryItemSchema>;
+
+export const AlchemistGuildInventorySlotsSchema = z.object({
+  "inventory-slot-1": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-2": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-3": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-4": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-5": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-6": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-7": AlchemistGuildInventoryItemSchema.nullable().default(null),
+  "inventory-slot-8": AlchemistGuildInventoryItemSchema.nullable().default(null),
+});
+export type AlchemistGuildInventorySlots = z.infer<typeof AlchemistGuildInventorySlotsSchema>;
+
+export const ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT: AlchemistGuildInventorySlots =
+  AlchemistGuildInventorySlotsSchema.parse({});
+
 export const AlchemistGuildProfileSchema = z.object({
   level: z.int().min(1).default(1),
   playerName: z.string().trim().min(1).max(24).default("Apprentice"),
@@ -71,6 +111,9 @@ export const ALCHEMIST_GUILD_PROFILE_DEFAULT: AlchemistGuildProfile =
 export const AlchemistGuildBoardStateSchema = z.object({
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
+  inventorySlots: AlchemistGuildInventorySlotsSchema.default(
+    ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,
+  ),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
 });
 export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;

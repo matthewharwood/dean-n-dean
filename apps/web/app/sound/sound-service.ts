@@ -30,6 +30,13 @@ type DuckToken = {
   releaseMs: number;
 };
 
+type TransmuteRampNodes = {
+  body: OscillatorNode;
+  gain: GainNode;
+  grit: OscillatorNode;
+  gritGain: GainNode;
+};
+
 export type SoundHandle = {
   finished: Promise<void>;
   id: string;
@@ -47,6 +54,9 @@ export type SoundService = {
   setBusVolume: (bus: SoundBus, volume: number) => void;
   setEnabled: (enabled: boolean) => void;
   setMasterVolume: (volume: number) => void;
+  startTransmuteRamp: () => void;
+  stopTransmuteRamp: (fadeMs?: number) => void;
+  updateTransmuteRamp: (progress: number) => void;
 };
 
 const DEFAULT_BUS_GAIN: Record<SoundBus, number> = {
@@ -58,6 +68,13 @@ const DEFAULT_BUS_GAIN: Record<SoundBus, number> = {
 };
 const MIN_GAIN = 0.0001;
 const PUBLIC_URL_PROTOCOL_PATTERN = /^(blob:|data:|https?:)/;
+const TRANSMUTE_RAMP_BUS: SoundBus = "sfx";
+const TRANSMUTE_RAMP_BASE_GAIN = 0.1;
+const TRANSMUTE_RAMP_MAX_GAIN = 0.46;
+const TRANSMUTE_RAMP_BODY_MIN_HZ = 55;
+const TRANSMUTE_RAMP_BODY_MAX_HZ = 275;
+const TRANSMUTE_RAMP_GRIT_RATIO = 2;
+const TRANSMUTE_RAMP_GRIT_MAX_GAIN = 0.34;
 const noop = (): void => undefined;
 
 export function createSoundService(registry: readonly SoundDefinition[]): SoundService {
@@ -72,6 +89,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
   let context: AudioContext | null = null;
   let masterGain: GainNode | null = null;
   let compressor: DynamicsCompressorNode | null = null;
+  let transmuteRampNodes: TransmuteRampNodes | null = null;
   let voiceSequence = 0;
   let enabled = true;
 
@@ -237,6 +255,92 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     for (const voice of activeVoices.values()) {
       voice.stop(fadeMs);
     }
+    stopTransmuteRamp(fadeMs);
+  };
+
+  const startTransmuteRamp = (): void => {
+    if (!enabled) return;
+
+    const audioContext = getContext();
+    const bus = getBus(TRANSMUTE_RAMP_BUS);
+    if (!audioContext || !bus) return;
+
+    if (audioContext.state !== "running") {
+      void audioContext.resume();
+    }
+
+    stopTransmuteRamp(0);
+
+    const now = audioContext.currentTime;
+    const gain = audioContext.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(TRANSMUTE_RAMP_BASE_GAIN, now + 0.04);
+    gain.connect(bus.input);
+
+    const body = audioContext.createOscillator();
+    body.type = "triangle";
+    body.frequency.setValueAtTime(TRANSMUTE_RAMP_BODY_MIN_HZ, now);
+    body.connect(gain);
+    body.start(now);
+
+    const gritGain = audioContext.createGain();
+    gritGain.gain.setValueAtTime(0, now);
+    gritGain.connect(gain);
+
+    const grit = audioContext.createOscillator();
+    grit.type = "sawtooth";
+    grit.frequency.setValueAtTime(TRANSMUTE_RAMP_BODY_MIN_HZ * TRANSMUTE_RAMP_GRIT_RATIO, now);
+    grit.connect(gritGain);
+    grit.start(now);
+
+    transmuteRampNodes = { body, gain, grit, gritGain };
+  };
+
+  const updateTransmuteRamp = (progress: number): void => {
+    const audioContext = getContext();
+    const nodes = transmuteRampNodes;
+    if (!audioContext || !nodes) return;
+
+    const boundedProgress = clamp(progress, 0, 1);
+    const frequency =
+      TRANSMUTE_RAMP_BODY_MIN_HZ +
+      boundedProgress * (TRANSMUTE_RAMP_BODY_MAX_HZ - TRANSMUTE_RAMP_BODY_MIN_HZ);
+    const gain =
+      TRANSMUTE_RAMP_BASE_GAIN +
+      boundedProgress * (TRANSMUTE_RAMP_MAX_GAIN - TRANSMUTE_RAMP_BASE_GAIN);
+    const now = audioContext.currentTime;
+
+    nodes.body.frequency.setTargetAtTime(frequency, now, 0.04);
+    nodes.grit.frequency.setTargetAtTime(frequency * TRANSMUTE_RAMP_GRIT_RATIO, now, 0.04);
+    nodes.gain.gain.setTargetAtTime(gain, now, 0.04);
+    nodes.gritGain.gain.setTargetAtTime(
+      boundedProgress * boundedProgress * TRANSMUTE_RAMP_GRIT_MAX_GAIN,
+      now,
+      0.05,
+    );
+  };
+
+  const stopTransmuteRamp = (fadeMs = 80): void => {
+    const nodes = transmuteRampNodes;
+    if (!nodes) return;
+
+    const audioContext = getContext();
+    if (!audioContext) return;
+
+    transmuteRampNodes = null;
+    const now = audioContext.currentTime;
+    const stopTime = now + fadeMs / 1000;
+    nodes.gain.gain.cancelScheduledValues(now);
+    nodes.gain.gain.setValueAtTime(nodes.gain.gain.value, now);
+    nodes.gain.gain.linearRampToValueAtTime(MIN_GAIN, stopTime);
+    nodes.body.stop(stopTime + 0.04);
+    nodes.grit.stop(stopTime + 0.04);
+    nodes.body.addEventListener("ended", () => {
+      nodes.body.disconnect();
+      nodes.grit.disconnect();
+      nodes.gritGain.disconnect();
+      nodes.gain.disconnect();
+    });
   };
 
   const play = async (soundId: SoundId, options: SoundPlayOptions = {}): Promise<SoundHandle> => {
@@ -304,6 +408,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     cancelSound,
     dispose() {
       cancelAll();
+      stopTransmuteRamp();
       busNodes.clear();
       activeDucks.clear();
       bufferCache.clear();
@@ -342,6 +447,9 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
       masterGain.gain.cancelScheduledValues(now);
       masterGain.gain.setTargetAtTime(clamp(volume, 0, 2), now, 0.016);
     },
+    startTransmuteRamp,
+    stopTransmuteRamp,
+    updateTransmuteRamp,
   };
 }
 
