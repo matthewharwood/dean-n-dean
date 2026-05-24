@@ -44,7 +44,7 @@ Execution rules:
   consumes the state.
 - Treat the first five minutes as a single child-facing loop:
   quest -> vault -> drag cards -> craft water -> wait -> collect -> deliver ->
-  reward -> slot IV shop unlock -> Discovery Draft -> next board state.
+  reward -> Workbench Slot IV purchase unlock -> Discovery Draft -> next board state.
 - Keep the iPad interaction large, readable, and touch-safe.
 
 Definition of done:

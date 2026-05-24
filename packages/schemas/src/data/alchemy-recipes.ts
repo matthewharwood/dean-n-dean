@@ -2606,7 +2606,7 @@ export function validateAlchemyRecipeGraph(
     const visibleSlotCount = getAlchemyRecipeVisibleSlotCount(currentRecipe);
     if (visibleSlotCount > ALCHEMY_MAX_TABLE_SLOT_COUNT) {
       throw new Error(
-        `Recipe ${currentRecipe.id} needs ${visibleSlotCount} table slots, but the max is ${ALCHEMY_MAX_TABLE_SLOT_COUNT}`,
+        `Recipe ${currentRecipe.id} needs ${visibleSlotCount} Alchemy Workbench slots, but the max is ${ALCHEMY_MAX_TABLE_SLOT_COUNT}`,
       );
     }
 

@@ -156,8 +156,8 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       "The first playable loop needs a single persisted state model before UI can safely consume tutorial progress, inventory, timers, and rewards.",
     scope: [
       "Create Zod schemas for first-session progress, inventory, active craft, completed quests, owned upgrades, currencies, and selected Discovery Draft choices.",
-      "Add defaults that seed the game with Hydrogen, Oxygen, Carbon, quest:first-water, three visible table slots, empty inventory, and no active craft.",
-      "Expose pure selectors for visible table slot count, first active quest, and whether the Water tutorial is complete.",
+      "Add defaults that seed the game with Hydrogen, Oxygen, Carbon, quest:first-water, three visible Alchemy Workbench slots, empty Inventory, and no active craft.",
+      "Expose pure selectors for visible Alchemy Workbench slot count, first active quest, and whether the Water tutorial is complete.",
     ],
     outOfScope: [
       "Full long-term economy balancing.",
@@ -166,7 +166,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     dependencies: [],
     acceptanceCriteria: [
       "A new persisted state schema can parse an empty object into the exact tutorial starting state.",
-      "The starting state uses three visible table slots from the schema constant.",
+      "The starting state uses three visible Alchemy Workbench slots from the schema constant.",
       "Hydrogen, Oxygen, Carbon, quest:first-water, and alchemy:water are all represented through existing data IDs.",
       "State migration or defaulting is covered by Bun unit tests.",
     ],
@@ -293,23 +293,23 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     area: "ui-ux",
     phase: "0-1 min",
     playerOutcome:
-      "The opening screen reads like a playable iPad board: quest, vault, table, inventory, and actions are visible.",
+      "The opening screen reads like a playable iPad board: Quest Briefing, Periodic Table Vault, Alchemy Workbench, Inventory, and Alchemy Workbench Info are visible.",
     currentEvidence: [
       "The current AlchemistGuildBoard has placeholder left and right panels.",
-      "The design bible calls for one board screen with Quest Board, Crafting Table, Periodic Table Vault, Inventory Tray, and Upgrade Shop.",
+      "The design bible calls for one board screen with Quest Briefing, Profile, Guild Banner, Periodic Table Vault, Inventory, Alchemy Workbench Info, Output Slot, Transmutation Pad, and Alchemy Workbench.",
     ],
     problem:
       "The player cannot understand the first loop while core board zones are empty placeholders.",
     scope: [
       "Design the first-session responsive board layout around the existing Pixi table dock and workbench.",
-      "Add named zones for Quest Board, Periodic Table Vault, Crafting Table, Inventory Tray, Upgrade Shop, and Discovery Draft entry.",
+      "Add named zones for Quest Briefing, Profile, Guild Banner, Periodic Table Vault, Inventory, Alchemy Workbench Info, Output Slot, Transmutation Pad, Alchemy Workbench, and Discovery Draft entry.",
       "Keep all hit targets large enough for iPad touch.",
     ],
     outOfScope: ["Final art pass", "All later board zones", "Quest branching beyond first session"],
     dependencies: ["F5M-001"],
     acceptanceCriteria: [
       "The board has no empty grey placeholder panels in the first-session story.",
-      "The Water quest, three starter elements, three visible table slots, inventory/output area, and reward area are discoverable without scrolling on iPad landscape.",
+      "The Water quest, three starter elements, three visible Alchemy Workbench slots, Inventory, Output Slot, and reward area are discoverable without scrolling on iPad landscape.",
       "Mobile portrait falls back to a readable stacked layout without text overlap.",
     ],
     implementationNotes: [
@@ -373,12 +373,12 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       "Add a short tutorial briefing that points to H, H, and O without requiring a manual.",
       "Support collapsed and expanded states so the card does not dominate the board after the player starts acting.",
     ],
-    outOfScope: ["Full NPC dialogue tree", "Voiceover", "All quest board sorting"],
+    outOfScope: ["Full NPC dialogue tree", "Voiceover", "All Quest Briefing sorting"],
     dependencies: ["F5M-003"],
     acceptanceCriteria: [
       "The quest card shows Sir Bubbleton Needs Water from quest data.",
       "The hint teaches Water is H2O: two Hydrogen and one Oxygen.",
-      "Reward preview includes Gold, Knowledge XP, Discovery Token, and slot IV shop unlock.",
+      "Reward preview includes Gold, Knowledge XP, Discovery Token, and Workbench Slot IV purchase unlock.",
     ],
     implementationNotes: [
       "Use data from alchemy-quests rather than duplicating strings in the component.",
@@ -564,7 +564,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     area: "gameplay",
     phase: "1-2 min",
     playerOutcome:
-      "The child can physically place Hydrogen, Hydrogen, and Oxygen into the starter table.",
+      "The child can physically place Hydrogen, Hydrogen, and Oxygen into the starter Alchemy Workbench.",
     currentEvidence: [
       "The current board has draggable element cards and five reagent slot IDs.",
       "Gameplay placement is not yet constrained by unlocked elements or current visible slot count.",
@@ -641,7 +641,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       "Rendering all five slots as usable undermines the Water tutorial and slot-upgrade progression.",
     scope: [
       "Show three active slots at start and two locked upgrade silhouettes.",
-      "Label locked slot IV as a shop unlock after Water.",
+      "Label locked Workbench Slot IV as a purchase unlock after Water.",
       "Keep the layout stable when slot IV becomes active.",
     ],
     outOfScope: ["Slot V purchase flow", "Mid-game five-slot recipe tutorial"],
@@ -761,7 +761,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
   }),
   issue({
     id: "F5M-010",
-    title: "Add Craft and Fizzle outcomes for the starter table",
+    title: "Add Craft and Fizzle outcomes for the starter Alchemy Workbench",
     priority: "P0",
     area: "feedback",
     phase: "1-2 min",
@@ -893,14 +893,14 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
   }),
   issue({
     id: "F5M-012",
-    title: "Create the output tray and collect Water flow",
+    title: "Create the Output Slot and collect Water flow",
     priority: "P0",
     area: "ui-ux",
     phase: "2-3 min",
     playerOutcome: "When the timer finishes, Water becomes a real card the child can collect.",
     currentEvidence: [
-      "The design bible specifies an Output Tray where completed crafts land first.",
-      "The current output slot is an empty placeholder.",
+      "The design bible specifies an Output Slot where completed crafts land first.",
+      "The current Output Slot is an empty placeholder.",
     ],
     problem:
       "Craft completion needs a visible object transition before inventory and delivery make sense.",
@@ -912,13 +912,13 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     outOfScope: ["Auto-sort assistant", "Multiple output slots"],
     dependencies: ["F5M-011"],
     acceptanceCriteria: [
-      "Finished Water appears in the output tray.",
+      "Finished Water appears in the Output Slot.",
       "Collecting Water moves one Water card into inventory.",
       "Collected output cannot be collected twice after reload.",
     ],
     implementationNotes: [
       "Use alchemy crafted card image paths from recipe data.",
-      "Keep output tray dimensions stable across empty, running, and complete states.",
+      "Keep Output Slot dimensions stable across empty, running, and complete states.",
       "Make collection input work by tap and drag if practical.",
     ],
     dataAnchors: firstWaterAnchors,
@@ -926,7 +926,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       {
         kind: "web-component",
         path: "apps/web/app/components/alchemist-guild-board/index.tsx",
-        reason: "The current output slot is in the workbench grid.",
+        reason: "The current Output Slot lives in the Alchemy Workbench grid.",
       },
       {
         kind: "asset",
@@ -965,7 +965,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     phase: "2-3 min",
     playerOutcome: "The child has a clear place where Water lives before being delivered.",
     currentEvidence: [
-      "The design bible starts inventory at five slots and uses an Output Tray for finished crafts.",
+      "The design bible starts Inventory at five slots and uses an Output Slot for finished crafts.",
       "No inventory surface exists in the current board.",
     ],
     problem:
@@ -997,7 +997,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       {
         kind: "web-component",
         path: "apps/web/app/components",
-        reason: "Inventory tray needs a story and reusable item cells.",
+        reason: "Inventory needs a story and reusable item cells.",
       },
     ],
     calvin: {
@@ -1013,8 +1013,8 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       loopArc: "Inventory bridges craft completion to quest delivery.",
       relatedness: "The child can show the Water card to the parent before giving it away.",
       darkPatternRisk: "Capacity should create planning later, not early anxiety.",
-      schemasImplied: ["ElementalGuildInventorySchema", "InventoryTrayPropsSchema"],
-      storybookProof: "InventoryTray/Empty and /OneWater stories.",
+      schemasImplied: ["ElementalGuildInventorySchema", "InventoryPropsSchema"],
+      storybookProof: "Inventory/Empty and /OneWater stories.",
       verification: ["Bun inventory reducer tests", "Storybook visual check"],
     },
     symphony: {
@@ -1097,7 +1097,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     area: "feedback",
     phase: "3-4 min",
     playerOutcome:
-      "The child sees Gold, Knowledge XP, a Discovery Token, and the Workbench Slot IV shop unlock as earned rewards.",
+      "The child sees Gold, Knowledge XP, a Discovery Token, and the Workbench Slot IV purchase unlock as earned rewards.",
     currentEvidence: [
       "quest:first-water rewards are defined as gold, knowledge XP, discovery token, and upgrade unlock.",
       "No reward UI currently exists.",
@@ -1107,7 +1107,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     scope: [
       "Render a reward reveal after Water delivery.",
       "Apply rewards idempotently on claim.",
-      "Show the slot IV shop unlock as the next recommended action.",
+      "Show the Workbench Slot IV purchase unlock as the next recommended action.",
     ],
     outOfScope: ["Reward history ledger", "Animated currency showers"],
     dependencies: ["F5M-014"],
@@ -1159,7 +1159,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
   }),
   issue({
     id: "F5M-016",
-    title: "Add Workbench Slot IV shop purchase",
+    title: "Add Workbench Slot IV purchase",
     priority: "P0",
     area: "gameplay",
     phase: "4-5 min",
@@ -1167,11 +1167,11 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       "The child spends earned Gold on a visible board improvement instead of receiving all five slots for free.",
     currentEvidence: [
       "ALCHEMY_TABLE_SLOT_UPGRADES defines upgrade:table-slot-4 unlocked by quest:first-water.",
-      "The app does not currently render an upgrade shop.",
+      "The app does not currently render a Workbench Slot IV purchase prompt.",
     ],
     problem: "The slot upgrade requirement is data-backed but not playable.",
     scope: [
-      "Render a small Upgrade Shop panel after Water rewards are claimable.",
+      "Render a small Workbench Slot IV purchase prompt after Water rewards are claimable.",
       "Allow buying Workbench Slot IV for its configured cost once unlocked and affordable.",
       "Activate the fourth slot immediately after purchase.",
     ],
@@ -1184,7 +1184,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     ],
     implementationNotes: [
       "Use ALCHEMY_TABLE_SLOT_UPGRADES as the source of truth.",
-      "Keep the shop panel small and contextual.",
+      "Keep the purchase prompt small and contextual.",
       "Show locked Slot V as later, if shown at all.",
     ],
     dataAnchors: firstWaterAnchors,
@@ -1192,12 +1192,12 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       {
         kind: "schema-data",
         path: "packages/schemas/src/data/alchemy-quests.ts",
-        reason: "Table slot upgrades are defined here.",
+        reason: "Alchemy Workbench slot upgrades are defined here.",
       },
       {
         kind: "web-component",
         path: "apps/web/app/components",
-        reason: "Upgrade Shop should be a component with story coverage.",
+        reason: "The Workbench Slot IV purchase prompt should be a component with story coverage.",
       },
     ],
     calvin: {
@@ -1310,7 +1310,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       "A selected Discovery Draft option must affect unlocked elements, NPCs, quests, and board suggestions.",
     scope: [
       "Implement unlock application for element, NPC, raw material, recipe, and upgrade draft kinds used in the first session.",
-      "Update available quest board selectors after the Water quest and selected discovery.",
+      "Update available Quest Briefing selectors after the Water quest and selected discovery.",
       "Expose a short 'newly unlocked' summary.",
     ],
     outOfScope: ["Complete all late-game unlock types", "Procedural quest generation"],
@@ -1370,7 +1370,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
   }),
   issue({
     id: "F5M-019",
-    title: "Show the post-tutorial quest board with next playable options",
+    title: "Show the post-tutorial Quest Briefing with next playable options",
     priority: "P0",
     area: "gameplay",
     phase: "4-5 min",
@@ -1378,7 +1378,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
       "At the end of minute five, the child sees what they can do next instead of hitting a dead screen.",
     currentEvidence: [
       "getAlchemyQuestBoard can surface available quests after completed quest IDs.",
-      "The design bible says the quest board should never show more than three quests early.",
+      "The design bible says the Quest Briefing should never show more than three quests early.",
     ],
     problem: "The first E2E loop needs a playable handoff after Water, slot IV, and discovery.",
     scope: [
@@ -1865,7 +1865,7 @@ export const FIRST_FIVE_MINUTE_ISSUES = [
     problem:
       "A route-only implementation will make the first E2E loop hard to debug and violate the repo contract.",
     scope: [
-      "Add stories for quest card, starter vault state, workbench slots, recipe ghosts, craft timer, output tray, inventory tray, reward reveal, upgrade shop, and Discovery Draft.",
+      "Add stories for Quest Briefing, starter Periodic Table Vault state, Alchemy Workbench slots, recipe ghosts, craft timer, Output Slot, Inventory, Alchemy Workbench Info, reward reveal, and Discovery Draft.",
       "Include key state variants: empty, ready, running, complete, error, reduced motion where relevant.",
       "Keep story args typed through Zod-backed component schemas.",
     ],

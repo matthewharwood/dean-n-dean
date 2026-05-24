@@ -17,19 +17,33 @@ Drafting assumptions: this bible is based on the uploaded Game Design Bible temp
 
 ## Executive Summary
 
-*Elemental Guild* is an iPad-first educational idle crafting game about learning the periodic table by turning elements into compounds, compounds into materials, and materials into recognizable fantasy-world objects. The player uses an upgradeable crafting table, an inventory, a quest bulletin board, and a slowly expanding Periodic Table Vault. The table starts with three visible slots, then grows to four and finally five through purchased workbench upgrades. Each element is a card. Each compound or material is also a card, but it preserves internal complexity. This creates the central puzzle: the board has a small visible slot budget, but a visible card may contain many atoms, allowing young players to learn composition, compression, and recipe planning without feeling like they are doing worksheets.
+*Elemental Guild* is an iPad-first educational idle crafting game about learning the periodic table by turning elements into compounds, compounds into materials, and materials into recognizable fantasy-world objects. The player uses the current game board sections: Quest Briefing, Profile, Guild Banner, Periodic Table Vault, Inventory, Alchemy Workbench Info, Output Slot, Transmutation Pad, and Alchemy Workbench. The Alchemy Workbench starts with three visible slots, then grows to four and finally five through purchased workbench upgrades. Each element is a card. Each compound or material is also a card, but it preserves internal complexity. This creates the central puzzle: the board has a small visible slot budget, but a visible card may contain many atoms, allowing young players to learn composition, compression, and recipe planning without feeling like they are doing worksheets.
 
-The game is designed for rapid development with a parent and child, and for play sessions that work like a board game on a single iPad screen. The player checks the Quest Board, chooses from a small number of requests, crafts the necessary elements or compounds, waits for idle timers, manages inventory, sells surplus, and uses rewards to unlock new elements, new quest-givers, and workshop upgrades. The long-term objective is not to "win" once; it is to fill the Periodic Table Vault, complete the Element Museum, and build a durable mental model of matter.
+The game is designed for rapid development with a parent and child, and for play sessions that work like a board game on a single iPad screen. The player checks the Quest Briefing, chooses from a small number of requests, crafts the necessary elements or compounds, waits for idle timers, manages Inventory, sells surplus, and uses rewards to unlock new elements, new quest-givers, and workshop upgrades. The long-term objective is not to "win" once; it is to fill the Periodic Table Vault, complete the Element Museum, and build a durable mental model of matter.
+
+## Canonical Game Board Sections
+
+| Section | Description |
+|---|---|
+| Quest Briefing | Shows the active quest request, hint, and completion context. |
+| Profile | Shows the player profile, guild rank, and long-term progression summary. |
+| Guild Banner | Names the current board and anchors the Alchemist Guild play space. |
+| Periodic Table Vault | Holds the unlocked elemental cards that can be picked up for crafting. |
+| Inventory | Stores crafted cards, gathered materials, and quest outputs the player can use later. |
+| Alchemy Workbench Info | Explains the recipe or output currently previewed by the Alchemy Workbench Output Slot. |
+| Output Slot | Previews what the current Alchemy Workbench card arrangement is about to make. |
+| Transmutation Pad | Confirms the current workbench recipe and starts the crafting transformation. |
+| Alchemy Workbench | The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items. |
 
 ## The Game in One Flow Diagram
 
 ```text
-Quest Board -> Choose 1-3 active quests -> Inspect recipe hints -> Pull elements from Periodic Table Vault -> Combine on the current Crafting Table -> Wait / idle queue -> Collect into Inventory -> Deliver, sell, or store -> Earn Gold + Discovery Token + Knowledge XP -> Buy table/queue/inventory upgrades -> Choose one of three deterministic discoveries -> Unlock element / recipe / NPC / upgrade -> New quests appear.
+Quest Briefing -> Choose 1-3 active quests -> Inspect recipe hints -> Pull elements from Periodic Table Vault -> Combine on the current Alchemy Workbench -> Confirm with the Transmutation Pad -> Preview in the Output Slot and Alchemy Workbench Info -> Wait / idle queue -> Collect into Inventory -> Deliver, sell, or store -> Earn Gold + Discovery Token + Knowledge XP -> Buy table/queue/inventory upgrades -> Choose one of three deterministic discoveries -> Unlock element / recipe / NPC / upgrade -> New quests appear.
 ```
 
 ## First Five Minutes Snapshot
 
-The player opens the town board. Professor Atomwick introduces the Periodic Table Vault. Only Hydrogen, Oxygen, and Carbon are glowing. Sir Bubbleton posts a quest for Water. The player drags Hydrogen, Hydrogen, and Oxygen onto the three-slot starter table and taps Craft. Water exactly fills the table, so H2O becomes a physical memory instead of a formula on a card. A 20-second timer starts. While it ticks, the tutorial opens the inventory. Water completes, slides into inventory, and is delivered to Sir Bubbleton. The reward is 10 Gold, 1 Discovery Token, and the ability to buy Workbench Slot IV for 8 Gold. The Discovery Token opens three face-up choices: Sodium, Iron, or Baker Brindle. Sodium is recommended because it will later pair with Chlorine for salt and glass-chain recipes. The game ends the tutorial by showing the idle promise: "Your workshop keeps crafting while you are away."
+The player opens the town board. Professor Atomwick introduces the Periodic Table Vault. Only Hydrogen, Oxygen, and Carbon are glowing. Sir Bubbleton posts a quest for Water in the Quest Briefing. The player drags Hydrogen, Hydrogen, and Oxygen onto the three-slot starter Alchemy Workbench and taps the Transmutation Pad. Water exactly fills the Alchemy Workbench, so H2O becomes a physical memory instead of a formula on a card. A 20-second timer starts. While it ticks, the tutorial opens the Inventory. Water completes, appears in the Output Slot, can be inspected in Alchemy Workbench Info, slides into Inventory, and is delivered to Sir Bubbleton. The reward is 10 Gold, 1 Discovery Token, and the ability to buy Workbench Slot IV for 8 Gold. The Discovery Token opens three face-up choices: Sodium, Iron, or Baker Brindle. Sodium is recommended because it will later pair with Chlorine for salt and glass-chain recipes. The game ends the tutorial by showing the idle promise: "Your workshop keeps crafting while you are away."
 
 # PART 1 | Inspiration
 
@@ -99,17 +113,17 @@ The original design bible asks for successful reference games, trailer study, co
 
 | Story Hook | Mechanics Hook | Art Style Hook |
 |---|---|---|
-| A magical guild town has lost its knowledge of matter. Each quest-giver needs real things - water, salt, glass, tools, medicines, lights - and the player restores the town by rediscovering the elements. | The upgradeable crafting table. It starts with three visible slots, then the player buys a fourth and fifth slot as recipes ask for more planning. A recipe may require more atoms than visible slots, but compounds can be pre-built and compressed into one visible card. | A cozy fantasy board game built out of crisp science cards: parchment quest board, glowing periodic table vault, hand-painted guild NPCs, polished iPad cards, readable symbols, and magical molecule animations. |
+| A magical guild town has lost its knowledge of matter. Each quest-giver needs real things - water, salt, glass, tools, medicines, lights - and the player restores the town by rediscovering the elements. | The upgradeable Alchemy Workbench. It starts with three visible slots, then the player buys a fourth and fifth slot as recipes ask for more planning. A recipe may require more atoms than visible slots, but compounds can be pre-built and compressed into one visible card. | A cozy fantasy board game built out of crisp science cards: parchment Quest Briefing, glowing Periodic Table Vault, hand-painted guild NPCs, polished iPad cards, readable symbols, and magical molecule animations. |
 
 # PART 3B | The Core Game Loop
 
 ## The Loop
 
-Quest Board -> Choose quest -> Inspect recipe and missing components -> Pull available element cards -> Craft compounds/materials on the current table -> Wait for idle timer / queue multiple items -> Collect into inventory -> Deliver to quest-giver or sell surplus -> Earn Gold, Knowledge XP, and Discovery Tokens -> Buy workbench/queue/inventory upgrades -> Select one of three discoveries -> Unlock elements, recipes, NPCs, upgrades, or new quest chains -> Repeat with higher complexity.
+Quest Briefing -> Choose quest -> Inspect recipe and missing components -> Pull available element cards from the Periodic Table Vault -> Craft compounds/materials on the current Alchemy Workbench -> Confirm with the Transmutation Pad -> Preview the result in the Output Slot and Alchemy Workbench Info -> Wait for idle timer / queue multiple items -> Collect into Inventory -> Deliver to quest-giver or sell surplus -> Earn Gold, Knowledge XP, and Discovery Tokens -> Buy workbench/queue/inventory upgrades -> Select one of three discoveries -> Unlock elements, recipes, NPCs, upgrades, or new quest chains -> Repeat with higher complexity.
 
 ## Primary Mechanic
 
-Upgradeable-slot molecular crafting with compound compression: the Crafting Table starts with three visible cards, then can be upgraded to four and finally five visible cards. A visible card may represent a simple element, a molecule, a material, or an object component. The player learns to break recipes into stages. Example: Water is H + H + O, which exactly fills the starter table. Later, five-card carbonate recipes create a clear reason to buy Workbench Slot V. The visible slot count and the hidden atom complexity create the puzzle.
+Upgradeable-slot molecular crafting with compound compression: the Alchemy Workbench starts with three visible cards, then can be upgraded to four and finally five visible cards. A visible card may represent a simple element, a molecule, a material, or an object component. The player learns to break recipes into stages. Example: Water is H + H + O, which exactly fills the starter Alchemy Workbench. Later, five-card carbonate recipes create a clear reason to buy Workbench Slot V. The visible slot count and the hidden atom complexity create the puzzle.
 
 ## Why This Mechanic Is Sticky
 
@@ -163,9 +177,9 @@ An idle chemistry board game about unlocking the periodic table.
 
 A knight needs water. A baker needs salt. A miner needs a better pick. A glassblower needs silica. The town looks magical, but every request begins with real matter.
 
-In *Elemental Guild*, the periodic table becomes a fantasy map. You begin with a few simple element cards - Hydrogen, Oxygen, Carbon - and a three-slot crafting table. Drag elements onto the board, combine them into compounds, and use those compounds to satisfy quests from guild characters. The workshop keeps crafting while you are away, but every return gives you a new choice: deliver, sell, upgrade, or discover.
+In *Elemental Guild*, the periodic table becomes a fantasy map. You begin with a few simple element cards - Hydrogen, Oxygen, Carbon - and a three-slot Alchemy Workbench. Drag elements onto the board, combine them into compounds, and use those compounds to satisfy quests from guild characters. The workshop keeps crafting while you are away, but every return gives you a new choice: deliver, sell, upgrade, or discover.
 
-The twist is compound compression. Your crafting table starts with only three visible cards and grows to five through purchased upgrades, but any crafted card can contain hidden complexity. Water begins as H + H + O and exactly fills the starter table. Later, carbonate, glass, and capstone recipes ask the player to decide what should be built now, what should be stored, which slot upgrade is worth buying, and what unlocks the next part of the world.
+The twist is compound compression. Your Alchemy Workbench starts with only three visible cards and grows to five through purchased upgrades, but any crafted card can contain hidden complexity. Water begins as H + H + O and exactly fills the starter Alchemy Workbench. Later, carbonate, glass, and capstone recipes ask the player to decide what should be built now, what should be stored, which slot upgrade is worth buying, and what unlocks the next part of the world.
 
 ## Key Features
 
@@ -183,7 +197,7 @@ The twist is compound compression. Your crafting table starts with only three vi
 | Plot Element | Filled Draft |
 |---|---|
 | Hook | A child alchemist can restore a town by rediscovering what everything is made of. Every object in the world is a doorway into chemistry. |
-| Setting | Vellum Vale, a cozy fantasy guild town built around an ancient Periodic Table Vault. The town has a quest board, market, workshop, guild hall, museum, mine, bakery, garden, forge, glassworks, and later an observatory. |
+| Setting | Vellum Vale, a cozy fantasy guild town built around an ancient Periodic Table Vault. The town has a Quest Briefing area, market, workshop, guild hall, museum, mine, bakery, garden, forge, glassworks, and later an observatory. |
 | Protagonist | The Junior Alchemist, a curious young guild member chosen by Professor Atomwick to reopen the vault. The protagonist can be named by the player. |
 | Antagonist | The Muddlefog - not an evil person, but a magical confusion that has scrambled the town's understanding of matter. It locks element families and causes quest-givers to forget how things are made. |
 | Struggle | The player must move from memorizing element names to understanding how elements combine, how materials behave, and how small recipes build into useful objects. |
@@ -275,7 +289,7 @@ Elements enter the game through five channels. This avoids the feeling that ever
 
 ## Quest Appearance Rules
 
-Only show a few quests at a time. The Quest Board should feel like a curated bulletin board, not a spreadsheet.
+Only show a few quests at a time. The Quest Briefing should feel like a curated bulletin board, not a spreadsheet.
 
 | Board Slot | Quest Type | Purpose |
 |---|---|---|
@@ -292,7 +306,7 @@ Punishments should be soft, reversible, and educational. This is a child-facing 
 | Punishment | Trigger | Effect | Teaching Purpose |
 |---|---|---|---|
 | Fizzle | Invalid recipe or impossible combination. | Returns most cards and reveals one hint. | Encourages hypothesis testing without harsh loss. |
-| Inventory Pressure | Inventory is full when crafts finish. | Finished item waits in Output Tray; player must sell, deliver, or upgrade. | Teaches planning and opportunity cost. |
+| Inventory Pressure | Inventory is full when crafts finish. | Finished item waits in the Output Slot; player must sell, deliver, or upgrade. | Teaches planning and opportunity cost. |
 | Quest Expiry (optional later) | A timed optional quest is ignored. | Quest leaves board but returns later; no critical loss. | Adds light urgency for older players. |
 | Overproduction | Player crafts too many low-value items. | Items can be sold at reduced value or donated to Museum for tiny XP. | Teaches resource management. |
 
@@ -307,7 +321,7 @@ Inventory is central because the player often crafts components that are not imm
 | Slots | Start with 5, tutorial upgrades to 6. | Backpack upgrades to 8, 12, 20, then categorized shelves. |
 | Stacks | Identical simple items stack up to 10. | Stack limit upgrades through crates and jars. |
 | Categories | All in one tray at first. | Elements, molecules, materials, objects, quest items, surplus. |
-| Output Tray | Completed crafts land here first. | Auto-sort assistant moves completed items to correct shelf. |
+| Output Slot | Completed crafts land here first. | Auto-sort assistant moves completed items to the correct Inventory shelf. |
 | Sell Bin | Drag surplus to market bin for Gold. | Bulk-sell rules and favorites prevent accidental selling. |
 | Pinned Items | Player can pin quest-relevant items. | Protects important components from selling or auto-use. |
 
@@ -333,7 +347,7 @@ Inventory is central because the player often crafts components that are not imm
 
 | Concept | Definition | Example |
 |---|---|---|
-| Visible Slots | The number of cards placed on the Crafting Table. Starts at 3, upgrades to 4, and caps at 5. | H + H + O uses 3 visible slots and exactly fills the starter table. |
+| Visible Slots | The number of cards placed on the Alchemy Workbench. Starts at 3, upgrades to 4, and caps at 5. | H + H + O uses 3 visible slots and exactly fills the starter Alchemy Workbench. |
 | Atom Complexity | The total number of atoms represented by the visible cards. | H2O has atom complexity 3. C6H12O6 has atom complexity 24. |
 | Compression | A crafted compound occupies one visible card even if it contains many atoms. | H2 card uses 1 visible slot but complexity 2. |
 | Recipe Planning | The player chooses whether to craft from raw elements or pre-combine components. | Glass Batch uses Silica + Soda Ash + Calcium Carbonate after those larger ideas are compressed into cards. |
@@ -344,7 +358,7 @@ Inventory is central because the player often crafts components that are not imm
 
 | Upgrade State | Unlock Moment | Purpose |
 |---|---|---|
-| 3 slots | Start of game | Water fills the entire starter table, making H2O tactile and memorable. |
+| 3 slots | Start of game | Water fills the entire starter Alchemy Workbench, making H2O tactile and memorable. |
 | 4 slots | Shop unlock after Sir Bubbleton Needs Water | Gives the first earned comfort upgrade without immediately requiring it. |
 | 5 slots | Shop unlock after The First Field Kit | Prepares the player for five-card carbonate recipes in the glass chain. |
 
@@ -365,11 +379,15 @@ Inventory is central because the player often crafts components that are not imm
 
 The player does not move an avatar through a world in the MVP. Instead, the iPad screen is a living board with tappable zones. The camera may pan or zoom between zones later, but the prototype should remain mostly one screen.
 
-- **Quest Board:** active quests, completed quest animations, new NPC arrival.
-- **Crafting Table:** three to five slots, craft button, timer, queue, recipe ghost hints.
+- **Guild Banner:** board title and current guild context.
+- **Profile:** player profile, guild rank, and long-term progression summary.
+- **Quest Briefing:** active quests, completed quest animations, new NPC arrival.
 - **Periodic Table Vault:** locked/unlocked elements; tap an element for facts and available recipes.
-- **Inventory Tray:** finished cards, pinned quest items, surplus, sell bin.
-- **Upgrade Shop:** queue, speed, inventory, labels, hints, offline progress.
+- **Inventory:** finished cards, pinned quest items, surplus, sell bin.
+- **Alchemy Workbench:** three to five slots, recipe ghost hints, and card placement.
+- **Transmutation Pad:** confirms the current recipe and starts crafting.
+- **Output Slot:** previews or holds the next crafted result.
+- **Alchemy Workbench Info:** one-sentence recipe/output context for the Output Slot.
 - **Museum:** badges, element families, formula gallery, mastery checks.
 
 ## Health / Failure
@@ -402,14 +420,14 @@ Gold is earned by quests and selling surplus. Discovery Tokens are earned by mea
 
 ### Generic Level Design
 
-The game world is a single iPad board representing Vellum Vale. Instead of traditional levels, progression unlocks board zones and NPC quest families. The early board has Quest Board, Crafting Table, Periodic Table Vault, Inventory, and Upgrade Shop. Later, the town expands to Bakery, Forge, Mine, Garden, Glassworks, Tinker Shop, Observatory, and Museum wings.
+The game world is a single iPad board representing Vellum Vale. Instead of traditional levels, progression unlocks board zones and NPC quest families. The early board has Guild Banner, Profile, Quest Briefing, Periodic Table Vault, Inventory, Alchemy Workbench Info, Output Slot, Transmutation Pad, and Alchemy Workbench. Later, the town expands to Bakery, Forge, Mine, Garden, Glassworks, Tinker Shop, Observatory, and Museum wings.
 
 ### Specific Level / Zone Design
 
 | Zone | Look / Purpose | Entry Requirement | Gained |
 |---|---|---|---|
-| Level 1: The Workshop Table | Warm wooden board, three glowing starter slots, simple craft queue. | Start of game. | Basic crafting, H/O/C, water quest, first workbench upgrade. |
-| Level 2: Guild Quest Board | Parchment board with 2-3 visible quests and NPC portraits. | Complete tutorial water. | Multiple quests, prioritization. |
+| Level 1: Alchemy Workbench | Warm wooden board, three glowing starter slots, simple craft queue. | Start of game. | Basic crafting, H/O/C, water quest, first workbench upgrade. |
+| Level 2: Quest Briefing | Parchment board with 2-3 visible quests and NPC portraits. | Complete tutorial water. | Multiple quests, prioritization. |
 | Level 3: Periodic Table Vault | Stone-and-light periodic table; locked squares are fogged. | Start; expands after each Discovery Token. | Element unlocks, facts, family badges. |
 | Level 4: Market Shelf | Coin tray, sell bin, merchant card packs replaced by deterministic supply crates. | Complete first production quest. | Sell surplus, buy common supplies/upgrades. |
 | Level 5: Bakery | Cozy oven, flour sacks, water and salt quests. | Unlock Sodium/Chlorine path. | Kitchen chemistry, bulk orders. |
@@ -439,7 +457,7 @@ The game world is a single iPad board representing Vellum Vale. Instead of tradi
 | Drag card | Move to crafting slot, inventory, quest, sell bin, or pin area. |
 | Double-tap element in vault | Add one card to hand/workbench if available. |
 | Pinch Periodic Table Vault | Zoom in/out on element families. |
-| Swipe inventory tray | Scroll shelves. |
+| Swipe Inventory | Scroll shelves. |
 | Tap Craft | Start craft if recipe is valid. |
 | Tap Queue | View upcoming crafts and reorder. |
 | Drag finished item to quest | Deliver. |
@@ -463,7 +481,7 @@ Palette direction: cozy parchment fantasy plus bright science clarity. The game 
 
 ## Atmosphere
 
-The atmosphere should feel like a fantasy school desk mixed with a tabletop RPG town. The player is not in a sterile lab; they are in a magical guild workshop where scientific symbols are treasured artifacts. The lighting is warm, the cards have subtle shadows, the vault glows when new elements unlock, and the quest board feels alive without being noisy.
+The atmosphere should feel like a fantasy school desk mixed with a tabletop RPG town. The player is not in a sterile lab; they are in a magical guild workshop where scientific symbols are treasured artifacts. The lighting is warm, the cards have subtle shadows, the Periodic Table Vault glows when new elements unlock, and the Quest Briefing feels alive without being noisy.
 
 ## Sample Art Direction
 
@@ -481,7 +499,7 @@ The successful version of *Elemental Guild* is a game that a parent and child ca
 
 ## Visualizing Failure
 
-The failure mode is over-scoping. The game tries to model all chemistry accurately, every recipe becomes a research project, the UI becomes too small, the child gets overwhelmed by too many quests, and the prototype stalls. The way to avoid this is to protect the first playable loop: one board, one quest board, one inventory, one crafting table, ten elements, twenty recipes, and delight. If that loop feels good, the game can grow for years.
+The failure mode is over-scoping. The game tries to model all chemistry accurately, every recipe becomes a research project, the UI becomes too small, the child gets overwhelmed by too many quests, and the prototype stalls. The way to avoid this is to protect the first playable loop: one board with Quest Briefing, Inventory, Periodic Table Vault, Alchemy Workbench, Transmutation Pad, Output Slot, and Alchemy Workbench Info, plus ten elements, twenty recipes, and delight. If that loop feels good, the game can grow for years.
 
 ## Scope
 
@@ -499,7 +517,7 @@ The failure mode is over-scoping. The game tries to model all chemistry accurate
 - A new player can complete the Water quest in under 2 minutes without reading a manual.
 - The player understands that H2O means two Hydrogen and one Oxygen by performing the action.
 - The player can run at least one idle craft queue, close the app, and return to finished items.
-- The Quest Board never shows more than three quests in the first 15 minutes.
+- The Quest Briefing never shows more than three quests in the first 15 minutes.
 - The Discovery Draft always offers three meaningful, non-dead-end choices.
 - The inventory creates an interesting choice but does not block progress harshly.
 - At least one parent-child conversation naturally happens from an element fact, NPC joke, or formula hint.
@@ -525,7 +543,7 @@ The failure mode is over-scoping. The game tries to model all chemistry accurate
 
 | # | Quest | Requirement | Reward / Unlock |
 |---:|---|---|---|
-| 1 | Sir Bubbleton Needs Water | Craft H2O on the three-slot starter table | 10 Gold, 1 Discovery Token, Workbench Slot IV shop unlock |
+| 1 | Sir Bubbleton Needs Water | Craft H2O on the three-slot starter Alchemy Workbench | 10 Gold, 1 Discovery Token, Workbench Slot IV purchase unlock |
 | 2 | Baker Needs 3 Waters | Craft 3x H2O | 15 Gold, Sodium/Nitrogen/Iron draft |
 | 3 | Professor Wants Air | Craft O2 + N2 simplified Air Mix | Unlock Nitrogen path |
 | 4 | Baker Needs Salt | Craft NaCl | Unlock Kitchen I badge |
@@ -551,7 +569,7 @@ The failure mode is over-scoping. The game tries to model all chemistry accurate
 | Milestone | Description | Completion Target |
 |---:|---|---|
 | 1 | Data model: elements, cards, recipes, inventory items, quests, unlock nodes. | Day 1-2 |
-| 2 | Static iPad board layout: quest board, crafting table, inventory, vault. | Day 3-4 |
+| 2 | Static iPad board layout: Quest Briefing, Profile, Guild Banner, Periodic Table Vault, Inventory, Alchemy Workbench Info, Output Slot, Transmutation Pad, and Alchemy Workbench. | Day 3-4 |
 | 3 | Drag-and-drop card crafting for Water and Salt. | Day 5-7 |
 | 4 | Quest completion rewards: Gold, Discovery Token, element unlock. | Week 2 |
 | 5 | Craft timers, queue, offline progress calculation. | Week 2 |
@@ -563,7 +581,7 @@ The failure mode is over-scoping. The game tries to model all chemistry accurate
 
 ## Playtest Script
 
-1. Ask the child to open the game with no explanation. Can they find the Quest Board?
+1. Ask the child to open the game with no explanation. Can they find the Quest Briefing?
 2. Watch the Water quest. Do they understand two Hydrogen plus one Oxygen?
 3. After the first reward, ask which Discovery Draft option they want and why.
 4. Ask them to explain what is inside the Water card after it is crafted.

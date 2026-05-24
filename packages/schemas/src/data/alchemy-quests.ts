@@ -234,9 +234,9 @@ export const ALCHEMY_QUESTS = [
       requester: "knight",
       summary: "Professor Atomwick opens the vault with Hydrogen, Oxygen, and Carbon glowing.",
       need: "My training helmet is steaming. Can you count out the atoms for Water?",
-      hint: "Water is H2O: two Hydrogen cards and one Oxygen card fill the starter table.",
+      hint: "Water is H2O: two Hydrogen cards and one Oxygen card fill the starter Alchemy Workbench.",
       completion:
-        "H2O saved the day. The first square shines, and the shop can sell a fourth table slot.",
+        "H2O saved the day. The first square shines, and the Workbench Slot IV purchase prompt can offer a fourth Alchemy Workbench slot.",
     },
     progression: {
       act: 1,
@@ -247,7 +247,7 @@ export const ALCHEMY_QUESTS = [
     },
     prerequisites: prerequisites(),
     recipeIds: ["alchemy:water"],
-    teachingFocus: ["count atoms", "read H2O", "three-slot starter table"],
+    teachingFocus: ["count atoms", "read H2O", "three-slot starter Alchemy Workbench"],
     unlocks: unlocks({
       elementCardIds: ["element:h", "element:o", "element:c"],
       requesters: ["knight"],
@@ -337,9 +337,9 @@ export const ALCHEMY_QUESTS = [
       requester: "ranger",
       summary: "Water starts chaining into plant, clay, glass, cork, fiber, and healing supplies.",
       need: "The guild scouts need mash, slip, powder, stopper, thread, and a warm tea.",
-      hint: "Use Water as a helper material. The starter table can still handle these recipes.",
+      hint: "Use Water as a helper material. The starter Alchemy Workbench can still handle these recipes.",
       completion:
-        "The inventory tray fills with useful components, and the shop can sell the fifth table slot.",
+        "The Inventory fills with useful components, and the Workbench Slot V purchase prompt can offer the fifth Alchemy Workbench slot.",
     },
     progression: {
       act: 1,
@@ -400,7 +400,7 @@ export const ALCHEMY_QUESTS = [
       requester: "artificer",
       summary: "The player builds the mineral foundation for glass from element recipes.",
       need: "Luma needs Silica, Soda Ash, Calcium Carbonate, and a measured Glass Batch.",
-      hint: "Buy the fifth table slot, then compress carbonate formulas into reusable cards.",
+      hint: "Buy the fifth Alchemy Workbench slot, then compress carbonate formulas into reusable cards.",
       completion: "The glassworks furnace wakes up with a soft blue glow.",
     },
     progression: {
@@ -669,7 +669,7 @@ export const ALCHEMY_QUESTS = [
       requester: "cleric",
       summary: "The potion chain pulls together glass, fizz, healing, and clean water.",
       need: "Make an Empty Potion Bottle, a Simple Healing Potion, and a Fizzy Tonic.",
-      hint: "Use the Output Tray. These recipes borrow from different branches.",
+      hint: "Use the Output Slot. These recipes borrow from different branches.",
       completion: "The town starts asking for finished goods, not just materials.",
     },
     progression: {
@@ -707,7 +707,7 @@ export const ALCHEMY_QUESTS = [
       summary: "Class requests begin, each using a different earlier material idea.",
       need: "Prepare a Ranger Field Flask, Cleansing Salt, Smoke Puff, and Iron Nail.",
       hint: "Class orders are small stories about why a material matters.",
-      completion: "The Quest Board now feels like Vellum Vale is depending on the player.",
+      completion: "The Quest Briefing now feels like Vellum Vale is depending on the player.",
     },
     progression: {
       act: 4,
@@ -969,7 +969,7 @@ export const ALCHEMY_QUESTS = [
       summary: "Copper and iron become color sources for art and glass.",
       need: "Craft Copper Chloride, Copper Patina, Iron Oxide Pigment, Green Pigment, and Red Pigment.",
       hint: "The same metal can show different colors in different recipes.",
-      completion: "The quest board gains color swatches that match the crafted cards.",
+      completion: "The Quest Briefing gains color swatches that match the crafted cards.",
     },
     progression: {
       act: 6,
@@ -1950,7 +1950,7 @@ function validateQuestTableSlotRequirement(questToValidate: AlchemyQuest): void 
   const requiredSlotCount = getAlchemyQuestRequiredTableSlotCount(questToValidate);
   if (requiredSlotCount > ALCHEMY_MAX_TABLE_SLOT_COUNT) {
     throw new Error(
-      `Quest ${questToValidate.id} needs ${requiredSlotCount} table slots, but the max is ${ALCHEMY_MAX_TABLE_SLOT_COUNT}`,
+      `Quest ${questToValidate.id} needs ${requiredSlotCount} Alchemy Workbench slots, but the max is ${ALCHEMY_MAX_TABLE_SLOT_COUNT}`,
     );
   }
 }
@@ -1959,17 +1959,19 @@ function validateTableSlotUpgradeUnlocks(questById: ReadonlyMap<string, AlchemyQ
   const upgradeIds = new Set<string>();
   for (const upgrade of ALCHEMY_TABLE_SLOT_UPGRADES) {
     if (upgradeIds.has(upgrade.id)) {
-      throw new Error(`Duplicate table slot upgrade id: ${upgrade.id}`);
+      throw new Error(`Duplicate Alchemy Workbench slot upgrade id: ${upgrade.id}`);
     }
     upgradeIds.add(upgrade.id);
 
     const unlockQuest = questById.get(upgrade.unlockQuestId);
     if (!unlockQuest) {
-      throw new Error(`Unknown table slot upgrade unlock quest: ${upgrade.unlockQuestId}`);
+      throw new Error(
+        `Unknown Alchemy Workbench slot upgrade unlock quest: ${upgrade.unlockQuestId}`,
+      );
     }
     if (!unlockQuest.unlocks.upgrades.includes(upgrade.id)) {
       throw new Error(
-        `Quest ${upgrade.unlockQuestId} must unlock table slot upgrade ${upgrade.id}`,
+        `Quest ${upgrade.unlockQuestId} must unlock Alchemy Workbench slot upgrade ${upgrade.id}`,
       );
     }
   }

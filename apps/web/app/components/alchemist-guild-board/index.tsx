@@ -44,6 +44,21 @@ const SWAP_MIN_DURATION_MS = 180;
 const SWAP_MAX_DURATION_MS = 300;
 const EMPTY_DROP_INTENT: DropIntent = { kind: "none" };
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const BOARD_DESCRIPTIONS = {
+  alchemyWorkbench:
+    "The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items.",
+  alchemyWorkbenchInfo:
+    "Explains the recipe or output currently previewed by the Alchemy Workbench output slot.",
+  guildBanner: "Names the current board and anchors the Alchemist Guild play space.",
+  inventory:
+    "Stores crafted cards, gathered materials, and quest outputs the player can use later.",
+  outputSlot: "Previews what the current Alchemy Workbench card arrangement is about to make.",
+  periodicTableVault: "Holds the unlocked elemental cards that can be picked up for crafting.",
+  profile: "Shows the player profile, guild rank, and long-term progression summary.",
+  progressTrack: "Shows broad story progress as the player clears Muddlefog from the guild.",
+  questBriefing: "Shows the active quest request, hint, and completion context.",
+  transmutationPad: "Confirms the current workbench recipe and starts the crafting transformation.",
+} as const;
 
 const reagentSlots = [
   { id: "reagent-slot-1", name: "Reagent slot 1" },
@@ -194,19 +209,27 @@ const DropGhost = defineComponent(DropGhostPropsSchema, ({ card, feedback }) => 
 ));
 
 const BoardDebugBadgePropsSchema = z.object({
+  description: z.string().min(1),
   label: z.string().min(1),
   visible: z.boolean(),
 });
 
-const BoardDebugBadge = defineComponent(BoardDebugBadgePropsSchema, ({ label, visible }) =>
-  visible ? (
-    <span
-      data-board-debug-badge=""
-      className="pointer-events-none absolute left-1 top-1 z-[80] rounded-[2px] bg-red-600 px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-normal text-white shadow-[0_1px_0_rgba(0,0,0,0.5)]"
-    >
-      {label}
-    </span>
-  ) : null,
+const BoardDebugBadge = defineComponent(
+  BoardDebugBadgePropsSchema,
+  ({ description, label, visible }) =>
+    visible ? (
+      <span className="pointer-events-none absolute left-1 top-1 z-[80] max-w-[min(22rem,calc(100%-0.5rem))]">
+        <span
+          data-board-debug-badge=""
+          className="inline-block rounded-[2px] bg-red-600 px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-normal text-white shadow-[0_1px_0_rgba(0,0,0,0.5)]"
+        >
+          {label}
+        </span>
+        <span className="mt-1 block rounded-[2px] bg-neutral-950/85 px-2 py-1.5 text-[11px] font-semibold leading-snug tracking-normal text-white shadow-[0_1px_0_rgba(0,0,0,0.5)]">
+          {description}
+        </span>
+      </span>
+    ) : null,
 );
 
 const ReagentSlotPropsSchema = z.object({
@@ -602,18 +625,28 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       <div className="mx-auto grid h-full min-h-0 max-w-[1332px] grid-rows-[5rem_0.75rem_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_0.75rem_minmax(0,1fr)]">
         <header
           data-board-section="guild-banner"
-          data-board-name="Guild banner"
+          data-board-name="Guild Banner"
+          data-board-description={BOARD_DESCRIPTIONS.guildBanner}
           className="relative grid min-h-0 place-items-center bg-neutral-300"
         >
-          <BoardDebugBadge label="Guild banner" visible={showBoardDebugBadges} />
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.guildBanner}
+            label="Guild Banner"
+            visible={showBoardDebugBadges}
+          />
           <h1 className="font-serif text-4xl leading-none lg:text-5xl">Alchemist Guild</h1>
         </header>
 
         <div className="relative min-h-0">
-          <BoardDebugBadge label="Progress track" visible={showBoardDebugBadges} />
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.progressTrack}
+            label="Progress track"
+            visible={showBoardDebugBadges}
+          />
           <progress
             data-board-section="progress-track"
             data-board-name="Progress track"
+            data-board-description={BOARD_DESCRIPTIONS.progressTrack}
             className="block h-3 w-full appearance-none overflow-hidden bg-indigo-200 accent-indigo-600 [&::-moz-progress-bar]:bg-indigo-600 [&::-webkit-progress-bar]:bg-indigo-200 [&::-webkit-progress-value]:bg-indigo-600"
             aria-label="Alchemy progress"
             max={100}
@@ -626,18 +659,28 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
           <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
             <div
-              data-board-section="left-briefing-panel"
-              data-board-name="Left briefing panel"
+              data-board-section="left-profile-panel"
+              data-board-name="Profile"
+              data-board-description={BOARD_DESCRIPTIONS.profile}
               className="relative min-h-0 bg-neutral-300"
             >
-              <BoardDebugBadge label="Quest briefing" visible={showBoardDebugBadges} />
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.profile}
+                label="Profile"
+                visible={showBoardDebugBadges}
+              />
             </div>
             <div
-              data-board-section="left-ledger-panel"
-              data-board-name="Left ledger panel"
+              data-board-section="left-briefing-panel"
+              data-board-name="Quest Briefing"
+              data-board-description={BOARD_DESCRIPTIONS.questBriefing}
               className="relative min-h-0 bg-neutral-300"
             >
-              <BoardDebugBadge label="Guild ledger" visible={showBoardDebugBadges} />
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.questBriefing}
+                label="Quest Briefing"
+                visible={showBoardDebugBadges}
+              />
             </div>
           </aside>
 
@@ -645,9 +688,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             <div
               data-board-section="periodic-table-dock"
               data-board-name="Periodic Table Vault"
+              data-board-description={BOARD_DESCRIPTIONS.periodicTableVault}
               className="relative min-h-0 overflow-hidden rounded-[2px] bg-neutral-300"
             >
-              <BoardDebugBadge label="Periodic Table Vault" visible={showBoardDebugBadges} />
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.periodicTableVault}
+                label="Periodic Table Vault"
+                visible={showBoardDebugBadges}
+              />
               <canvas
                 ref={periodicTableCanvasRef}
                 data-board-section="periodic-table-canvas"
@@ -661,10 +709,15 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
             <div
               data-board-section="alchemy-workbench"
-              data-board-name="Alchemy workbench"
+              data-board-name="Alchemy Workbench"
+              data-board-description={BOARD_DESCRIPTIONS.alchemyWorkbench}
               className="relative grid min-h-0 grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 bg-neutral-300 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8"
             >
-              <BoardDebugBadge label="Alchemy workbench" visible={showBoardDebugBadges} />
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.alchemyWorkbench}
+                label="Alchemy Workbench"
+                visible={showBoardDebugBadges}
+              />
               {reagentSlots.map((slot) => (
                 <ReagentSlot
                   key={slot.id}
@@ -686,10 +739,15 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
               <div
                 data-board-section="transmutation-pad"
-                data-board-name="Transmutation pad"
+                data-board-name="Transmutation Pad"
+                data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
                 className="relative col-span-full grid min-h-0 grid-cols-[6rem_1fr] items-center border border-neutral-600 bg-neutral-300 p-3 sm:col-span-4 lg:grid-cols-[7rem_1fr]"
               >
-                <BoardDebugBadge label="Transmutation pad" visible={showBoardDebugBadges} />
+                <BoardDebugBadge
+                  description={BOARD_DESCRIPTIONS.transmutationPad}
+                  label="Transmutation Pad"
+                  visible={showBoardDebugBadges}
+                />
                 <div
                   data-board-section="swipe-rune-handle"
                   data-board-name="Swipe rune handle"
@@ -708,28 +766,43 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
               <div
                 data-board-section="transmutation-output-slot"
-                data-board-name="Transmutation output slot"
+                data-board-name="Output Slot"
+                data-board-description={BOARD_DESCRIPTIONS.outputSlot}
                 className="relative col-span-full min-h-0 border border-neutral-600 bg-neutral-300 sm:col-span-1 sm:col-start-5"
               >
-                <BoardDebugBadge label="Output slot" visible={showBoardDebugBadges} />
+                <BoardDebugBadge
+                  description={BOARD_DESCRIPTIONS.outputSlot}
+                  label="Output Slot"
+                  visible={showBoardDebugBadges}
+                />
               </div>
             </div>
           </section>
 
-          <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
-            <div
-              data-board-section="right-actions-panel"
-              data-board-name="Right actions panel"
-              className="relative min-h-0 bg-neutral-300"
-            >
-              <BoardDebugBadge label="Actions" visible={showBoardDebugBadges} />
-            </div>
+          <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]">
             <div
               data-board-section="right-inventory-panel"
-              data-board-name="Right inventory panel"
+              data-board-name="Inventory"
+              data-board-description={BOARD_DESCRIPTIONS.inventory}
               className="relative min-h-0 bg-neutral-300"
             >
-              <BoardDebugBadge label="Inventory" visible={showBoardDebugBadges} />
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.inventory}
+                label="Inventory"
+                visible={showBoardDebugBadges}
+              />
+            </div>
+            <div
+              data-board-section="alchemy-workbench-info-panel"
+              data-board-name="Alchemy Workbench Info"
+              data-board-description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
+              className="relative min-h-0 bg-neutral-300"
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
+                label="Alchemy Workbench Info"
+                visible={showBoardDebugBadges}
+              />
             </div>
           </aside>
         </section>
