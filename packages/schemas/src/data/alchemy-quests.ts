@@ -233,10 +233,10 @@ export const ALCHEMY_QUESTS = [
       title: "Sir Bubbleton Needs Water",
       requester: "knight",
       summary: "Professor Atomwick opens the vault with Hydrogen, Oxygen, and Carbon glowing.",
-      need: "My training helmet is steaming. Can you count out the atoms for Water?",
+      need: "My training helmet is steaming. Can you make Water before the plume turns into fire?",
       hint: "Water is H2O: two Hydrogen cards and one Oxygen card fill the starter Alchemy Workbench.",
       completion:
-        "H2O saved the day. The first square shines, and the Workbench Slot IV purchase prompt can offer a fourth Alchemy Workbench slot.",
+        "H2O cools the helmet for now, but Sir Bubbleton already suspects the next training run will need a whole bucket.",
     },
     progression: {
       act: 1,
@@ -591,7 +591,7 @@ export const ALCHEMY_QUESTS = [
       requester: "bard",
       summary: "Carbon dioxide and carbonic water introduce gases without danger.",
       need: "Make Carbon Dioxide, Carbonic Water, and Distilled Water for a fizzy demonstration.",
-      hint: "A gas card is still matter. It can become part of another card.",
+      hint: "A gas card is still matter. Distilled Water now asks for two Water cards, showing that crafted cards can be inputs too.",
       completion: "The bard writes a song about bubbles that are made of atoms.",
     },
     progression: {

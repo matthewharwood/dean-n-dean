@@ -87,6 +87,7 @@ export const AlchemySafetyTierSchema = z.enum(ALCHEMY_SAFETY_TIERS);
 
 export const AlchemyCardIdSchema = z.string().regex(/^[a-z]+:[a-z0-9-]+$/);
 export type AlchemyCardId = z.infer<typeof AlchemyCardIdSchema>;
+export const AlchemyRecipeIdSchema = z.string().regex(/^alchemy:[a-z0-9-]+$/);
 
 export const AlchemyCardImagePathSchema = z
   .string()
@@ -350,7 +351,7 @@ export const AlchemyCraftedCardSchema = z.object({
   type: z.literal("crafted"),
   name: z.string().min(1),
   kind: AlchemyItemKindSchema.exclude(["raw-material"]),
-  sourceRecipeId: z.string().regex(/^alchemy:[a-z0-9-]+$/),
+  sourceRecipeId: AlchemyRecipeIdSchema,
   unlockCohort: z.int().min(1),
   imagePath: AlchemyCardImagePathSchema,
   complexity: AlchemyArgumentComplexitySchema,
@@ -372,7 +373,7 @@ export const AlchemyRecipeFantasySchema = z.object({
 export type AlchemyRecipeFantasy = z.infer<typeof AlchemyRecipeFantasySchema>;
 
 export const AlchemyRecipeSchema = z.object({
-  id: z.string().regex(/^alchemy:[a-z0-9-]+$/),
+  id: AlchemyRecipeIdSchema,
   name: z.string().min(1),
   output: AlchemyRecipeOutputSchema,
   arguments: z.array(AlchemyArgumentSchema).min(1),
@@ -863,13 +864,13 @@ export const ALCHEMY_RECIPES = [
     id: "alchemy:distilled-water",
     name: "Distilled Water",
     output: item("material", "material:distilled-water", "Distilled Water"),
-    arguments: [arg("material:water", 1)],
+    arguments: [arg("material:water", 2)],
     station: "distillery",
     action: "distill",
     progression: progress(3, 4, 2, 0.24),
     education: lesson(
       ["phase change", "purification"],
-      "Distillation uses evaporation and condensation to separate water.",
+      "Distillation combines two Water cards into a cleaner water card by modeling evaporation and condensation.",
       "adult-supervision",
     ),
     fantasy: request(["cleric", "wizard"], ["potion-base"]),

@@ -2,6 +2,7 @@ import {
   ALCHEMIST_GUILD_BOARD_DEFAULT,
   type AlchemistGuildBoardState,
   type Progress,
+  SETTINGS_DEFAULT,
   type Settings,
 } from "@dean-stack/schemas";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
@@ -33,7 +34,7 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
       }
       if (oldVersion < 2) {
         const settings = db.createObjectStore("settings", { keyPath: "id" });
-        void settings.put({ id: "settings", theme: "light", reducedMotion: false });
+        void settings.put(SETTINGS_DEFAULT);
       }
       if (oldVersion < 3) {
         const alchemistGuildBoards = db.createObjectStore("alchemistGuildBoards", {

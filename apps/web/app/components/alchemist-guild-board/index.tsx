@@ -1,14 +1,23 @@
 import {
+  ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
   ALCHEMY_CRAFTED_CARDS,
+  ALCHEMY_QUESTS,
+  ALCHEMY_RECIPES,
   type AlchemistGuildBoardSlots,
   type AlchemistGuildBoardState,
   type AlchemistGuildInventoryCooldown,
   type AlchemistGuildInventorySlotId,
   AlchemistGuildInventorySlotIdSchema,
   type AlchemistGuildInventorySlots,
+  type AlchemistGuildProfile,
+  type AlchemistGuildQuestDeliveries,
   type AlchemistGuildReagentSlotId,
   AlchemistGuildReagentSlotIdSchema,
+  type AlchemyQuestRewards,
   ELEMENT_CARDS,
+  getAlchemyQuestBoard,
+  getAlchemyQuestById,
+  type StaticAlchemyQuest,
 } from "@dean-stack/schemas";
 import {
   type AnimatableObject,
@@ -18,7 +27,19 @@ import {
   type JSAnimation,
 } from "animejs";
 import { useAtomValue, useSetAtom } from "jotai";
-import { PackageOpen } from "lucide-react";
+import {
+  BookOpen,
+  Brain,
+  CheckCircle2,
+  ChevronUp,
+  CloudFog,
+  Coins,
+  LockKeyhole,
+  type LucideIcon,
+  PackageOpen,
+  ScrollText,
+  Sparkles,
+} from "lucide-react";
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -44,6 +65,7 @@ import { FIRST_PROFILE_CARD_PROPS, ProfileCard } from "./profile-card";
 import { FIRST_QUEST_BRIEFING_CARD_PROPS, QuestBriefingCard } from "./quest-briefing-card";
 import {
   type AlchemyWorkbenchRecipePreview,
+  formatAlchemyRecipeFormula,
   getAlchemyWorkbenchRecipePreview,
 } from "./recipe-preview";
 import { AlchemistGuildBoardPropsSchema } from "./schema";
@@ -60,14 +82,26 @@ const TRANSMUTE_SWIPE_THRESHOLD = 0.72;
 const TRANSMUTE_KNOB_WIDTH_PX = 96;
 const TRANSMUTE_TRACK_PADDING_PX = 12;
 const TRANSMUTE_COMMIT_HOLD_MS = 160;
+const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
+const QUEST_CLAIM_COMMIT_HOLD_MS = 120;
+const QUEST_CLAIM_KNOB_HEIGHT_PX = 44;
+const QUEST_CLAIM_TRACK_PADDING_PX = 8;
+const QUEST_CLAIM_KNOB_TRAVEL_PX = 36;
+const QUEST_REWARD_FLY_DURATION_MS = 560;
+const QUEST_REWARD_FLY_STAGGER_MS = 72;
 const OUTPUT_CARD_COOLDOWN_MS = 1000;
 const OUTPUT_COOLDOWN_PREFIXES = new Map<string, number>([["material:", OUTPUT_CARD_COOLDOWN_MS]]);
 const MAX_VISIBLE_COOLDOWN_BARS = 4;
+const RECIPE_REVEAL_STAGGER_MS = 70;
+const RECIPE_REVEAL_INTERSECTION_THRESHOLD = 0.36;
+const RECIPE_REVEAL_ID_SEPARATOR = "|";
+const QUEST_DELIVERY_COMPLETE_LABEL = "Ready to claim";
 const EMPTY_DROP_INTENT: DropIntent = { kind: "none" };
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const TOKEN_PREFIX_PATTERN = /^[a-z-]+:/;
 const CARD_SYMBOL_CLEANUP_PATTERN = /[^A-Za-z0-9 ]/g;
 const CARD_SYMBOL_WORD_PATTERN = /\s+/;
+const FIRST_QUEST = getRequiredAlchemyQuest(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID);
 const WINDOW_POINTER_LISTENER_OPTIONS = {
   capture: true,
   passive: false,
@@ -115,6 +149,30 @@ const inventorySlots = [
   { id: "inventory-slot-7", name: "Inventory slot 7" },
   { id: "inventory-slot-8", name: "Inventory slot 8" },
 ] satisfies readonly { id: AlchemistGuildInventorySlotId; name: string }[];
+
+const infoPanelTabs = ["element", "recipe"] as const;
+const InfoPanelTabSchema = z.enum(infoPanelTabs);
+type InfoPanelTab = z.infer<typeof InfoPanelTabSchema>;
+
+const questPanelTabs = ["current", "log"] as const;
+const QuestPanelTabSchema = z.enum(questPanelTabs);
+type QuestPanelTab = z.infer<typeof QuestPanelTabSchema>;
+
+type RewardKind = "discovery" | "gold" | "knowledge" | "muddlefog";
+
+const REWARD_ICONS = {
+  discovery: Sparkles,
+  gold: Coins,
+  knowledge: Brain,
+  muddlefog: CloudFog,
+} satisfies Record<RewardKind, LucideIcon>;
+
+const REWARD_PROFILE_STAT_KIND = {
+  discovery: "discovery",
+  gold: "gold",
+  knowledge: "knowledge",
+  muddlefog: "muddlefog",
+} satisfies Record<RewardKind, string>;
 
 type AlchemyBoardCard = {
   detailLabel: string;
@@ -181,7 +239,7 @@ type DraggedAlchemyCard = {
 type DropIntent =
   | { kind: "none" }
   | { kind: "drop"; slotId: AlchemistGuildReagentSlotId }
-  | { kind: "quest" }
+  | { accepted: boolean; kind: "quest" }
   | { kind: "swap"; slotId: AlchemistGuildReagentSlotId }
   | { kind: "replace"; slotId: AlchemistGuildReagentSlotId }
   | { kind: "blocked"; slotId: AlchemistGuildReagentSlotId };
@@ -215,6 +273,21 @@ type TransmuteFlyAnimation = {
   id: string;
   stackCount?: number;
   toRect: SlotRect;
+  toInventorySlotId?: AlchemistGuildInventorySlotId;
+};
+
+type QuestRewardFlyItem = {
+  fromRect: SlotRect;
+  id: string;
+  kind: RewardKind;
+  label: string;
+  toRect: SlotRect;
+  value: string;
+};
+
+type QuestRewardFlyAnimation = {
+  id: string;
+  items: QuestRewardFlyItem[];
 };
 
 type PointerSample = {
@@ -335,6 +408,367 @@ const BoardDebugBadge = defineComponent(
     ) : null,
 );
 
+const QuestBriefingAtmosphere = defineComponent(z.object({}), () => (
+  <div
+    className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[8px]"
+    aria-hidden="true"
+  >
+    <div className="absolute inset-x-3 top-10 h-[34rem] rounded-[18px] bg-[radial-gradient(circle_at_50%_62%,rgba(251,146,60,0.34),transparent_44%),radial-gradient(circle_at_18%_30%,rgba(253,186,116,0.5),transparent_30%),radial-gradient(circle_at_82%_42%,rgba(249,115,22,0.32),transparent_36%)] blur-xl" />
+    <div className="absolute bottom-8 left-8 right-8 h-32 rounded-[50%] bg-[radial-gradient(circle,rgba(251,191,36,0.36),transparent_62%)] blur-2xl" />
+    <span className="absolute left-8 top-3 h-28 w-6 rotate-[-14deg] rounded-full bg-white/35 blur-lg motion-safe:animate-pulse" />
+    <span className="absolute left-20 top-6 h-24 w-5 rotate-[10deg] rounded-full bg-white/30 blur-lg motion-safe:animate-pulse" />
+    <span className="absolute right-10 top-4 h-32 w-7 rotate-[16deg] rounded-full bg-white/30 blur-lg motion-safe:animate-pulse" />
+  </div>
+));
+
+const QuestDeliverySlotPropsSchema = z.object({
+  card: z.custom<AlchemyBoardCard>(),
+  delivered: z.int().min(0),
+  dropFeedback: z.custom<DropFeedback>(),
+  required: z.int().min(1),
+});
+
+const QuestDeliverySlot = defineComponent(
+  QuestDeliverySlotPropsSchema,
+  ({ card, delivered, dropFeedback, required }) => {
+    const deliveredCount = Math.min(delivered, required);
+    const isComplete = deliveredCount >= required;
+
+    return (
+      <section
+        data-board-section="quest-delivery-drop-zone"
+        data-board-name={`${card.name} quest delivery`}
+        data-card-id={card.id}
+        data-delivery-complete={isComplete ? "true" : "false"}
+        data-drop-feedback={dropFeedback}
+        className={getQuestDeliverySlotClass(dropFeedback, isComplete)}
+        aria-label={`Deliver ${required} ${card.name} card${required === 1 ? "" : "s"} to Sir Bubbleton`}
+      >
+        <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3">
+          <div
+            className={`grid size-18 place-items-center rounded-[6px] border-2 border-dashed bg-white/65 ${
+              isComplete ? "border-emerald-600" : "border-sky-950/35"
+            }`}
+            aria-hidden="true"
+          >
+            <img
+              src={getAlchemyCardArtSrc(card)}
+              alt=""
+              className={`size-14 object-contain ${isComplete ? "" : "opacity-35 grayscale"}`}
+              draggable={false}
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+              Sir Bubbleton needs
+            </p>
+            <p className="truncate font-serif text-2xl leading-none text-amber-950">{card.name}</p>
+            <p className="mt-1 text-xs font-bold leading-tight text-neutral-800">
+              {isComplete ? QUEST_DELIVERY_COMPLETE_LABEL : "Cool the helmet before it catches."}
+            </p>
+          </div>
+          <span className="rounded-full border border-amber-900/25 bg-white/70 px-2 py-1 font-mono text-sm font-black leading-none text-amber-950">
+            {deliveredCount}/{required}
+          </span>
+        </div>
+      </section>
+    );
+  },
+);
+
+const QuestPanelPropsSchema = z.object({
+  activeQuestIds: z.array(z.string().min(1)),
+  activeTab: QuestPanelTabSchema,
+  canClaim: z.boolean(),
+  claimedQuestIds: z.array(z.string().min(1)),
+  claimProgress: z.number().min(0).max(1),
+  deliveryCard: z.custom<AlchemyBoardCard | null>(),
+  deliveryDropFeedback: z.custom<DropFeedback>(),
+  deliveryProgress: z.object({
+    delivered: z.int().min(0),
+    required: z.int().min(1),
+  }),
+  developerNotesVisible: z.boolean(),
+  hasQuestNotifications: z.boolean(),
+  isClaimDragging: z.boolean(),
+  onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLDivElement>) => void>(),
+  onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+});
+
+const QuestPanel = defineComponent(
+  QuestPanelPropsSchema,
+  ({
+    activeQuestIds,
+    activeTab,
+    canClaim,
+    claimedQuestIds,
+    claimProgress,
+    deliveryCard,
+    deliveryDropFeedback,
+    deliveryProgress,
+    developerNotesVisible,
+    hasQuestNotifications,
+    isClaimDragging,
+    onClaimPointerDown,
+    onTabChange,
+  }) => (
+    <section className="relative z-10 grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+      <QuestPanelTabs
+        activeTab={activeTab}
+        hasQuestNotifications={hasQuestNotifications}
+        onTabChange={onTabChange}
+      />
+      <div className="min-h-0 pt-2">
+        {activeTab === "current" ? (
+          <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2">
+            <div data-board-section="quest-panel-scroll" className="min-h-0 overflow-y-auto pr-1">
+              <div className="grid min-h-0 content-start gap-2">
+                <QuestBriefingCard
+                  {...FIRST_QUEST_BRIEFING_CARD_PROPS}
+                  developerNotesVisible={developerNotesVisible}
+                />
+                {deliveryCard ? (
+                  <QuestDeliverySlot
+                    card={deliveryCard}
+                    delivered={deliveryProgress.delivered}
+                    dropFeedback={deliveryDropFeedback}
+                    required={deliveryProgress.required}
+                  />
+                ) : null}
+              </div>
+            </div>
+            <QuestClaimSwipe
+              canClaim={canClaim}
+              claimed={claimedQuestIds.includes(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID)}
+              isDragging={isClaimDragging}
+              onPointerDown={onClaimPointerDown}
+              progress={claimProgress}
+            />
+          </div>
+        ) : (
+          <div data-board-section="quest-panel-scroll" className="h-full min-h-0 overflow-y-auto">
+            <QuestLog activeQuestIds={activeQuestIds} claimedQuestIds={claimedQuestIds} />
+          </div>
+        )}
+      </div>
+    </section>
+  ),
+);
+
+const QuestPanelTabsPropsSchema = z.object({
+  activeTab: QuestPanelTabSchema,
+  hasQuestNotifications: z.boolean(),
+  onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+});
+
+const questPanelTabLabels = {
+  current: "Current Quest",
+  log: "Quest Log",
+} satisfies Record<QuestPanelTab, string>;
+
+const QuestPanelTabs = defineComponent(
+  QuestPanelTabsPropsSchema,
+  ({ activeTab, hasQuestNotifications, onTabChange }) => (
+    <div
+      data-board-section="quest-briefing-tabs"
+      className="flex items-center gap-1 border-b border-white/45 pb-1.5"
+      role="tablist"
+      aria-label="Quest Briefing views"
+    >
+      {questPanelTabs.map((tab) => {
+        const selected = activeTab === tab;
+        const showBadge = tab === "log" && hasQuestNotifications;
+
+        return (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            className={`relative rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
+              selected
+                ? "border-amber-900/45 bg-amber-950 text-white"
+                : "border-amber-900/20 bg-white/55 text-amber-950 hover:bg-white/80"
+            }`}
+            onClick={() => {
+              onTabChange(tab);
+            }}
+          >
+            {questPanelTabLabels[tab]}
+            {showBadge ? (
+              <span
+                data-quest-tab-notification=""
+                className="absolute -right-1 -top-1 size-3 rounded-full border border-white bg-amber-400 shadow-[0_1px_4px_rgba(15,23,42,0.28)]"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  ),
+);
+
+const QuestClaimSwipePropsSchema = z.object({
+  canClaim: z.boolean(),
+  claimed: z.boolean(),
+  isDragging: z.boolean(),
+  onPointerDown: z.custom<(event: ReactPointerEvent<HTMLDivElement>) => void>(),
+  progress: z.number().min(0).max(1),
+});
+
+const QuestClaimSwipe = defineComponent(
+  QuestClaimSwipePropsSchema,
+  ({ canClaim, claimed, isDragging, onPointerDown, progress }) => {
+    let label = "Deliver Water to unlock";
+    if (canClaim) label = "Swipe up to claim";
+    if (claimed) label = "Claimed";
+
+    let shellClass = "border-amber-700/35 bg-white/55";
+    if (canClaim) {
+      shellClass = "border-amber-600/70 bg-amber-50/85 shadow-[0_0_0_4px_rgba(245,158,11,0.14)]";
+    }
+    if (claimed) shellClass = "border-emerald-600/65 bg-emerald-50/80";
+
+    return (
+      <section
+        data-board-section="quest-claim-swipe"
+        data-claim-ready={canClaim ? "true" : "false"}
+        data-claim-complete={claimed ? "true" : "false"}
+        className={`relative grid min-h-28 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-3 rounded-[6px] border p-3 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] ${shellClass}`}
+        aria-label={label}
+      >
+        <div
+          data-quest-claim-track=""
+          className="relative h-24 rounded-full border border-amber-900/20 bg-white/65 shadow-[inset_0_2px_6px_rgba(72,45,16,0.16)]"
+          aria-hidden="true"
+        >
+          <div
+            data-quest-claim-knob=""
+            className={`absolute inset-x-1 bottom-1 grid h-11 touch-none select-none place-items-center rounded-full border shadow-[0_4px_12px_rgba(72,45,16,0.2)] transition-[border-color,background-color,opacity] ${
+              canClaim && !claimed
+                ? "cursor-grab border-amber-900/30 bg-amber-500 text-white active:cursor-grabbing"
+                : "cursor-not-allowed border-neutral-950/15 bg-neutral-200 text-neutral-500"
+            } ${isDragging ? "opacity-95" : ""}`}
+            style={{
+              transform: `translateY(${-progress * QUEST_CLAIM_KNOB_TRAVEL_PX}px)`,
+            }}
+            onPointerDown={onPointerDown}
+          >
+            {claimed ? (
+              <CheckCircle2 className="size-5" strokeWidth={2.5} />
+            ) : (
+              <ChevronUp className="size-5" strokeWidth={2.75} />
+            )}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+            Claim reward
+          </p>
+          <p className="mt-1 font-serif text-2xl leading-none text-amber-950">{label}</p>
+          <p className="mt-1 text-xs font-bold leading-tight text-neutral-800">
+            Rewards fly to the apprentice profile when the quest is claimed.
+          </p>
+        </div>
+      </section>
+    );
+  },
+);
+
+const QuestLogPropsSchema = z.object({
+  activeQuestIds: z.array(z.string().min(1)),
+  claimedQuestIds: z.array(z.string().min(1)),
+});
+
+const QuestLog = defineComponent(QuestLogPropsSchema, ({ activeQuestIds, claimedQuestIds }) => {
+  const claimedQuestIdSet = new Set(claimedQuestIds);
+  const activeQuestIdSet = new Set(activeQuestIds);
+
+  return (
+    <section
+      data-board-section="quest-log"
+      className="grid content-start gap-2 pr-1"
+      aria-label="Quest Log"
+    >
+      {ALCHEMY_QUESTS.map((quest) => {
+        const isClaimed = claimedQuestIdSet.has(quest.id);
+        const isAvailable = activeQuestIdSet.has(quest.id);
+
+        return (
+          <QuestLogRow
+            key={quest.id}
+            isAvailable={isAvailable}
+            isClaimed={isClaimed}
+            quest={quest}
+          />
+        );
+      })}
+    </section>
+  );
+});
+
+const QuestLogRowPropsSchema = z.object({
+  isAvailable: z.boolean(),
+  isClaimed: z.boolean(),
+  quest: z.custom<StaticAlchemyQuest>(),
+});
+
+const QuestLogRow = defineComponent(QuestLogRowPropsSchema, ({ isAvailable, isClaimed, quest }) => {
+  const revealed = isClaimed;
+  let Icon = LockKeyhole;
+  if (isAvailable) Icon = BookOpen;
+  if (revealed) Icon = ScrollText;
+
+  let rowClass = "border-neutral-900/15 bg-white/35";
+  if (isAvailable) rowClass = "border-amber-500/45 bg-amber-50/60";
+  if (revealed) rowClass = "border-emerald-600/45 bg-white/70";
+
+  const title = getQuestLogRowTitle(quest, revealed, isAvailable);
+  const badgeLabel = getQuestLogRowBadgeLabel(revealed, isAvailable);
+
+  return (
+    <article
+      data-board-section="quest-log-row"
+      data-quest-id={quest.id}
+      data-quest-redacted={revealed ? "false" : "true"}
+      className={`grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border p-2 text-neutral-950 shadow-[0_1px_0_rgba(72,45,16,0.1)] ${rowClass}`}
+    >
+      <span
+        className={`grid size-9 place-items-center rounded-[5px] border ${
+          revealed
+            ? "border-emerald-700/35 bg-emerald-50 text-emerald-800"
+            : "border-neutral-900/15 bg-white/55 text-neutral-600"
+        }`}
+        aria-hidden="true"
+      >
+        <Icon className="size-4" strokeWidth={2.4} />
+      </span>
+      <span className="min-w-0">
+        <span
+          className={`block truncate text-xs font-black leading-tight ${
+            revealed ? "text-amber-950" : "text-neutral-700"
+          }`}
+        >
+          {title}
+        </span>
+        <span className="mt-1 block truncate text-[10px] font-bold uppercase leading-none tracking-normal text-neutral-700/70">
+          {revealed
+            ? `Act ${quest.progression.act} • ${formatTokenLabel(quest.progression.boardSlot)}`
+            : "Complete earlier guild work to reveal"}
+        </span>
+      </span>
+      <span
+        className={`rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase leading-none ${
+          revealed ? "bg-emerald-700 text-white" : "bg-neutral-900/15 text-neutral-700"
+        }`}
+      >
+        {badgeLabel}
+      </span>
+    </article>
+  );
+});
+
 const ReagentSlotPropsSchema = z.object({
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
   dropFeedback: z.custom<DropFeedback>(),
@@ -403,6 +837,7 @@ const InventorySlotPropsSchema = z.object({
   card: z.custom<AlchemyBoardCard | null>(),
   cooldowns: z.array(z.custom<AlchemistGuildInventoryCooldown>()),
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
+  isFlyDestination: z.boolean(),
   nowMs: z.number(),
   onPointerDown:
     z.custom<
@@ -419,7 +854,7 @@ const InventorySlotPropsSchema = z.object({
 
 const InventorySlot = defineComponent(
   InventorySlotPropsSchema,
-  ({ card, cooldowns, draggedCard, nowMs, onPointerDown, slotId, slotName }) => {
+  ({ card, cooldowns, draggedCard, isFlyDestination, nowMs, onPointerDown, slotId, slotName }) => {
     const stackCount = cooldowns.length;
     const readyCount = getReadyCooldownCount(cooldowns, nowMs);
     const isDraggingSource =
@@ -430,9 +865,10 @@ const InventorySlot = defineComponent(
         data-inventory-slot-id={slotId}
         data-board-section={slotId}
         data-board-name={slotName}
+        data-card-flight-hidden={isFlyDestination ? "true" : undefined}
         className="relative h-14 min-w-[7.35rem] rounded-[6px] border border-dashed border-neutral-700/50 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
       >
-        {card ? (
+        {card && !isFlyDestination ? (
           <button
             type="button"
             data-board-section="inventory-card"
@@ -591,11 +1027,107 @@ const OutputRecipeCard = defineComponent(OutputRecipeCardPropsSchema, ({ preview
 });
 
 const AlchemyWorkbenchInfoPanelPropsSchema = z.object({
+  activeTab: InfoPanelTabSchema,
+  discoveredRecipeIds: z.array(z.string().min(1)),
+  hasRecipeNotifications: z.boolean(),
+  onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
+  onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
   preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+  revealRecipeIds: z.array(z.string().min(1)),
 });
 
 const AlchemyWorkbenchInfoPanel = defineComponent(
   AlchemyWorkbenchInfoPanelPropsSchema,
+  ({
+    activeTab,
+    discoveredRecipeIds,
+    hasRecipeNotifications,
+    onRecipeRevealSeen,
+    onTabChange,
+    preview,
+    revealRecipeIds,
+  }) => (
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] text-neutral-950">
+      <InfoPanelTabs
+        activeTab={activeTab}
+        hasRecipeNotifications={hasRecipeNotifications}
+        onTabChange={onTabChange}
+      />
+      <div className="min-h-0">
+        {activeTab === "element" ? (
+          <AlchemyWorkbenchElementPanel preview={preview} />
+        ) : (
+          <RecipeLedger
+            discoveredRecipeIds={discoveredRecipeIds}
+            onRevealSeen={onRecipeRevealSeen}
+            revealRecipeIds={revealRecipeIds}
+          />
+        )}
+      </div>
+    </section>
+  ),
+);
+
+const InfoPanelTabsPropsSchema = z.object({
+  activeTab: InfoPanelTabSchema,
+  hasRecipeNotifications: z.boolean(),
+  onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
+});
+
+const infoPanelTabLabels = {
+  element: "Element",
+  recipe: "Recipe",
+} satisfies Record<InfoPanelTab, string>;
+
+const InfoPanelTabs = defineComponent(
+  InfoPanelTabsPropsSchema,
+  ({ activeTab, hasRecipeNotifications, onTabChange }) => (
+    <div
+      data-board-section="alchemy-workbench-info-tabs"
+      className="flex items-center gap-1 border-b border-white/45 p-2 pb-1.5"
+      role="tablist"
+      aria-label="Alchemy Workbench Info views"
+    >
+      {infoPanelTabs.map((tab) => {
+        const selected = activeTab === tab;
+        const showBadge = tab === "recipe" && hasRecipeNotifications;
+
+        return (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            className={`relative rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
+              selected
+                ? "border-sky-900/45 bg-sky-950 text-white"
+                : "border-sky-900/20 bg-white/55 text-sky-950 hover:bg-white/80"
+            }`}
+            onClick={() => {
+              onTabChange(tab);
+            }}
+          >
+            {infoPanelTabLabels[tab]}
+            {showBadge ? (
+              <span
+                data-recipe-tab-notification=""
+                className="absolute -right-1 -top-1 size-3 rounded-full border border-white bg-amber-400 shadow-[0_1px_4px_rgba(15,23,42,0.28)]"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  ),
+);
+
+const AlchemyWorkbenchElementPanelPropsSchema = z.object({
+  preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+});
+
+const AlchemyWorkbenchElementPanel = defineComponent(
+  AlchemyWorkbenchElementPanelPropsSchema,
   ({ preview }) => {
     if (!preview) {
       return (
@@ -725,6 +1257,158 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
   },
 );
 
+const RecipeLedgerPropsSchema = z.object({
+  discoveredRecipeIds: z.array(z.string().min(1)),
+  onRevealSeen: z.custom<(recipeId: string) => void>(),
+  revealRecipeIds: z.array(z.string().min(1)),
+});
+
+const RecipeLedger = defineComponent(
+  RecipeLedgerPropsSchema,
+  ({ discoveredRecipeIds, onRevealSeen, revealRecipeIds }) => {
+    const recipeListRef = useRef<HTMLUListElement>(null);
+    const onRevealSeenRef = useRef(onRevealSeen);
+    const revealRecipeIdsKey = revealRecipeIds.join(RECIPE_REVEAL_ID_SEPARATOR);
+    const discoveredRecipeIdsSet = new Set(discoveredRecipeIds);
+    const discoveredCount = ALCHEMY_RECIPES.reduce(
+      (total, recipe) => total + (discoveredRecipeIdsSet.has(recipe.id) ? 1 : 0),
+      0,
+    );
+
+    useEffect(() => {
+      onRevealSeenRef.current = onRevealSeen;
+    }, [onRevealSeen]);
+
+    useBrowserLayoutEffect(() => {
+      const recipeList = recipeListRef.current;
+      if (!recipeList || revealRecipeIdsKey.length === 0) return;
+
+      const cleanups = revealRecipeIdsKey
+        .split(RECIPE_REVEAL_ID_SEPARATOR)
+        .flatMap((recipeId, index) => {
+          const element = recipeList.querySelector(
+            `[data-recipe-id="${recipeId}"][data-recipe-discovered="true"]`,
+          );
+          if (!isHTMLElement(element)) return [];
+
+          return [
+            observeRecipeReveal({
+              delayMs: index * RECIPE_REVEAL_STAGGER_MS,
+              element,
+              onSeen: () => {
+                onRevealSeenRef.current(recipeId);
+              },
+              scrollRoot: recipeList,
+            }),
+          ];
+        });
+
+      if (cleanups.length === 0) return;
+
+      return () => {
+        for (const cleanup of cleanups) cleanup();
+      };
+    }, [revealRecipeIdsKey]);
+
+    return (
+      <section
+        data-board-section="recipe-ledger"
+        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 p-3"
+      >
+        <header className="grid grid-cols-[1fr_auto] items-end gap-2">
+          <div>
+            <h2 className="font-serif text-xl leading-none text-sky-950">Recipe Ledger</h2>
+            <p className="mt-1 text-[11px] font-semibold leading-tight text-neutral-700">
+              Transmute outputs to reveal their formulas.
+            </p>
+          </div>
+          <span className="rounded-full border border-sky-900/20 bg-white/65 px-2 py-1 font-mono text-[10px] font-black leading-none text-sky-950">
+            {discoveredCount}/{ALCHEMY_RECIPES.length}
+          </span>
+        </header>
+        <ul
+          ref={recipeListRef}
+          data-board-section="recipe-ledger-list"
+          className="grid min-h-0 content-start gap-1.5 overflow-y-auto pr-1"
+          aria-label="All alchemy recipes"
+          aria-live="polite"
+        >
+          {ALCHEMY_RECIPES.map((recipe, recipeIndex) => (
+            <RecipeLedgerItem
+              key={recipe.id}
+              isDiscovered={discoveredRecipeIdsSet.has(recipe.id)}
+              isReveal={revealRecipeIds.includes(recipe.id)}
+              recipe={recipe}
+              recipeIndex={recipeIndex}
+            />
+          ))}
+        </ul>
+      </section>
+    );
+  },
+);
+
+type RecipeLedgerRecipe = (typeof ALCHEMY_RECIPES)[number];
+
+const RecipeLedgerItemPropsSchema = z.object({
+  isDiscovered: z.boolean(),
+  isReveal: z.boolean(),
+  recipe: z.custom<RecipeLedgerRecipe>(),
+  recipeIndex: z.number().min(0),
+});
+
+const RecipeLedgerItem = defineComponent(
+  RecipeLedgerItemPropsSchema,
+  ({ isDiscovered, isReveal, recipe, recipeIndex }) =>
+    isDiscovered ? (
+      <li
+        data-recipe-id={recipe.id}
+        data-recipe-discovered="true"
+        data-recipe-reveal={isReveal ? "true" : undefined}
+        className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border border-sky-900/20 bg-white/70 p-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.08)]"
+      >
+        <span className="grid size-11 place-items-center rounded-[5px] border border-sky-900/25 bg-sky-50/75">
+          <img
+            src={resolvePublicAssetPath(recipe.output.imagePath)}
+            alt=""
+            aria-hidden="true"
+            className="size-9 object-contain"
+            draggable={false}
+          />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-black leading-tight text-sky-950">
+            {recipe.output.name}
+          </span>
+          <span className="block truncate font-mono text-[10px] font-black leading-tight text-neutral-700">
+            {formatAlchemyRecipeFormula(recipe)}
+          </span>
+        </span>
+        <span className="rounded-full border border-sky-900/20 bg-sky-50/85 px-1.5 py-0.5 text-[9px] font-black uppercase leading-none text-sky-950">
+          {formatTokenLabel(recipe.output.kind)}
+        </span>
+      </li>
+    ) : (
+      <li
+        data-recipe-id={recipe.id}
+        data-recipe-discovered="false"
+        className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border border-neutral-900/10 bg-white/35 p-1.5"
+        aria-label={`Redacted recipe ${recipeIndex + 1}`}
+      >
+        <span className="grid size-11 place-items-center rounded-[5px] border border-neutral-900/15 bg-neutral-950/5">
+          <span className="size-7 rounded-full bg-neutral-950/15 blur-[1px]" aria-hidden="true" />
+        </span>
+        <span className="grid min-w-0 gap-1.5" aria-hidden="true">
+          <span className="h-3 w-[min(9rem,70%)] rounded-full bg-neutral-950/20" />
+          <span className="h-2 w-[min(6rem,50%)] rounded-full bg-neutral-950/10" />
+        </span>
+        <span className="rounded-full border border-neutral-900/15 bg-white/45 px-1.5 py-0.5 font-mono text-[9px] font-black leading-none text-neutral-600">
+          REDACTED
+        </span>
+      </li>
+    ),
+);
+
 const InfoBadgePropsSchema = z.object({
   label: z.string().min(1),
 });
@@ -762,18 +1446,38 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const dragSequenceRef = useRef(0);
   const swapAnimationSequenceRef = useRef(0);
   const transmuteFlyAnimationSequenceRef = useRef(0);
+  const questRewardFlyAnimationSequenceRef = useRef(0);
   const [draggedCard, setDraggedCard] = useState<DraggedAlchemyCard | null>(null);
   const [dropIntent, setDropIntent] = useState<DropIntent>(EMPTY_DROP_INTENT);
   const [swapAnimation, setSwapAnimation] = useState<SwapAnimation | null>(null);
   const [transmuteFlyAnimation, setTransmuteFlyAnimation] = useState<TransmuteFlyAnimation | null>(
     null,
   );
+  const [questRewardFlyAnimation, setQuestRewardFlyAnimation] =
+    useState<QuestRewardFlyAnimation | null>(null);
   const [transmuteSwipeProgress, setTransmuteSwipeProgress] = useState(0);
   const [isTransmuteDragging, setIsTransmuteDragging] = useState(false);
   const [transmuteTrackWidth, setTransmuteTrackWidth] = useState(0);
+  const [questClaimSwipeProgress, setQuestClaimSwipeProgress] = useState(0);
+  const [isQuestClaimDragging, setIsQuestClaimDragging] = useState(false);
+  const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
+  const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
+  const [pendingRecipeNotificationIds, setPendingRecipeNotificationIds] = useState<string[]>([]);
+  const [pendingQuestNotificationIds, setPendingQuestNotificationIds] = useState<string[]>([]);
+  const [recipeRevealIds, setRecipeRevealIds] = useState<string[]>([]);
   const showBoardDebugBadges = useLocalhostMetaKeyDebugBadges();
   const nowMs = useInventoryClock(boardState.inventorySlots);
   const recipePreview = getAlchemyWorkbenchRecipePreview(getWorkbenchCardIds(boardState));
+  const firstQuestDelivery = boardState.questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+  const firstQuestDeliveryCard = getAlchemyCard(firstQuestDelivery.cardId);
+  const claimedFirstQuest = boardState.completedQuestIds.includes(
+    ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
+  );
+  const canClaimFirstQuest =
+    !claimedFirstQuest && firstQuestDelivery.delivered >= firstQuestDelivery.required;
+  const activeQuestIds = getAlchemyQuestBoard(boardState.completedQuestIds).map(
+    (quest) => quest.id,
+  );
   const transmuteKnobTravelPx = Math.max(
     0,
     transmuteTrackWidth - TRANSMUTE_KNOB_WIDTH_PX - TRANSMUTE_TRACK_PADDING_PX * 2,
@@ -858,11 +1562,148 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("card.slot.pickup");
   };
 
+  const handleInfoPanelTabChange = (nextTab: InfoPanelTab) => {
+    setInfoPanelTab(nextTab);
+    if (nextTab !== "recipe") return;
+
+    setRecipeRevealIds(pendingRecipeNotificationIds);
+    setPendingRecipeNotificationIds([]);
+  };
+
+  const handleQuestPanelTabChange = (nextTab: QuestPanelTab) => {
+    setQuestPanelTab(nextTab);
+    if (nextTab === "log") setPendingQuestNotificationIds([]);
+  };
+
+  const announceRecipeDiscovery = (recipeId: string) => {
+    if (infoPanelTab === "recipe") {
+      setRecipeRevealIds([recipeId]);
+      return;
+    }
+
+    setPendingRecipeNotificationIds((previous) => appendUniqueId(previous, recipeId));
+  };
+
+  const handleRecipeRevealSeen = (recipeId: string) => {
+    setRecipeRevealIds((previous) => removeId(previous, recipeId));
+  };
+
+  const announceQuestAvailability = (completedQuestIds: string[]) => {
+    const nextAvailableQuestIds = getAlchemyQuestBoard(completedQuestIds).map((quest) => quest.id);
+    if (nextAvailableQuestIds.length === 0 || questPanelTab === "log") return;
+
+    setPendingQuestNotificationIds((previous) =>
+      nextAvailableQuestIds.reduce(appendUniqueId, previous),
+    );
+  };
+
+  const commitFirstQuestClaim = () => {
+    const currentBoardState = boardStateRef.current;
+    const currentDelivery = currentBoardState.questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+    if (
+      currentBoardState.completedQuestIds.includes(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID) ||
+      currentDelivery.delivered < currentDelivery.required
+    ) {
+      return;
+    }
+
+    questRewardFlyAnimationSequenceRef.current += 1;
+    const flyAnimation = createQuestRewardFlyAnimation(
+      FIRST_QUEST.rewards,
+      `quest-reward:${questRewardFlyAnimationSequenceRef.current}`,
+    );
+    if (flyAnimation.items.length > 0) setQuestRewardFlyAnimation(flyAnimation);
+
+    const nextCompletedQuestIds = appendUniqueId(
+      currentBoardState.completedQuestIds,
+      ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
+    );
+    setBoardState((previous) => {
+      if (previous.completedQuestIds.includes(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID)) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        completedQuestIds: appendUniqueId(
+          previous.completedQuestIds,
+          ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
+        ),
+        profile: applyQuestRewards(previous.profile, FIRST_QUEST.rewards),
+      };
+    });
+    announceQuestAvailability(nextCompletedQuestIds);
+  };
+
+  const handleQuestClaimSwipePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !canClaimFirstQuest) return;
+    event.preventDefault();
+
+    const pointerId = event.pointerId;
+    const trackElement = event.currentTarget.parentElement;
+    if (!(trackElement instanceof HTMLElement)) return;
+
+    const trackRect = trackElement.getBoundingClientRect();
+    const knobRect = event.currentTarget.getBoundingClientRect();
+    const grabOffsetY = event.clientY - knobRect.top;
+    const travelDistance = Math.max(
+      trackRect.height - QUEST_CLAIM_KNOB_HEIGHT_PX - QUEST_CLAIM_TRACK_PADDING_PX * 2,
+      1,
+    );
+    let latestProgress = 0;
+    let released = false;
+    setIsQuestClaimDragging(true);
+
+    const syncProgress = (clientY: number) => {
+      const knobTop = clientY - grabOffsetY;
+      latestProgress = clamp(
+        (trackRect.bottom - QUEST_CLAIM_TRACK_PADDING_PX - QUEST_CLAIM_KNOB_HEIGHT_PX - knobTop) /
+          travelDistance,
+        0,
+        1,
+      );
+      setQuestClaimSwipeProgress(latestProgress);
+    };
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      if (pointerEvent.pointerId !== pointerId || released) return;
+      pointerEvent.preventDefault();
+      syncProgress(pointerEvent.clientY);
+    }
+
+    function handlePointerRelease(pointerEvent: PointerEvent) {
+      if (pointerEvent.pointerId !== pointerId || released) return;
+      released = true;
+      pointerEvent.preventDefault();
+      syncProgress(pointerEvent.clientY);
+      removePointerWindowListeners(handlePointerMove, handlePointerRelease);
+
+      const committed = latestProgress >= QUEST_CLAIM_SWIPE_THRESHOLD;
+      setIsQuestClaimDragging(false);
+      if (committed) {
+        setQuestClaimSwipeProgress(1);
+        void sfx.play("transmute.complete");
+        window.setTimeout(() => {
+          commitFirstQuestClaim();
+          setQuestClaimSwipeProgress(0);
+        }, QUEST_CLAIM_COMMIT_HOLD_MS);
+        return;
+      }
+
+      setQuestClaimSwipeProgress(0);
+    }
+
+    syncProgress(event.clientY);
+    addPointerWindowListeners(handlePointerMove, handlePointerRelease);
+  };
+
   const commitTransmutation = () => {
     if (!recipePreview) return;
 
     const outputCard = getRecipeOutputBoardCard(recipePreview);
     const currentBoardState = boardStateRef.current;
+    const recipeId = recipePreview.recipe.id;
+    const isNewRecipeDiscovery = !currentBoardState.discoveredRecipeIds.includes(recipeId);
     const destinationSlotId = getInventoryDestinationSlotId(currentBoardState, outputCard.id);
     if (!destinationSlotId) {
       void sfx.play("card.dissolve");
@@ -888,6 +1729,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         fromRect,
         id: `transmute:${transmuteFlyAnimationSequenceRef.current}`,
         toRect,
+        toInventorySlotId: destinationSlotId,
       });
     }
 
@@ -898,6 +1740,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
       return {
         ...previous,
+        discoveredRecipeIds: appendUniqueId(previous.discoveredRecipeIds, recipeId),
         inventorySlots: addInventoryCooldown(
           previous.inventorySlots,
           targetSlotId,
@@ -907,6 +1750,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         reagentSlots: clearReagentSlots(),
       };
     });
+    if (isNewRecipeDiscovery) announceRecipeDiscovery(recipeId);
     void sfx.play("card.massDissolve");
   };
 
@@ -1101,6 +1945,59 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   }, [transmuteFlyAnimation]);
 
   useBrowserLayoutEffect(() => {
+    const activeRewardAnimation = questRewardFlyAnimation;
+    if (!activeRewardAnimation) return;
+
+    const reducedMotion = typeof window !== "undefined" && window.matchMedia(PRM).matches;
+    if (reducedMotion) {
+      setQuestRewardFlyAnimation(null);
+      return;
+    }
+
+    const animations: JSAnimation[] = [];
+    let completedCount = 0;
+    for (const [index, item] of activeRewardAnimation.items.entries()) {
+      const itemElement = document.querySelector(`[data-quest-reward-fly-item="${item.id}"]`);
+      if (!(itemElement instanceof HTMLElement)) {
+        completedCount += 1;
+        continue;
+      }
+
+      const moveX =
+        item.toRect.left + item.toRect.width / 2 - (item.fromRect.left + item.fromRect.width / 2);
+      const moveY =
+        item.toRect.top + item.toRect.height / 2 - (item.fromRect.top + item.fromRect.height / 2);
+      const animation = animate(itemElement, {
+        delay: index * QUEST_REWARD_FLY_STAGGER_MS,
+        duration: QUEST_REWARD_FLY_DURATION_MS,
+        ease: "inOut(3)",
+        opacity: [1, 0.22],
+        scale: [1, 0.52],
+        x: moveX,
+        y: moveY,
+        onComplete: () => {
+          completedCount += 1;
+          pulseProfileRewardStat(item.kind, animations);
+          if (completedCount >= activeRewardAnimation.items.length) {
+            setQuestRewardFlyAnimation((current) =>
+              current?.id === activeRewardAnimation.id ? null : current,
+            );
+          }
+        },
+      });
+      animations.push(animation);
+    }
+
+    if (completedCount >= activeRewardAnimation.items.length) {
+      setQuestRewardFlyAnimation(null);
+    }
+
+    return () => {
+      for (const animation of animations) animation.cancel();
+    };
+  }, [questRewardFlyAnimation]);
+
+  useBrowserLayoutEffect(() => {
     const activeDraggedCard = draggedCard;
     if (!activeDraggedCard) return;
 
@@ -1143,7 +2040,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       const nextDropIntent = resolveDropIntent(
         activeDraggedCard,
         getDropSlotIdAtCardCenter(currentLeft, currentTop, slotHitRects),
-        isCardCenterInsideQuestBriefing(currentLeft, currentTop),
+        isCardCenterInsideQuestDeliverySlot(currentLeft, currentTop),
         boardStateRef.current,
       );
 
@@ -1155,22 +2052,20 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     const commitRelease = (dropSlotId: AlchemistGuildReagentSlotId | null) => {
       const source = activeDraggedCard.source;
       const currentBoardState = boardStateRef.current;
-      const questDrop = isCardCenterInsideQuestBriefing(currentLeft, currentTop);
-      const queueInventoryRemainderReturn = (consumedCount: number) => {
-        if (source.kind !== "inventory") return;
-
-        const returningCount = source.stackCount - consumedCount;
-        if (returningCount < 1) return;
-
+      const questDeliveryHit = isCardCenterInsideQuestDeliverySlot(currentLeft, currentTop);
+      const queueInventoryReturnAnimation = (
+        destinationSlotId: AlchemistGuildInventorySlotId,
+        stackCount?: number,
+      ) => {
         const toRect = getCenteredCardRect(
-          getInventorySlotRect(source.slotId),
+          getInventorySlotRect(destinationSlotId),
           FLOATING_ELEMENT_CARD_WIDTH,
           FLOATING_ELEMENT_CARD_HEIGHT,
         );
         if (!toRect) return;
 
         transmuteFlyAnimationSequenceRef.current += 1;
-        setTransmuteFlyAnimation({
+        const nextFlyAnimation: TransmuteFlyAnimation = {
           card: activeDraggedCard.card,
           fromRect: {
             height: FLOATING_ELEMENT_CARD_HEIGHT,
@@ -1179,29 +2074,88 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             width: FLOATING_ELEMENT_CARD_WIDTH,
           },
           id: `inventory-return:${transmuteFlyAnimationSequenceRef.current}`,
-          stackCount: returningCount,
           toRect,
-        });
+          toInventorySlotId: destinationSlotId,
+        };
+        if (stackCount !== undefined) nextFlyAnimation.stackCount = stackCount;
+        setTransmuteFlyAnimation(nextFlyAnimation);
+      };
+      const queueInventoryRemainderReturn = (consumedCount: number) => {
+        if (source.kind !== "inventory") return;
+
+        const returningCount = source.stackCount - consumedCount;
+        if (returningCount < 1) return;
+
+        queueInventoryReturnAnimation(source.slotId, returningCount);
       };
 
       if (!dropSlotId) {
-        if (source.kind === "inventory" && questDrop) {
-          queueInventoryRemainderReturn(1);
-          const releasedAtMs = Date.now();
-          setBoardState((previous) => ({
-            ...previous,
-            inventorySlots: consumeReadyInventoryCopies(
-              previous.inventorySlots,
-              source.slotId,
-              1,
-              releasedAtMs,
-            ),
-          }));
-          void sfx.play("card.drop");
-          return;
+        if (
+          questDeliveryHit &&
+          isQuestDeliveryAccepted(activeDraggedCard.card, currentBoardState)
+        ) {
+          const deliveredAtMs = Date.now();
+          if (source.kind === "inventory") {
+            queueInventoryRemainderReturn(1);
+            setBoardState((previous) => ({
+              ...previous,
+              inventorySlots: consumeReadyInventoryCopies(
+                previous.inventorySlots,
+                source.slotId,
+                1,
+                deliveredAtMs,
+              ),
+              questDeliveries: addFirstQuestDelivery(previous.questDeliveries),
+            }));
+            void sfx.play("card.drop");
+            return;
+          }
+
+          if (source.kind === "slot") {
+            setBoardState((previous) => ({
+              ...previous,
+              questDeliveries: addFirstQuestDelivery(previous.questDeliveries),
+              reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+            }));
+            void sfx.play("card.drop");
+            return;
+          }
         }
 
         if (source.kind === "slot") {
+          if (shouldReturnToInventory(activeDraggedCard.card)) {
+            const destinationSlotId = getInventoryDestinationSlotId(
+              currentBoardState,
+              activeDraggedCard.card.id,
+            );
+            if (!destinationSlotId) {
+              void sfx.play("card.drop");
+              return;
+            }
+
+            const returnedAtMs = Date.now();
+            const cooldownId = createInventoryCooldownId(
+              activeDraggedCard.card.id,
+              returnedAtMs,
+              "return",
+            );
+            notifiedCooldownIdsRef.current?.add(cooldownId);
+            queueInventoryReturnAnimation(destinationSlotId);
+            setBoardState((previous) => ({
+              ...previous,
+              inventorySlots: addReadyInventoryCopy(
+                previous.inventorySlots,
+                destinationSlotId,
+                activeDraggedCard.card.id,
+                returnedAtMs,
+                cooldownId,
+              ),
+              reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+            }));
+            void sfx.play("card.drop");
+            return;
+          }
+
           setBoardState((previous) => ({
             ...previous,
             reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
@@ -1441,6 +2395,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                   card={getAlchemyCard(item?.cardId ?? null)}
                   cooldowns={item?.cooldowns ?? []}
                   draggedCard={draggedCard}
+                  isFlyDestination={
+                    transmuteFlyAnimation?.toInventorySlotId === slot.id &&
+                    transmuteFlyAnimation.card.id === item?.cardId
+                  }
                   nowMs={nowMs}
                   onPointerDown={beginInventoryCardDrag}
                   slotId={slot.id}
@@ -1484,6 +2442,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               <ProfileCard
                 {...FIRST_PROFILE_CARD_PROPS}
                 playerName={boardState.profile.playerName}
+                stats={createProfileStats(boardState.profile)}
                 onPlayerNameChange={(nextPlayerName) => {
                   setBoardState((previous) => ({
                     ...previous,
@@ -1496,16 +2455,31 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               data-board-section="left-briefing-panel"
               data-board-name="Quest Briefing"
               data-board-description={BOARD_DESCRIPTIONS.questBriefing}
-              className={`${GLASS_PANEL_CLASS} grid content-start gap-2 overflow-y-auto p-3`}
+              className={`${GLASS_PANEL_CLASS} grid content-start gap-2 overflow-hidden p-3`}
             >
+              <QuestBriefingAtmosphere />
               <BoardDebugBadge
                 description={BOARD_DESCRIPTIONS.questBriefing}
                 label="Quest Briefing"
                 visible={showBoardDebugBadges}
               />
-              <QuestBriefingCard
-                {...FIRST_QUEST_BRIEFING_CARD_PROPS}
+              <QuestPanel
+                activeQuestIds={activeQuestIds}
+                activeTab={questPanelTab}
+                canClaim={canClaimFirstQuest}
+                claimedQuestIds={boardState.completedQuestIds}
+                claimProgress={questClaimSwipeProgress}
+                deliveryCard={firstQuestDeliveryCard}
+                deliveryDropFeedback={getQuestDeliveryDropFeedback(dropIntent)}
+                deliveryProgress={{
+                  delivered: firstQuestDelivery.delivered,
+                  required: firstQuestDelivery.required,
+                }}
                 developerNotesVisible={showBoardDebugBadges}
+                hasQuestNotifications={pendingQuestNotificationIds.length > 0}
+                isClaimDragging={isQuestClaimDragging}
+                onClaimPointerDown={handleQuestClaimSwipePointerDown}
+                onTabChange={handleQuestPanelTabChange}
               />
             </div>
           </aside>
@@ -1653,7 +2627,15 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 label="Alchemy Workbench Info"
                 visible={showBoardDebugBadges}
               />
-              <AlchemyWorkbenchInfoPanel preview={recipePreview} />
+              <AlchemyWorkbenchInfoPanel
+                activeTab={infoPanelTab}
+                discoveredRecipeIds={boardState.discoveredRecipeIds}
+                hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
+                onRecipeRevealSeen={handleRecipeRevealSeen}
+                onTabChange={handleInfoPanelTabChange}
+                preview={recipePreview}
+                revealRecipeIds={recipeRevealIds}
+              />
             </div>
           </aside>
         </section>
@@ -1736,6 +2718,33 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           ) : null}
         </div>
       ) : null}
+      {questRewardFlyAnimation ? (
+        <div
+          data-board-section="quest-reward-flight-layer"
+          data-reward-flight-id={questRewardFlyAnimation.id}
+          className="pointer-events-none fixed inset-0 z-[75]"
+          aria-hidden="true"
+        >
+          {questRewardFlyAnimation.items.map((item) => {
+            const RewardIcon = REWARD_ICONS[item.kind];
+            return (
+              <div
+                key={item.id}
+                data-quest-reward-fly-item={item.id}
+                data-reward-kind={item.kind}
+                className="absolute grid min-w-14 place-items-center gap-1 rounded-full border border-amber-700/35 bg-white/90 px-2 py-1 text-amber-950 shadow-[0_12px_24px_rgba(72,45,16,0.22)]"
+                style={{
+                  left: `${item.fromRect.left}px`,
+                  top: `${item.fromRect.top}px`,
+                }}
+              >
+                <RewardIcon className="size-4 stroke-[2.5]" aria-hidden="true" />
+                <span className="text-xs font-black leading-none">{item.value}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </main>
   );
 });
@@ -1756,6 +2765,117 @@ function removePointerWindowListeners(
   window.removeEventListener("pointermove", onMove, WINDOW_POINTER_LISTENER_CAPTURE);
   window.removeEventListener("pointerup", onRelease, WINDOW_POINTER_LISTENER_CAPTURE);
   window.removeEventListener("pointercancel", onRelease, WINDOW_POINTER_LISTENER_CAPTURE);
+}
+
+function createProfileStats(
+  profile: AlchemistGuildProfile,
+): (typeof FIRST_PROFILE_CARD_PROPS)["stats"] {
+  return [
+    { kind: "level", label: "Level", value: String(profile.level) },
+    { kind: "gold", label: "Gold", value: String(profile.gold) },
+    { kind: "knowledge", label: "Knowledge XP", value: String(profile.knowledgeXp) },
+    {
+      kind: "discovery",
+      label: "Discovery Tokens",
+      value: String(profile.discoveryTokens),
+    },
+    {
+      kind: "muddlefog",
+      label: "Muddlefog Cleared",
+      value: `${profile.muddlefogCleared}%`,
+    },
+  ];
+}
+
+function applyQuestRewards(
+  profile: AlchemistGuildProfile,
+  rewards: AlchemyQuestRewards,
+): AlchemistGuildProfile {
+  return {
+    ...profile,
+    discoveryTokens: profile.discoveryTokens + rewards.discoveryTokens,
+    gold: profile.gold + rewards.gold,
+    knowledgeXp: profile.knowledgeXp + rewards.knowledgeXp,
+    muddlefogCleared: Math.min(100, profile.muddlefogCleared + rewards.muddlefogCleared),
+  };
+}
+
+function createQuestRewardFlyAnimation(
+  rewards: AlchemyQuestRewards,
+  id: string,
+): QuestRewardFlyAnimation {
+  const sourceRect = getElementRect('[data-board-section="quest-claim-swipe"]');
+  if (!sourceRect) return { id, items: [] };
+
+  const entries = [
+    { kind: "gold", label: "Gold", value: String(rewards.gold) },
+    { kind: "knowledge", label: "Knowledge XP", value: String(rewards.knowledgeXp) },
+    { kind: "discovery", label: "Discovery Tokens", value: String(rewards.discoveryTokens) },
+    { kind: "muddlefog", label: "Muddlefog Cleared", value: `${rewards.muddlefogCleared}%` },
+  ] satisfies { kind: RewardKind; label: string; value: string }[];
+
+  const items: QuestRewardFlyItem[] = [];
+  for (const [index, entry] of entries.entries()) {
+    const toRect = getElementRect(`[data-profile-stat="${REWARD_PROFILE_STAT_KIND[entry.kind]}"]`);
+    if (!toRect) continue;
+    const offsetX = (index - 1.5) * 12;
+    const fromRect = {
+      height: 44,
+      left: sourceRect.left + sourceRect.width / 2 - 28 + offsetX,
+      top: sourceRect.top + sourceRect.height / 2 - 22,
+      width: 56,
+    };
+    items.push({
+      fromRect,
+      id: `${id}:${entry.kind}`,
+      kind: entry.kind,
+      label: entry.label,
+      toRect,
+      value: entry.value,
+    });
+  }
+
+  return { id, items };
+}
+
+function pulseProfileRewardStat(kind: RewardKind, animations: JSAnimation[]): void {
+  const statElement = document.querySelector(
+    `[data-profile-stat="${REWARD_PROFILE_STAT_KIND[kind]}"]`,
+  );
+  if (!(statElement instanceof HTMLElement)) return;
+
+  animations.push(
+    animate(statElement, {
+      duration: 260,
+      ease: "out(2)",
+      scale: [1, 1.08, 1],
+    }),
+  );
+}
+
+function getRequiredAlchemyQuest(questId: string): StaticAlchemyQuest {
+  const quest = getAlchemyQuestById(questId);
+  if (!quest) throw new Error(`Missing alchemy quest: ${questId}`);
+
+  return quest;
+}
+
+function getQuestLogRowTitle(
+  quest: StaticAlchemyQuest,
+  revealed: boolean,
+  isAvailable: boolean,
+): string {
+  if (revealed) return quest.narrative.title;
+  if (isAvailable) return "New Quest";
+
+  return "Redacted Quest";
+}
+
+function getQuestLogRowBadgeLabel(revealed: boolean, isAvailable: boolean): string {
+  if (revealed) return "Done";
+  if (isAvailable) return "New";
+
+  return "?";
 }
 
 function useLocalhostMetaKeyDebugBadges(): boolean {
@@ -1821,6 +2941,80 @@ function capturePointer(element: HTMLElement, pointerId: number): void {
   if (!element.isConnected) return;
   element.setPointerCapture(pointerId);
 }
+
+function isHTMLElement(element: Element | null): element is HTMLElement {
+  return element instanceof HTMLElement;
+}
+
+function observeRecipeReveal({
+  delayMs,
+  element,
+  onSeen,
+  scrollRoot,
+}: {
+  delayMs: number;
+  element: HTMLElement;
+  onSeen: () => void;
+  scrollRoot: HTMLElement;
+}): () => void {
+  element.style.opacity = "0";
+  element.style.transform = "translateX(-10px) scale(0.96)";
+
+  const finish = () => {
+    element.style.opacity = "";
+    element.style.transform = "";
+    onSeen();
+  };
+
+  if (
+    typeof window === "undefined" ||
+    window.matchMedia(PRM).matches ||
+    !("IntersectionObserver" in window)
+  ) {
+    finish();
+    return noop;
+  }
+
+  let animation: JSAnimation | null = null;
+  let finished = false;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0];
+      if (!entry?.isIntersecting || finished) return;
+
+      observer.disconnect();
+      animation = animate(element, {
+        delay: delayMs,
+        duration: 420,
+        ease: "out(3)",
+        opacity: [0, 1],
+        scale: [0.96, 1],
+        x: [-10, 0],
+        onComplete: () => {
+          finished = true;
+          finish();
+        },
+      });
+    },
+    {
+      root: scrollRoot,
+      threshold: RECIPE_REVEAL_INTERSECTION_THRESHOLD,
+    },
+  );
+
+  observer.observe(element);
+
+  return () => {
+    observer.disconnect();
+    if (!finished) {
+      animation?.cancel();
+      element.style.opacity = "";
+      element.style.transform = "";
+    }
+  };
+}
+
+const noop = (): void => undefined;
 
 function getScaledPointerOffset(
   event: ReactPointerEvent<HTMLElement>,
@@ -1985,8 +3179,8 @@ function getCenteredCardRect(
   };
 }
 
-function isCardCenterInsideQuestBriefing(cardLeft: number, cardTop: number): boolean {
-  const rect = getElementRect('[data-board-section="left-briefing-panel"]');
+function isCardCenterInsideQuestDeliverySlot(cardLeft: number, cardTop: number): boolean {
+  const rect = getElementRect('[data-board-section="quest-delivery-drop-zone"]');
   if (!rect) return false;
 
   const clientX = cardLeft + FLOATING_ELEMENT_CARD_WIDTH / 2;
@@ -1998,6 +3192,29 @@ function isCardCenterInsideQuestBriefing(cardLeft: number, cardTop: number): boo
     clientY >= rect.top &&
     clientY <= rect.top + rect.height
   );
+}
+
+function isQuestDeliveryAccepted(
+  card: AlchemyBoardCard,
+  boardState: AlchemistGuildBoardState,
+): boolean {
+  const delivery = boardState.questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+
+  return delivery.delivered < delivery.required && card.id === delivery.cardId;
+}
+
+function addFirstQuestDelivery(
+  questDeliveries: AlchemistGuildQuestDeliveries,
+): AlchemistGuildQuestDeliveries {
+  const delivery = questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+
+  return {
+    ...questDeliveries,
+    [ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID]: {
+      ...delivery,
+      delivered: Math.min(delivery.required, delivery.delivered + 1),
+    },
+  };
 }
 
 function getInventoryDestinationSlotId(
@@ -2033,6 +3250,29 @@ function addInventoryCooldown(
     [slotId]: {
       cardId,
       cooldowns: [...(existingItem?.cooldowns ?? []), nextCooldown],
+    },
+  };
+}
+
+function addReadyInventoryCopy(
+  inventory: AlchemistGuildInventorySlots,
+  slotId: AlchemistGuildInventorySlotId,
+  cardId: string,
+  readyAtMs: number,
+  cooldownId: string,
+): AlchemistGuildInventorySlots {
+  const existingItem = inventory[slotId];
+  const readyCopy: AlchemistGuildInventoryCooldown = {
+    id: cooldownId,
+    readyAtMs,
+    startedAtMs: readyAtMs,
+  };
+
+  return {
+    ...inventory,
+    [slotId]: {
+      cardId,
+      cooldowns: [...(existingItem?.cooldowns ?? []), readyCopy],
     },
   };
 }
@@ -2118,6 +3358,24 @@ function getOutputCooldownMs(cardId: string): number {
   return 0;
 }
 
+function createInventoryCooldownId(cardId: string, timestampMs: number, source: string): string {
+  return `${cardId}:${source}:${timestampMs}`;
+}
+
+function shouldReturnToInventory(card: AlchemyBoardCard): boolean {
+  return card.kind === "crafted";
+}
+
+function appendUniqueId(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids : [...ids, id];
+}
+
+function removeId(ids: string[], id: string): string[] {
+  if (!ids.includes(id)) return ids;
+
+  return ids.filter((existingId) => existingId !== id);
+}
+
 function getSlotHitRects(): SlotHitRect[] {
   const slotHitRects: SlotHitRect[] = [];
 
@@ -2150,13 +3408,21 @@ function getSlotIndex(slotId: AlchemistGuildReagentSlotId): number {
 function resolveDropIntent(
   draggedCard: DraggedAlchemyCard,
   slotId: AlchemistGuildReagentSlotId | null,
-  isQuestBriefingHit: boolean,
+  isQuestDeliveryHit: boolean,
   boardState: AlchemistGuildBoardState,
 ): DropIntent {
   if (draggedCard.source.kind === "inventory") {
-    if (!slotId) return isQuestBriefingHit ? { kind: "quest" } : EMPTY_DROP_INTENT;
+    if (!slotId) {
+      return isQuestDeliveryHit
+        ? { accepted: isQuestDeliveryAccepted(draggedCard.card, boardState), kind: "quest" }
+        : EMPTY_DROP_INTENT;
+    }
 
     return boardState.reagentSlots[slotId] ? { kind: "blocked", slotId } : { kind: "drop", slotId };
+  }
+
+  if (!slotId && isQuestDeliveryHit) {
+    return { accepted: isQuestDeliveryAccepted(draggedCard.card, boardState), kind: "quest" };
   }
 
   if (!slotId) return EMPTY_DROP_INTENT;
@@ -2173,6 +3439,8 @@ function resolveDropIntent(
 }
 
 function isSameDropIntent(left: DropIntent, right: DropIntent): boolean {
+  if (left.kind === "quest" && right.kind === "quest") return left.accepted === right.accepted;
+
   return left.kind === right.kind && getDropIntentSlotId(left) === getDropIntentSlotId(right);
 }
 
@@ -2197,7 +3465,37 @@ function getSlotDropFeedback(
 }
 
 function getFloatingCardFeedback(intent: DropIntent): DropFeedback {
-  return intent.kind === "quest" ? "drop" : intent.kind;
+  if (intent.kind !== "quest") return intent.kind;
+
+  return getQuestDropFeedback(intent);
+}
+
+function getQuestDeliveryDropFeedback(intent: DropIntent): DropFeedback {
+  if (intent.kind !== "quest") return "none";
+
+  return getQuestDropFeedback(intent);
+}
+
+function getQuestDropFeedback(intent: Extract<DropIntent, { kind: "quest" }>): DropFeedback {
+  return intent.accepted ? "drop" : "blocked";
+}
+
+function getQuestDeliverySlotClass(feedback: DropFeedback, isComplete: boolean): string {
+  const base =
+    "relative rounded-[6px] border-2 p-3 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-100";
+
+  if (isComplete) {
+    return `${base} border-emerald-600/70 bg-emerald-50/85 shadow-[0_0_0_4px_rgba(16,185,129,0.16)]`;
+  }
+
+  switch (feedback) {
+    case "drop":
+      return `${base} border-emerald-500 bg-emerald-50/85 shadow-[0_0_0_4px_rgba(16,185,129,0.22)]`;
+    case "blocked":
+      return `${base} border-rose-500 bg-rose-50/85 shadow-[0_0_0_4px_rgba(244,63,94,0.18)]`;
+    default:
+      return `${base} border-amber-700/45 bg-white/65`;
+  }
 }
 
 function getSlotShellClass(feedback: DropFeedback): string {

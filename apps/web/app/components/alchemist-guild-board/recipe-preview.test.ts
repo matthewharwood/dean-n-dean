@@ -10,9 +10,10 @@ import {
 
 describe("alchemy workbench recipe preview", () => {
   const waterRecipe = getAlchemyRecipeById("alchemy:water");
+  const distilledWaterRecipe = getAlchemyRecipeById("alchemy:distilled-water");
 
-  if (!waterRecipe) {
-    throw new Error("Missing water recipe test anchor");
+  if (!waterRecipe || !distilledWaterRecipe) {
+    throw new Error("Missing recipe preview test anchors");
   }
 
   test("expands recipe quantities into ordered workbench slots", () => {
@@ -58,5 +59,24 @@ describe("alchemy workbench recipe preview", () => {
       ["Hydrogen", 2],
       ["Oxygen", 1],
     ]);
+  });
+
+  test("formats repeated crafted-card ingredients with readable spacing", () => {
+    expect(getAlchemyRecipeSlotCardIds(distilledWaterRecipe)).toEqual([
+      "material:water",
+      "material:water",
+    ]);
+
+    const preview = getAlchemyWorkbenchRecipePreview([
+      "material:water",
+      "material:water",
+      null,
+      null,
+      null,
+    ]);
+
+    expect(preview?.recipe.id).toBe("alchemy:distilled-water");
+    expect(preview?.formula).toBe("2 Water");
+    expect(preview?.ingredientRows.map((row) => [row.label, row.quantity])).toEqual([["Water", 2]]);
   });
 });

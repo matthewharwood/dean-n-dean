@@ -138,7 +138,7 @@ Upgradeable-slot molecular crafting with compound compression: the Alchemy Workb
 | Craft Timers | Make crafting feel like production and give the player a reason to return. | 10-30 seconds in tutorial; 1-5 minutes in early game; longer only after automation exists. |
 | Craft Queue | Let players plan before leaving. | Start at 1 queue slot, upgrade to 2-5. |
 | Offline Progress | Make the game feel alive when closed. | Cap early offline progress at 30 minutes to avoid runaway inventory; upgrade cap later. |
-| Notifications | Invite return without pressure. | "3 Waters are ready for the Baker." No manipulative streak warnings. |
+| Notifications | Invite return without pressure. | "10 Waters are ready for Sir Bubbleton." No manipulative streak warnings. |
 | Workshop Assistants | Fantasy automation layer. | Unlock Goblin Sorter, Apprentice Chemist, Clockwork Cart, and Element Librarian. |
 
 ## The Discovery Draft: Gacha Feeling Without Gacha Harm
@@ -281,7 +281,7 @@ Elements enter the game through five channels. This avoids the feeling that ever
 
 | Unlock Channel | Example | Design Rule |
 |---|---|---|
-| Quest Reward | Craft 3 Waters for the Baker -> unlock Sodium choice. | Used for story-critical learning paths. |
+| Quest Reward | Deliver 10 Waters for Sir Bubbleton -> unlock Sodium choice. | Used for story-critical learning paths. |
 | Discovery Draft | Choose Sodium vs Nitrogen vs Iron. | Player agency without dead ends. |
 | Gold Purchase | Buy extra Hydrogen/Oxygen supply licenses or common element packs. | For common elements and convenience, never rare curriculum gates. |
 | NPC Access | Help the Miner with a pick -> mine opens Iron, Copper, and Zinc paths. | Objects unlock contexts that unlock elements. |
@@ -340,6 +340,7 @@ Inventory is central because the player often crafts components that are not imm
 - Use accurate formulas when teaching atoms and molecules: H2O, CO2, NaCl, SiO2, CaCO3.
 - Use simplified material recipes for complex real objects: "wood" may be treated as Biomass, a material unlocked from Carbon + Water + Sunlight token rather than a literal cellulose formula.
 - Separate science notes from game recipes. A card can say: "Game recipe simplified. Real wood is mostly cellulose, lignin, water, and other organic compounds."
+- Let crafted cards become ingredients when it teaches compression clearly: Distilled Water uses two Water cards, so the player learns that H2O can become a reusable building block.
 - Make complexity visible: every compound card shows formula, atom count, and a child-readable description.
 - Do not require advanced stoichiometry early. Start with countable card formulas; introduce balancing and conservation later as mastery quests.
 
@@ -544,7 +545,7 @@ The failure mode is over-scoping. The game tries to model all chemistry accurate
 | # | Quest | Requirement | Reward / Unlock |
 |---:|---|---|---|
 | 1 | Sir Bubbleton Needs Water | Craft H2O on the three-slot starter Alchemy Workbench | 10 Gold, 1 Discovery Token, Workbench Slot IV purchase unlock |
-| 2 | Baker Needs 3 Waters | Craft 3x H2O | 15 Gold, Sodium/Nitrogen/Iron draft |
+| 2 | Sir Bubbleton Needs 10 Waters | Deliver 10 Water cards after the helmet catches fire | 15 Gold, Sodium/Nitrogen/Iron draft |
 | 3 | Professor Wants Air | Craft O2 + N2 simplified Air Mix | Unlock Nitrogen path |
 | 4 | Baker Needs Salt | Craft NaCl | Unlock Kitchen I badge |
 | 5 | Miner Needs a Pick Head | Craft Iron Ingot | Unlock Mine |

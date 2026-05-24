@@ -465,6 +465,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     "Distilled Water",
     [
       "Distilled Water is water that has been evaporated and condensed to leave many dissolved things behind.",
+      "In the game, you make it by distilling two Water cards into one cleaner Water card.",
       "It is like making water take a clean cloud trip and come back as drops.",
       "In recipes, it matters because cleaner water is a better potion base and a good purification lesson.",
     ],

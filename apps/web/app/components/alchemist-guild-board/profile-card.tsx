@@ -1,8 +1,4 @@
-import {
-  ALCHEMIST_GUILD_PROFILE_DEFAULT,
-  getAlchemyCharacterById,
-  getAlchemyQuestById,
-} from "@dean-stack/schemas";
+import { ALCHEMIST_GUILD_PROFILE_DEFAULT, getAlchemyCharacterById } from "@dean-stack/schemas";
 import { Brain, CloudFog, Coins, type LucideIcon, Sparkles, Trophy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import * as z from "zod";
@@ -164,9 +160,8 @@ export const ProfileCard = defineComponent(
 
 function createFirstProfileCardProps(): ProfileCardProps {
   const apprentice = getAlchemyCharacterById("apprentice");
-  const firstQuest = getAlchemyQuestById("quest:first-water");
 
-  if (!apprentice || !firstQuest) {
+  if (!apprentice) {
     throw new Error("Missing first profile card data anchors");
   }
 
@@ -177,17 +172,21 @@ function createFirstProfileCardProps(): ProfileCardProps {
     playerName: ALCHEMIST_GUILD_PROFILE_DEFAULT.playerName,
     stats: [
       { kind: "level", label: "Level", value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.level) },
-      { kind: "gold", label: "Gold", value: String(firstQuest.rewards.gold) },
-      { kind: "knowledge", label: "Knowledge XP", value: String(firstQuest.rewards.knowledgeXp) },
+      { kind: "gold", label: "Gold", value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.gold) },
+      {
+        kind: "knowledge",
+        label: "Knowledge XP",
+        value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.knowledgeXp),
+      },
       {
         kind: "discovery",
         label: "Discovery Tokens",
-        value: String(firstQuest.rewards.discoveryTokens),
+        value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.discoveryTokens),
       },
       {
         kind: "muddlefog",
         label: "Muddlefog Cleared",
-        value: `${firstQuest.rewards.muddlefogCleared}%`,
+        value: `${ALCHEMIST_GUILD_PROFILE_DEFAULT.muddlefogCleared}%`,
       },
     ],
     title: "Junior Alchemist",
