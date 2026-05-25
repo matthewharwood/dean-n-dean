@@ -14,6 +14,7 @@ describe("QuestBriefingCard data projection", () => {
     expect(cardProps.requesterName).toBe("Sir Bubbleton");
     expect(cardProps.requesterAvatarPath).toBe("alchemy-character-avatars/sir-bubbleton.webp");
     expect(cardProps.developerNotesVisible).toBe(false);
+    expect(cardProps.redacted).toBe(false);
     expect(cardProps.recipeLabels).toContainEqual({
       formula: "2H + O",
       imagePath: "alchemy-card-art/material-water.webp",

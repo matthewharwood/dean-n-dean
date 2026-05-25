@@ -88,8 +88,11 @@ export function formatAlchemyRecipeFormula(recipe: StaticAlchemyRecipe): string 
 function formatAlchemyRecipeArgumentFormula(
   argument: StaticAlchemyRecipe["arguments"][number],
 ): string {
-  const label = elementSymbolsById.get(argument.cardId) ?? formatAlchemyCardLabel(argument.cardId);
-  return argument.quantity === 1 ? label : `${argument.quantity}${label}`;
+  const elementSymbol = elementSymbolsById.get(argument.cardId);
+  const label = elementSymbol ?? formatAlchemyCardLabel(argument.cardId);
+  if (argument.quantity === 1) return label;
+
+  return elementSymbol ? `${argument.quantity}${elementSymbol}` : `${argument.quantity} ${label}`;
 }
 
 function formatAlchemyCardLabel(cardId: string): string {

@@ -1,6 +1,7 @@
 import * as z from "zod";
 
-import { AlchemyCardIdSchema } from "./data/alchemy-recipes";
+import { AlchemyQuestIdSchema } from "./data/alchemy-quests";
+import { AlchemyCardIdSchema, AlchemyRecipeIdSchema } from "./data/alchemy-recipes";
 
 export * from "./adding-game";
 export * from "./data";
@@ -34,6 +35,8 @@ export const ProgressSchema = z.object({
 export type Progress = z.infer<typeof ProgressSchema>;
 
 export const ALCHEMIST_GUILD_BOARD_ID = "alchemist-guild-board";
+export const ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID = "quest:first-water";
+export const ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_CARD_ID = "material:water";
 
 export const AlchemistGuildReagentSlotIdSchema = z.enum([
   "reagent-slot-1",
@@ -100,7 +103,11 @@ export const ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT: AlchemistGuildInventorySlo
   AlchemistGuildInventorySlotsSchema.parse({});
 
 export const AlchemistGuildProfileSchema = z.object({
+  discoveryTokens: z.int().min(0).default(0),
+  gold: z.int().min(0).default(0),
+  knowledgeXp: z.int().min(0).default(0),
   level: z.int().min(1).default(1),
+  muddlefogCleared: z.int().min(0).max(100).default(0),
   playerName: z.string().trim().min(1).max(24).default("Apprentice"),
 });
 export type AlchemistGuildProfile = z.infer<typeof AlchemistGuildProfileSchema>;
@@ -108,13 +115,43 @@ export type AlchemistGuildProfile = z.infer<typeof AlchemistGuildProfileSchema>;
 export const ALCHEMIST_GUILD_PROFILE_DEFAULT: AlchemistGuildProfile =
   AlchemistGuildProfileSchema.parse({});
 
+export const AlchemistGuildQuestDeliverySchema = z.object({
+  cardId: AlchemistGuildCardIdSchema,
+  delivered: z.int().min(0).default(0),
+  required: z.int().min(1),
+});
+export type AlchemistGuildQuestDelivery = z.infer<typeof AlchemistGuildQuestDeliverySchema>;
+
+export const ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT = {
+  cardId: ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_CARD_ID,
+  delivered: 0,
+  required: 1,
+} satisfies AlchemistGuildQuestDelivery;
+
+export const AlchemistGuildQuestDeliveriesSchema = z
+  .record(AlchemyQuestIdSchema, AlchemistGuildQuestDeliverySchema)
+  .default({
+    [ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID]: ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT,
+  });
+export type AlchemistGuildQuestDeliveries = z.infer<typeof AlchemistGuildQuestDeliveriesSchema>;
+
+export const ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT: AlchemistGuildQuestDeliveries =
+  AlchemistGuildQuestDeliveriesSchema.parse({});
+
 export const AlchemistGuildBoardStateSchema = z.object({
+  completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
+  discoveredRecipeIds: z.array(AlchemyRecipeIdSchema).default([]),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(
     ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,
   ),
+  questDeliveries: AlchemistGuildQuestDeliveriesSchema.default(
+    ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT,
+  ),
+  questLogScrollTop: z.number().min(0).default(0),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
+  selectedQuestId: AlchemyQuestIdSchema.default(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID),
 });
 export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;
 export const ALCHEMIST_GUILD_BOARD_DEFAULT: AlchemistGuildBoardState =

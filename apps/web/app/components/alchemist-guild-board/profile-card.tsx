@@ -1,10 +1,6 @@
-import {
-  ALCHEMIST_GUILD_PROFILE_DEFAULT,
-  getAlchemyCharacterById,
-  getAlchemyQuestById,
-} from "@dean-stack/schemas";
+import { ALCHEMIST_GUILD_PROFILE_DEFAULT, getAlchemyCharacterById } from "@dean-stack/schemas";
 import { Brain, CloudFog, Coins, type LucideIcon, Sparkles, Trophy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import * as z from "zod";
 
 import { defineComponent } from "~/lib/define-component";
@@ -47,17 +43,16 @@ export const ProfileCard = defineComponent(
   ({ avatarPath, biography, onPlayerNameChange, playerName, stats, title }) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const [isEditing, setIsEditing] = useState(false);
-    const [draftName, setDraftName] = useState(playerName);
+    const [draftName, setDraftName] = useState("");
 
-    useEffect(() => {
-      if (!isEditing) setDraftName(playerName);
-    }, [isEditing, playerName]);
-
-    useEffect(() => {
-      if (!isEditing) return;
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, [isEditing]);
+    const beginEditing = () => {
+      setDraftName(playerName);
+      setIsEditing(true);
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    };
 
     const commitName = () => {
       const nextName = draftName.trim();
@@ -118,11 +113,9 @@ export const ProfileCard = defineComponent(
                 data-profile-name-display=""
                 className="mt-1 max-w-full border-b border-dashed border-amber-900/70 px-0 pb-0.5 text-left font-serif text-2xl leading-none text-amber-950"
                 aria-label="Edit player name"
-                onDoubleClick={() => {
-                  setIsEditing(true);
-                }}
+                onDoubleClick={beginEditing}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") setIsEditing(true);
+                  if (event.key === "Enter") beginEditing();
                 }}
               >
                 <span className="block truncate">{playerName}</span>
@@ -164,9 +157,8 @@ export const ProfileCard = defineComponent(
 
 function createFirstProfileCardProps(): ProfileCardProps {
   const apprentice = getAlchemyCharacterById("apprentice");
-  const firstQuest = getAlchemyQuestById("quest:first-water");
 
-  if (!apprentice || !firstQuest) {
+  if (!apprentice) {
     throw new Error("Missing first profile card data anchors");
   }
 
@@ -177,17 +169,21 @@ function createFirstProfileCardProps(): ProfileCardProps {
     playerName: ALCHEMIST_GUILD_PROFILE_DEFAULT.playerName,
     stats: [
       { kind: "level", label: "Level", value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.level) },
-      { kind: "gold", label: "Gold", value: String(firstQuest.rewards.gold) },
-      { kind: "knowledge", label: "Knowledge XP", value: String(firstQuest.rewards.knowledgeXp) },
+      { kind: "gold", label: "Gold", value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.gold) },
+      {
+        kind: "knowledge",
+        label: "Knowledge XP",
+        value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.knowledgeXp),
+      },
       {
         kind: "discovery",
         label: "Discovery Tokens",
-        value: String(firstQuest.rewards.discoveryTokens),
+        value: String(ALCHEMIST_GUILD_PROFILE_DEFAULT.discoveryTokens),
       },
       {
         kind: "muddlefog",
         label: "Muddlefog Cleared",
-        value: `${firstQuest.rewards.muddlefogCleared}%`,
+        value: `${ALCHEMIST_GUILD_PROFILE_DEFAULT.muddlefogCleared}%`,
       },
     ],
     title: "Junior Alchemist",
