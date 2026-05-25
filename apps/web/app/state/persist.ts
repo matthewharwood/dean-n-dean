@@ -59,7 +59,6 @@ export function subscribeRemoteWrites(onChange: (msg: RemoteWriteMessage) => voi
 // runs, opens a fresh IDB connection via `getDB()`, and that new connection
 // blocks `deleteDatabase` — leaving the user on the same DB they thought
 // they cleared.
-// fallow-ignore-next-line unused-export
 export function cancelPendingWrites(): void {
   for (const timer of pending.values()) clearTimeout(timer);
   pending.clear();

@@ -129,11 +129,7 @@ export const ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT = {
 } satisfies AlchemistGuildQuestDelivery;
 
 export const AlchemistGuildQuestDeliveriesSchema = z
-  .object({
-    [ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID]: AlchemistGuildQuestDeliverySchema.default(
-      ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT,
-    ),
-  })
+  .record(AlchemyQuestIdSchema, AlchemistGuildQuestDeliverySchema)
   .default({
     [ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID]: ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT,
   });
@@ -153,7 +149,9 @@ export const AlchemistGuildBoardStateSchema = z.object({
   questDeliveries: AlchemistGuildQuestDeliveriesSchema.default(
     ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT,
   ),
+  questLogScrollTop: z.number().min(0).default(0),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
+  selectedQuestId: AlchemyQuestIdSchema.default(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID),
 });
 export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;
 export const ALCHEMIST_GUILD_BOARD_DEFAULT: AlchemistGuildBoardState =

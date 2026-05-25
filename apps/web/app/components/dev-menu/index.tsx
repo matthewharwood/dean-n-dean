@@ -22,6 +22,7 @@ const DevMenuPropsSchema = z.object({
 export const DevMenu = defineComponent(DevMenuPropsSchema, ({ children }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [api] = useState<DevMenuApi>(() => ({ close: () => setOpen(false) }));
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export const DevMenu = defineComponent(DevMenuPropsSchema, ({ children }) => {
   };
 
   return (
-    <DevMenuContext.Provider value={{ close: () => setOpen(false) }}>
+    <DevMenuContext.Provider value={api}>
       <div ref={containerRef} className="fixed right-3 top-3 z-[100]">
         <button
           type="button"

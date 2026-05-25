@@ -29,3 +29,10 @@ export const FirstWaterQuestWithDeveloperNotes: Story = {
     developerNotesVisible: true,
   },
 };
+
+export const RedactedQuest: Story = {
+  args: {
+    ...FIRST_QUEST_BRIEFING_CARD_PROPS,
+    redacted: true,
+  },
+};

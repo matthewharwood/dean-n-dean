@@ -1,5 +1,4 @@
 import {
-  ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
   ALCHEMY_CRAFTED_CARDS,
   ALCHEMY_QUESTS,
   ALCHEMY_RECIPES,
@@ -11,12 +10,16 @@ import {
   type AlchemistGuildInventorySlots,
   type AlchemistGuildProfile,
   type AlchemistGuildQuestDeliveries,
+  type AlchemistGuildQuestDelivery,
   type AlchemistGuildReagentSlotId,
   AlchemistGuildReagentSlotIdSchema,
   type AlchemyQuestRewards,
   ELEMENT_CARDS,
+  getAlchemyCharactersByRequester,
   getAlchemyQuestBoard,
   getAlchemyQuestById,
+  getAlchemyRecipeById,
+  getAvailableAlchemyQuests,
   type StaticAlchemyQuest,
 } from "@dean-stack/schemas";
 import {
@@ -31,6 +34,8 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CloudFog,
   Coins,
@@ -42,7 +47,9 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
+  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
+  type UIEvent as ReactUIEvent,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -62,7 +69,7 @@ import {
   setupPeriodicTableScene,
 } from "./periodic-table-scene";
 import { FIRST_PROFILE_CARD_PROPS, ProfileCard } from "./profile-card";
-import { FIRST_QUEST_BRIEFING_CARD_PROPS, QuestBriefingCard } from "./quest-briefing-card";
+import { createQuestBriefingCardProps, QuestBriefingCard } from "./quest-briefing-card";
 import {
   type AlchemyWorkbenchRecipePreview,
   formatAlchemyRecipeFormula,
@@ -84,9 +91,8 @@ const TRANSMUTE_TRACK_PADDING_PX = 12;
 const TRANSMUTE_COMMIT_HOLD_MS = 160;
 const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
 const QUEST_CLAIM_COMMIT_HOLD_MS = 120;
-const QUEST_CLAIM_KNOB_HEIGHT_PX = 44;
-const QUEST_CLAIM_TRACK_PADDING_PX = 8;
-const QUEST_CLAIM_KNOB_TRAVEL_PX = 36;
+const QUEST_CLAIM_KNOB_WIDTH_PX = 72;
+const QUEST_CLAIM_TRACK_PADDING_PX = 6;
 const QUEST_REWARD_FLY_DURATION_MS = 560;
 const QUEST_REWARD_FLY_STAGGER_MS = 72;
 const OUTPUT_CARD_COOLDOWN_MS = 1000;
@@ -96,12 +102,23 @@ const RECIPE_REVEAL_STAGGER_MS = 70;
 const RECIPE_REVEAL_INTERSECTION_THRESHOLD = 0.36;
 const RECIPE_REVEAL_ID_SEPARATOR = "|";
 const QUEST_DELIVERY_COMPLETE_LABEL = "Ready to claim";
+const QUEST_CURRENT_SWIPE_MIN_PX = 38;
+const QUEST_CURRENT_SNAP_DURATION_MS = 240;
+const QUEST_CURRENT_SLIDE_OFFSETS = [-1, 0, 1] as const;
+const QUEST_CURRENT_CENTER_SLIDE_INDEX = 1;
+const QUEST_LOG_ROW_HEIGHT_PX = 64;
+const QUEST_LOG_ROW_GAP_PX = 8;
+const QUEST_LOG_ROW_PITCH_PX = QUEST_LOG_ROW_HEIGHT_PX + QUEST_LOG_ROW_GAP_PX;
+const QUEST_LOG_OVERSCAN_ROWS = 4;
 const EMPTY_DROP_INTENT: DropIntent = { kind: "none" };
+const EMPTY_QUEST_CLAIM_SWIPE_STATE = {
+  dragging: false,
+  progress: 0,
+} satisfies QuestClaimSwipeState;
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const TOKEN_PREFIX_PATTERN = /^[a-z-]+:/;
 const CARD_SYMBOL_CLEANUP_PATTERN = /[^A-Za-z0-9 ]/g;
 const CARD_SYMBOL_WORD_PATTERN = /\s+/;
-const FIRST_QUEST = getRequiredAlchemyQuest(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID);
 const WINDOW_POINTER_LISTENER_OPTIONS = {
   capture: true,
   passive: false,
@@ -122,8 +139,7 @@ const BOARD_DESCRIPTIONS = {
   alchemyWorkbenchInfo:
     "Explains the recipe or output currently previewed by the Alchemy Workbench output slot.",
   inventory: "Stores crafted cards, gathered materials, and quest outputs in the top board strip.",
-  inventoryScrollbar:
-    "Provides horizontal scroll position for the Inventory strip when carried cards overflow.",
+  boardModeTabs: "Switches between board modes: crafting, gathering, and expedition.",
   outputSlot: "Previews what the current Alchemy Workbench card arrangement is about to make.",
   periodicTableVault: "Holds the unlocked elemental cards that can be picked up for crafting.",
   profile: "Shows the player profile, guild rank, and long-term progression summary.",
@@ -158,7 +174,18 @@ const questPanelTabs = ["current", "log"] as const;
 const QuestPanelTabSchema = z.enum(questPanelTabs);
 type QuestPanelTab = z.infer<typeof QuestPanelTabSchema>;
 
+const boardModeTabs = ["crafting", "gathering", "expedition"] as const;
+const BoardModeTabSchema = z.enum(boardModeTabs);
+type BoardModeTab = z.infer<typeof BoardModeTabSchema>;
+
 type RewardKind = "discovery" | "gold" | "knowledge" | "muddlefog";
+
+type QuestClaimSwipeState = {
+  dragging: boolean;
+  progress: number;
+};
+
+type QuestClaimSwipeStateByQuestId = Record<string, QuestClaimSwipeState>;
 
 const REWARD_ICONS = {
   discovery: Sparkles,
@@ -296,6 +323,22 @@ type PointerSample = {
   time: number;
 };
 
+type HorizontalSwipeMoveState = {
+  pointerId: number;
+  released: boolean;
+  syncProgress: (clientX: number) => void;
+};
+
+type QuestCurrentSwipe = {
+  animationFrame: number;
+  captureElement: HTMLDivElement;
+  latestDeltaX: number;
+  motion: AnimatableObject;
+  pointerId: number;
+  slideWidth: number;
+  startClientX: number;
+};
+
 const AlchemyCardFacePropsSchema = z.object({
   card: z.custom<AlchemyBoardCard>(),
 });
@@ -422,27 +465,103 @@ const QuestBriefingAtmosphere = defineComponent(z.object({}), () => (
 ));
 
 const QuestDeliverySlotPropsSchema = z.object({
+  canClaim: z.boolean(),
   card: z.custom<AlchemyBoardCard>(),
+  claimed: z.boolean(),
+  claimProgress: z.number().min(0).max(1),
   delivered: z.int().min(0),
   dropFeedback: z.custom<DropFeedback>(),
+  isClaimDragging: z.boolean(),
+  onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
+  questId: z.string().min(1),
   required: z.int().min(1),
+  requesterName: z.string().min(1),
 });
 
 const QuestDeliverySlot = defineComponent(
   QuestDeliverySlotPropsSchema,
-  ({ card, delivered, dropFeedback, required }) => {
+  ({
+    canClaim,
+    card,
+    claimed,
+    claimProgress,
+    delivered,
+    dropFeedback,
+    isClaimDragging,
+    onClaimPointerDown,
+    questId,
+    required,
+    requesterName,
+  }) => {
+    const shellRef = useRef<HTMLElement>(null);
+    const claimRevealRef = useRef<HTMLDivElement>(null);
+    const wasCompleteRef = useRef(false);
     const deliveredCount = Math.min(delivered, required);
     const isComplete = deliveredCount >= required;
+    const statusText = getQuestDeliveryStatusText(isComplete, claimed, card.name);
+    const claimLabel = claimed ? "Claimed" : "Swipe to claim";
+    const visibleClaimProgress = claimed ? 1 : claimProgress;
+    const claimKnobLeft = `calc(${QUEST_CLAIM_TRACK_PADDING_PX}px + ${
+      visibleClaimProgress * 100
+    }% - ${
+      visibleClaimProgress * (QUEST_CLAIM_KNOB_WIDTH_PX + QUEST_CLAIM_TRACK_PADDING_PX * 2)
+    }px)`;
+
+    useBrowserLayoutEffect(() => {
+      const shellElement = shellRef.current;
+      const claimElement = claimRevealRef.current;
+      clearQuestDeliveryMotionStyles(shellElement, claimElement);
+
+      const becameComplete = isComplete && !wasCompleteRef.current;
+      wasCompleteRef.current = isComplete;
+      if (!becameComplete) return;
+
+      const reducedMotion = typeof window !== "undefined" && window.matchMedia(PRM).matches;
+      if (reducedMotion) return;
+
+      const animations: JSAnimation[] = [];
+      if (shellElement) {
+        animations.push(
+          animate(shellElement, {
+            duration: 280,
+            ease: "out(3)",
+            scale: [0.985, 1],
+            y: [6, 0],
+          }),
+        );
+      }
+
+      if (claimElement) {
+        animations.push(
+          animate(claimElement, {
+            delay: 60,
+            duration: 260,
+            ease: "out(3)",
+            opacity: [0, 1],
+            y: [10, 0],
+          }),
+        );
+      }
+
+      return () => {
+        for (const animation of animations) animation.cancel();
+        clearQuestDeliveryMotionStyles(shellElement, claimElement);
+      };
+    }, [isComplete, questId]);
 
     return (
       <section
+        ref={shellRef}
         data-board-section="quest-delivery-drop-zone"
         data-board-name={`${card.name} quest delivery`}
         data-card-id={card.id}
+        data-quest-id={questId}
+        data-claim-complete={claimed ? "true" : "false"}
+        data-claim-ready={canClaim ? "true" : "false"}
         data-delivery-complete={isComplete ? "true" : "false"}
         data-drop-feedback={dropFeedback}
-        className={getQuestDeliverySlotClass(dropFeedback, isComplete)}
-        aria-label={`Deliver ${required} ${card.name} card${required === 1 ? "" : "s"} to Sir Bubbleton`}
+        className={getQuestDeliverySlotClass(dropFeedback, isComplete, claimed)}
+        aria-label={`Deliver ${required} ${card.name} card${required === 1 ? "" : "s"} to ${requesterName}`}
       >
         <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3">
           <div
@@ -460,16 +579,67 @@ const QuestDeliverySlot = defineComponent(
           </div>
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
-              Sir Bubbleton needs
+              {requesterName} needs
             </p>
             <p className="truncate font-serif text-2xl leading-none text-amber-950">{card.name}</p>
-            <p className="mt-1 text-xs font-bold leading-tight text-neutral-800">
-              {isComplete ? QUEST_DELIVERY_COMPLETE_LABEL : "Cool the helmet before it catches."}
-            </p>
+            <p className="mt-1 text-xs font-bold leading-tight text-neutral-800">{statusText}</p>
           </div>
           <span className="rounded-full border border-amber-900/25 bg-white/70 px-2 py-1 font-mono text-sm font-black leading-none text-amber-950">
             {deliveredCount}/{required}
           </span>
+        </div>
+        <div
+          ref={claimRevealRef}
+          data-board-section="quest-claim-swipe"
+          data-claim-complete={claimed ? "true" : "false"}
+          data-claim-locked={isComplete ? "false" : "true"}
+          className={`relative mt-3 h-11 overflow-hidden rounded-full border shadow-[inset_0_2px_8px_rgba(72,45,16,0.16)] ${
+            isComplete
+              ? "border-emerald-900/20 bg-white/70"
+              : "border-dashed border-neutral-900/25 bg-white/45"
+          }`}
+        >
+          {isComplete ? (
+            <>
+              <span
+                className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/45"
+                style={{ width: `${Math.round(visibleClaimProgress * 100)}%` }}
+                aria-hidden="true"
+              />
+              <p className="pointer-events-none absolute inset-0 grid place-items-center px-20 text-center font-serif text-xl leading-none text-emerald-950">
+                {claimLabel}
+              </p>
+              <button
+                type="button"
+                data-quest-claim-knob=""
+                tabIndex={canClaim && !claimed ? 0 : -1}
+                aria-label={claimLabel}
+                className={`absolute top-1/2 grid h-8 -translate-y-1/2 touch-none select-none place-items-center rounded-full border shadow-[0_5px_14px_rgba(72,45,16,0.22)] transition-[background-color,border-color,opacity] ${
+                  canClaim && !claimed
+                    ? "cursor-grab border-emerald-950/30 bg-emerald-600 text-white active:cursor-grabbing"
+                    : "cursor-not-allowed border-neutral-950/15 bg-white text-emerald-800"
+                } ${isClaimDragging ? "opacity-95" : ""}`}
+                style={{
+                  left: claimKnobLeft,
+                  transition: isClaimDragging
+                    ? "none"
+                    : "left 220ms cubic-bezier(0.34,1.56,0.64,1), background-color 160ms ease, border-color 160ms ease",
+                  width: `${QUEST_CLAIM_KNOB_WIDTH_PX}px`,
+                }}
+                onPointerDown={canClaim && !claimed ? onClaimPointerDown : undefined}
+              >
+                {claimed ? (
+                  <CheckCircle2 className="size-5" strokeWidth={2.5} />
+                ) : (
+                  <ChevronUp className="size-5 rotate-90" strokeWidth={2.75} />
+                )}
+              </button>
+            </>
+          ) : (
+            <p className="pointer-events-none absolute inset-0 grid place-items-center px-4 text-center text-xs font-black uppercase leading-none tracking-normal text-neutral-700/70">
+              Drop {card.name} to unlock claim
+            </p>
+          )}
         </div>
       </section>
     );
@@ -491,8 +661,14 @@ const QuestPanelPropsSchema = z.object({
   developerNotesVisible: z.boolean(),
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
-  onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLDivElement>) => void>(),
+  onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
+  onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
+  onQuestOpenFromLog: z.custom<(questId: string) => void>(),
+  onQuestSelect: z.custom<(questId: string) => void>(),
   onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  questLogScrollTop: z.number().min(0),
+  selectedQuestId: z.string().min(1),
+  unlockedQuestIds: z.array(z.string().min(1)),
 });
 
 const QuestPanel = defineComponent(
@@ -510,7 +686,13 @@ const QuestPanel = defineComponent(
     hasQuestNotifications,
     isClaimDragging,
     onClaimPointerDown,
+    onQuestLogScrollTopChange,
+    onQuestOpenFromLog,
+    onQuestSelect,
     onTabChange,
+    questLogScrollTop,
+    selectedQuestId,
+    unlockedQuestIds,
   }) => (
     <section className="relative z-10 grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
       <QuestPanelTabs
@@ -520,35 +702,41 @@ const QuestPanel = defineComponent(
       />
       <div className="min-h-0 pt-2">
         {activeTab === "current" ? (
-          <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2">
-            <div data-board-section="quest-panel-scroll" className="min-h-0 overflow-y-auto pr-1">
-              <div className="grid min-h-0 content-start gap-2">
-                <QuestBriefingCard
-                  {...FIRST_QUEST_BRIEFING_CARD_PROPS}
-                  developerNotesVisible={developerNotesVisible}
-                />
-                {deliveryCard ? (
-                  <QuestDeliverySlot
-                    card={deliveryCard}
-                    delivered={deliveryProgress.delivered}
-                    dropFeedback={deliveryDropFeedback}
-                    required={deliveryProgress.required}
-                  />
-                ) : null}
-              </div>
-            </div>
-            <QuestClaimSwipe
-              canClaim={canClaim}
-              claimed={claimedQuestIds.includes(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID)}
-              isDragging={isClaimDragging}
-              onPointerDown={onClaimPointerDown}
-              progress={claimProgress}
+          <div data-board-section="quest-current" className="grid min-h-0 content-start gap-2">
+            <QuestCurrentCarousel
+              developerNotesVisible={developerNotesVisible}
+              selectedQuestId={selectedQuestId}
+              unlockedQuestIds={unlockedQuestIds}
+              onQuestSelect={onQuestSelect}
             />
+            {deliveryCard ? (
+              <QuestDeliverySlot
+                key={selectedQuestId}
+                canClaim={canClaim}
+                card={deliveryCard}
+                claimed={claimedQuestIds.includes(selectedQuestId)}
+                claimProgress={claimProgress}
+                delivered={deliveryProgress.delivered}
+                dropFeedback={deliveryDropFeedback}
+                isClaimDragging={isClaimDragging}
+                onClaimPointerDown={onClaimPointerDown}
+                questId={selectedQuestId}
+                required={deliveryProgress.required}
+                requesterName={getQuestRequesterName(selectedQuestId)}
+              />
+            ) : null}
           </div>
         ) : (
-          <div data-board-section="quest-panel-scroll" className="h-full min-h-0 overflow-y-auto">
-            <QuestLog activeQuestIds={activeQuestIds} claimedQuestIds={claimedQuestIds} />
-          </div>
+          <QuestLog
+            activeQuestIds={activeQuestIds}
+            claimedQuestIds={claimedQuestIds}
+            questLogScrollTop={questLogScrollTop}
+            selectedQuestId={selectedQuestId}
+            unlockedQuestIds={unlockedQuestIds}
+            onQuestLogScrollTopChange={onQuestLogScrollTopChange}
+            onQuestOpenFromLog={onQuestOpenFromLog}
+            onQuestSelect={onQuestSelect}
+          />
         )}
       </div>
     </section>
@@ -609,67 +797,296 @@ const QuestPanelTabs = defineComponent(
   ),
 );
 
-const QuestClaimSwipePropsSchema = z.object({
-  canClaim: z.boolean(),
-  claimed: z.boolean(),
-  isDragging: z.boolean(),
-  onPointerDown: z.custom<(event: ReactPointerEvent<HTMLDivElement>) => void>(),
-  progress: z.number().min(0).max(1),
+const boardModeTabLabels = {
+  crafting: "Crafting",
+  expedition: "Expedition",
+  gathering: "Gathering",
+} satisfies Record<BoardModeTab, string>;
+
+const BoardModeTabs = defineComponent(z.object({}), () => (
+  <div
+    data-board-section="board-mode-tabs"
+    data-board-name="Board Mode Tabs"
+    data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
+    className="flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+    role="tablist"
+    aria-label="Board modes"
+  >
+    {boardModeTabs.map((tab) => {
+      const selected = tab === "crafting";
+
+      return (
+        <button
+          key={tab}
+          type="button"
+          role="tab"
+          aria-selected={selected}
+          aria-disabled={selected ? undefined : true}
+          tabIndex={selected ? 0 : -1}
+          className={`shrink-0 rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
+            selected
+              ? "border-amber-900/45 bg-amber-950 text-white"
+              : "border-amber-900/20 bg-white/60 text-amber-950/70"
+          }`}
+        >
+          {boardModeTabLabels[tab]}
+        </button>
+      );
+    })}
+  </div>
+));
+
+const QuestCurrentCarouselPropsSchema = z.object({
+  developerNotesVisible: z.boolean(),
+  onQuestSelect: z.custom<(questId: string) => void>(),
+  selectedQuestId: z.string().min(1),
+  unlockedQuestIds: z.array(z.string().min(1)),
 });
 
-const QuestClaimSwipe = defineComponent(
-  QuestClaimSwipePropsSchema,
-  ({ canClaim, claimed, isDragging, onPointerDown, progress }) => {
-    let label = "Deliver Water to unlock";
-    if (canClaim) label = "Swipe up to claim";
-    if (claimed) label = "Claimed";
+const QuestCurrentCarousel = defineComponent(
+  QuestCurrentCarouselPropsSchema,
+  ({ developerNotesVisible, onQuestSelect, selectedQuestId, unlockedQuestIds }) => {
+    const viewportRef = useRef<HTMLDivElement>(null);
+    const trackRef = useRef<HTMLDivElement>(null);
+    const swipeRef = useRef<QuestCurrentSwipe | null>(null);
+    const animationRef = useRef<JSAnimation | null>(null);
+    const removePointerListenersRef = useRef<(() => void) | null>(null);
+    const selectedQuestIndex = getQuestIndexById(selectedQuestId);
+    const unlockedQuestIdSet = new Set(unlockedQuestIds);
+    const selectedQuestNumber = selectedQuestIndex + 1;
 
-    let shellClass = "border-amber-700/35 bg-white/55";
-    if (canClaim) {
-      shellClass = "border-amber-600/70 bg-amber-50/85 shadow-[0_0_0_4px_rgba(245,158,11,0.14)]";
-    }
-    if (claimed) shellClass = "border-emerald-600/65 bg-emerald-50/80";
+    const centerTrack = () => {
+      const slideWidth = viewportRef.current?.getBoundingClientRect().width ?? 0;
+      const trackElement = trackRef.current;
+      if (!trackElement || slideWidth <= 0) return;
+      trackElement.style.transform = `translateX(${getQuestCurrentCenterX(slideWidth)}px)`;
+    };
+
+    const animateToQuestDirection = (direction: -1 | 0 | 1) => {
+      const trackElement = trackRef.current;
+      const slideWidth = viewportRef.current?.getBoundingClientRect().width ?? 0;
+      if (!trackElement || slideWidth <= 0) return;
+
+      animationRef.current?.cancel();
+      animationRef.current = null;
+
+      if (direction === 0) {
+        snapQuestCurrentTrack(trackElement, getQuestCurrentCenterX(slideWidth), animationRef);
+        return;
+      }
+
+      const nextQuest = getQuestAtWrappedIndex(selectedQuestIndex + direction);
+      const targetX = getQuestCurrentTargetX(direction, slideWidth);
+      if (prefersReducedMotion()) {
+        onQuestSelect(nextQuest.id);
+        return;
+      }
+
+      animationRef.current = animate(trackElement, {
+        duration: QUEST_CURRENT_SNAP_DURATION_MS,
+        ease: "out(3)",
+        x: targetX,
+        onComplete: () => {
+          animationRef.current = null;
+          onQuestSelect(nextQuest.id);
+        },
+      });
+    };
+
+    const handlePrevious = () => {
+      animateToQuestDirection(-1);
+    };
+
+    const handleNext = () => {
+      animateToQuestDirection(1);
+    };
+
+    const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      if (isInsideQuestBriefingCarousel(event.target)) return;
+      const trackElement = trackRef.current;
+      if (!trackElement) return;
+
+      const slideWidth = event.currentTarget.getBoundingClientRect().width;
+      if (slideWidth <= 0) return;
+
+      event.preventDefault();
+      removePointerListenersRef.current?.();
+      animationRef.current?.cancel();
+      animationRef.current = null;
+
+      const motion = createAnimatable(trackElement, { x: { duration: 0, unit: "px" } });
+      setMotionProperty(motion, "x", getQuestCurrentCenterX(slideWidth));
+      swipeRef.current = {
+        animationFrame: 0,
+        captureElement: event.currentTarget,
+        latestDeltaX: 0,
+        motion,
+        pointerId: event.pointerId,
+        slideWidth,
+        startClientX: event.clientX,
+      };
+      capturePointer(event.currentTarget, event.pointerId);
+      removePointerListenersRef.current = addQuestCurrentPointerListeners(
+        handlePointerMove,
+        handlePointerUp,
+        handlePointerCancel,
+      );
+    };
+
+    const paintDrag = () => {
+      const swipe = swipeRef.current;
+      if (!swipe) return;
+
+      swipe.animationFrame = 0;
+      setMotionProperty(
+        swipe.motion,
+        "x",
+        getQuestCurrentCenterX(swipe.slideWidth) + swipe.latestDeltaX,
+      );
+    };
+
+    const queueDragPaint = () => {
+      const swipe = swipeRef.current;
+      if (!swipe || swipe.animationFrame !== 0) return;
+      swipe.animationFrame = requestAnimationFrame(paintDrag);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const swipe = swipeRef.current;
+      if (!swipe || event.pointerId !== swipe.pointerId) return;
+
+      event.preventDefault();
+      swipe.latestDeltaX = event.clientX - swipe.startClientX;
+      queueDragPaint();
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const swipe = swipeRef.current;
+      if (!swipe || event.pointerId !== swipe.pointerId) return;
+
+      event.preventDefault();
+      removePointerListenersRef.current?.();
+      removePointerListenersRef.current = null;
+      swipe.latestDeltaX = event.clientX - swipe.startClientX;
+      if (swipe.animationFrame !== 0) {
+        cancelAnimationFrame(swipe.animationFrame);
+        swipe.animationFrame = 0;
+        paintDrag();
+      }
+
+      const direction = getQuestCurrentSwipeDirection(swipe.latestDeltaX);
+      swipeRef.current = null;
+      if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
+        swipe.captureElement.releasePointerCapture(event.pointerId);
+      }
+      animateToQuestDirection(direction);
+    };
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      const swipe = swipeRef.current;
+      if (!swipe || event.pointerId !== swipe.pointerId) return;
+
+      removePointerListenersRef.current?.();
+      removePointerListenersRef.current = null;
+      if (swipe.animationFrame !== 0) cancelAnimationFrame(swipe.animationFrame);
+      swipeRef.current = null;
+      if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
+        swipe.captureElement.releasePointerCapture(event.pointerId);
+      }
+      snapQuestCurrentTrack(
+        trackRef.current,
+        getQuestCurrentCenterX(swipe.slideWidth),
+        animationRef,
+      );
+    };
+
+    useBrowserLayoutEffect(() => {
+      centerTrack();
+    }, [selectedQuestId]);
+
+    useBrowserLayoutEffect(() => {
+      const viewportElement = viewportRef.current;
+      if (!viewportElement) return;
+
+      const resizeObserver = new ResizeObserver(centerTrack);
+      resizeObserver.observe(viewportElement);
+
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }, []);
+
+    useEffect(
+      () => () => {
+        const swipe = swipeRef.current;
+        if (swipe?.animationFrame) cancelAnimationFrame(swipe.animationFrame);
+        removePointerListenersRef.current?.();
+        animationRef.current?.cancel();
+      },
+      [],
+    );
 
     return (
-      <section
-        data-board-section="quest-claim-swipe"
-        data-claim-ready={canClaim ? "true" : "false"}
-        data-claim-complete={claimed ? "true" : "false"}
-        className={`relative grid min-h-28 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-3 rounded-[6px] border p-3 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] ${shellClass}`}
-        aria-label={label}
-      >
+      <section className="grid min-h-0 gap-2" aria-label="Selected quest">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+          <button
+            type="button"
+            className="inline-grid grid-cols-[auto_auto] items-center gap-1 rounded-[5px] border border-amber-900/25 bg-white/65 px-2 py-1 text-[10px] font-black uppercase leading-none text-amber-950 transition-[background-color,transform] hover:bg-white/85 active:scale-[0.98]"
+            onClick={handlePrevious}
+          >
+            <ChevronLeft className="size-3.5" strokeWidth={2.6} aria-hidden="true" />
+            Previous
+          </button>
+          <p
+            className="min-w-0 text-center font-mono text-xs font-black leading-none text-amber-950"
+            aria-live="polite"
+          >
+            Quest {selectedQuestNumber}/{ALCHEMY_QUESTS.length}
+          </p>
+          <button
+            type="button"
+            className="inline-grid grid-cols-[auto_auto] items-center gap-1 rounded-[5px] border border-amber-900/25 bg-white/65 px-2 py-1 text-[10px] font-black uppercase leading-none text-amber-950 transition-[background-color,transform] hover:bg-white/85 active:scale-[0.98]"
+            onClick={handleNext}
+          >
+            Next
+            <ChevronRight className="size-3.5" strokeWidth={2.6} aria-hidden="true" />
+          </button>
+        </div>
+
         <div
-          data-quest-claim-track=""
-          className="relative h-24 rounded-full border border-amber-900/20 bg-white/65 shadow-[inset_0_2px_6px_rgba(72,45,16,0.16)]"
-          aria-hidden="true"
+          ref={viewportRef}
+          data-board-section="quest-current-carousel"
+          className="min-h-0 touch-pan-y select-none overflow-hidden"
+          onPointerDown={handlePointerDown}
         >
           <div
-            data-quest-claim-knob=""
-            className={`absolute inset-x-1 bottom-1 grid h-11 touch-none select-none place-items-center rounded-full border shadow-[0_4px_12px_rgba(72,45,16,0.2)] transition-[border-color,background-color,opacity] ${
-              canClaim && !claimed
-                ? "cursor-grab border-amber-900/30 bg-amber-500 text-white active:cursor-grabbing"
-                : "cursor-not-allowed border-neutral-950/15 bg-neutral-200 text-neutral-500"
-            } ${isDragging ? "opacity-95" : ""}`}
-            style={{
-              transform: `translateY(${-progress * QUEST_CLAIM_KNOB_TRAVEL_PX}px)`,
-            }}
-            onPointerDown={onPointerDown}
+            ref={trackRef}
+            className="grid grid-flow-col auto-cols-[100%]"
+            style={{ transform: "translateX(-33.333333%)" }}
           >
-            {claimed ? (
-              <CheckCircle2 className="size-5" strokeWidth={2.5} />
-            ) : (
-              <ChevronUp className="size-5" strokeWidth={2.75} />
-            )}
+            {QUEST_CURRENT_SLIDE_OFFSETS.map((offset) => {
+              const quest = getQuestAtWrappedIndex(selectedQuestIndex + offset);
+              const cardProps = createQuestBriefingCardProps(quest);
+              const isUnlocked = unlockedQuestIdSet.has(quest.id);
+
+              return (
+                <div
+                  key={`${quest.id}:${offset}`}
+                  data-quest-current-slide={offset}
+                  className="min-w-0 px-0"
+                  aria-hidden={offset === 0 ? undefined : true}
+                  inert={offset === 0 ? undefined : true}
+                >
+                  <QuestBriefingCard
+                    {...cardProps}
+                    developerNotesVisible={developerNotesVisible}
+                    redacted={!isUnlocked}
+                  />
+                </div>
+              );
+            })}
           </div>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
-            Claim reward
-          </p>
-          <p className="mt-1 font-serif text-2xl leading-none text-amber-950">{label}</p>
-          <p className="mt-1 text-xs font-bold leading-tight text-neutral-800">
-            Rewards fly to the apprentice profile when the quest is claimed.
-          </p>
         </div>
       </section>
     );
@@ -679,95 +1096,211 @@ const QuestClaimSwipe = defineComponent(
 const QuestLogPropsSchema = z.object({
   activeQuestIds: z.array(z.string().min(1)),
   claimedQuestIds: z.array(z.string().min(1)),
+  onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
+  onQuestOpenFromLog: z.custom<(questId: string) => void>(),
+  onQuestSelect: z.custom<(questId: string) => void>(),
+  questLogScrollTop: z.number().min(0),
+  selectedQuestId: z.string().min(1),
+  unlockedQuestIds: z.array(z.string().min(1)),
 });
 
-const QuestLog = defineComponent(QuestLogPropsSchema, ({ activeQuestIds, claimedQuestIds }) => {
-  const claimedQuestIdSet = new Set(claimedQuestIds);
-  const activeQuestIdSet = new Set(activeQuestIds);
+const QuestLog = defineComponent(
+  QuestLogPropsSchema,
+  ({
+    activeQuestIds,
+    claimedQuestIds,
+    onQuestLogScrollTopChange,
+    onQuestOpenFromLog,
+    onQuestSelect,
+    questLogScrollTop,
+    selectedQuestId,
+    unlockedQuestIds,
+  }) => {
+    const viewportRef = useRef<HTMLDivElement>(null);
+    const scrollFrameRef = useRef(0);
+    const [viewportHeight, setViewportHeight] = useState(0);
+    const [visibleScrollTop, setVisibleScrollTop] = useState(0);
+    const claimedQuestIdSet = new Set(claimedQuestIds);
+    const activeQuestIdSet = new Set(activeQuestIds);
+    const unlockedQuestIdSet = new Set(unlockedQuestIds);
+    const startIndex = getQuestLogStartIndex(visibleScrollTop);
+    const endIndex = getQuestLogEndIndex(startIndex, viewportHeight);
+    const visibleQuests = ALCHEMY_QUESTS.slice(startIndex, endIndex);
+    const totalHeight = ALCHEMY_QUESTS.length * QUEST_LOG_ROW_PITCH_PX - QUEST_LOG_ROW_GAP_PX;
+    const selectedQuestIndex = getQuestIndexById(selectedQuestId);
 
-  return (
-    <section
-      data-board-section="quest-log"
-      className="grid content-start gap-2 pr-1"
-      aria-label="Quest Log"
-    >
-      {ALCHEMY_QUESTS.map((quest) => {
-        const isClaimed = claimedQuestIdSet.has(quest.id);
-        const isAvailable = activeQuestIdSet.has(quest.id);
+    const syncScrollTop = (nextScrollTop: number) => {
+      setVisibleScrollTop(nextScrollTop);
+      onQuestLogScrollTopChange(nextScrollTop);
+    };
 
-        return (
-          <QuestLogRow
-            key={quest.id}
-            isAvailable={isAvailable}
-            isClaimed={isClaimed}
-            quest={quest}
-          />
-        );
-      })}
-    </section>
-  );
-});
+    const handleScroll = (event: ReactUIEvent<HTMLDivElement>) => {
+      const nextScrollTop = event.currentTarget.scrollTop;
+      if (scrollFrameRef.current !== 0) cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = 0;
+        syncScrollTop(nextScrollTop);
+      });
+    };
+
+    useBrowserLayoutEffect(() => {
+      const viewportElement = viewportRef.current;
+      if (!viewportElement) return;
+
+      viewportElement.scrollTop = questLogScrollTop;
+      setVisibleScrollTop(questLogScrollTop);
+
+      const resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        setViewportHeight(entry.contentRect.height);
+      });
+      resizeObserver.observe(viewportElement);
+
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }, []);
+
+    useBrowserLayoutEffect(() => {
+      const viewportElement = viewportRef.current;
+      if (!viewportElement) return;
+
+      const nextScrollTop = getQuestLogScrollTopForSelectedQuest(
+        selectedQuestIndex,
+        viewportElement.scrollTop,
+        viewportElement.clientHeight,
+      );
+      if (nextScrollTop === viewportElement.scrollTop) return;
+
+      viewportElement.scrollTop = nextScrollTop;
+      syncScrollTop(nextScrollTop);
+    }, [selectedQuestId]);
+
+    useEffect(
+      () => () => {
+        if (scrollFrameRef.current !== 0) cancelAnimationFrame(scrollFrameRef.current);
+      },
+      [],
+    );
+
+    return (
+      <section
+        ref={viewportRef}
+        data-board-section="quest-log"
+        className="h-full min-h-0 overflow-y-auto pr-1"
+        aria-label="Quest Log"
+        onScroll={handleScroll}
+      >
+        <div className="relative" style={{ height: `${totalHeight}px` }}>
+          <div
+            className="absolute inset-x-0 grid gap-2"
+            style={{ transform: `translateY(${startIndex * QUEST_LOG_ROW_PITCH_PX}px)` }}
+          >
+            {visibleQuests.map((quest) => {
+              const isClaimed = claimedQuestIdSet.has(quest.id);
+              const isActive = activeQuestIdSet.has(quest.id);
+              const isSelected = quest.id === selectedQuestId;
+              const isUnlocked = unlockedQuestIdSet.has(quest.id);
+
+              return (
+                <QuestLogRow
+                  key={quest.id}
+                  isActive={isActive}
+                  isClaimed={isClaimed}
+                  isSelected={isSelected}
+                  isUnlocked={isUnlocked}
+                  quest={quest}
+                  onQuestOpenFromLog={onQuestOpenFromLog}
+                  onQuestSelect={onQuestSelect}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    );
+  },
+);
 
 const QuestLogRowPropsSchema = z.object({
-  isAvailable: z.boolean(),
+  isActive: z.boolean(),
   isClaimed: z.boolean(),
+  isSelected: z.boolean(),
+  isUnlocked: z.boolean(),
+  onQuestOpenFromLog: z.custom<(questId: string) => void>(),
+  onQuestSelect: z.custom<(questId: string) => void>(),
   quest: z.custom<StaticAlchemyQuest>(),
 });
 
-const QuestLogRow = defineComponent(QuestLogRowPropsSchema, ({ isAvailable, isClaimed, quest }) => {
-  const revealed = isClaimed;
-  let Icon = LockKeyhole;
-  if (isAvailable) Icon = BookOpen;
-  if (revealed) Icon = ScrollText;
+const QuestLogRow = defineComponent(
+  QuestLogRowPropsSchema,
+  ({ isActive, isClaimed, isSelected, isUnlocked, onQuestOpenFromLog, onQuestSelect, quest }) => {
+    const revealed = isUnlocked;
+    let Icon = LockKeyhole;
+    if (isActive) Icon = BookOpen;
+    if (isClaimed) Icon = ScrollText;
 
-  let rowClass = "border-neutral-900/15 bg-white/35";
-  if (isAvailable) rowClass = "border-amber-500/45 bg-amber-50/60";
-  if (revealed) rowClass = "border-emerald-600/45 bg-white/70";
+    let rowClass = "border-neutral-900/15 bg-white/35";
+    if (isUnlocked) rowClass = "border-amber-500/45 bg-amber-50/60";
+    if (isClaimed) rowClass = "border-emerald-600/45 bg-white/70";
+    if (isSelected) {
+      rowClass = `${rowClass} border-sky-600 outline outline-[3px] outline-offset-[-4px] outline-sky-600/80`;
+    }
 
-  const title = getQuestLogRowTitle(quest, revealed, isAvailable);
-  const badgeLabel = getQuestLogRowBadgeLabel(revealed, isAvailable);
+    const title = getQuestLogRowTitle(quest, revealed, isActive);
+    const badgeLabel = getQuestLogRowBadgeLabel(isClaimed, isActive, isUnlocked);
 
-  return (
-    <article
-      data-board-section="quest-log-row"
-      data-quest-id={quest.id}
-      data-quest-redacted={revealed ? "false" : "true"}
-      className={`grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border p-2 text-neutral-950 shadow-[0_1px_0_rgba(72,45,16,0.1)] ${rowClass}`}
-    >
-      <span
-        className={`grid size-9 place-items-center rounded-[5px] border ${
-          revealed
-            ? "border-emerald-700/35 bg-emerald-50 text-emerald-800"
-            : "border-neutral-900/15 bg-white/55 text-neutral-600"
-        }`}
-        aria-hidden="true"
+    return (
+      <button
+        type="button"
+        data-board-section="quest-log-row"
+        data-quest-id={quest.id}
+        data-quest-redacted={revealed ? "false" : "true"}
+        data-quest-selected={isSelected ? "true" : "false"}
+        className={`grid h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border p-2 text-left text-neutral-950 shadow-[0_1px_0_rgba(72,45,16,0.1)] transition-[background-color,border-color,box-shadow,transform] hover:-translate-y-0.5 ${rowClass}`}
+        onClick={() => {
+          onQuestSelect(quest.id);
+        }}
+        onDoubleClick={() => {
+          onQuestOpenFromLog(quest.id);
+        }}
       >
-        <Icon className="size-4" strokeWidth={2.4} />
-      </span>
-      <span className="min-w-0">
         <span
-          className={`block truncate text-xs font-black leading-tight ${
-            revealed ? "text-amber-950" : "text-neutral-700"
+          className={`grid size-9 place-items-center rounded-[5px] border ${
+            revealed
+              ? "border-emerald-700/35 bg-emerald-50 text-emerald-800"
+              : "border-neutral-900/15 bg-white/55 text-neutral-600"
+          }`}
+          aria-hidden="true"
+        >
+          <Icon className="size-4" strokeWidth={2.4} />
+        </span>
+        <span className="min-w-0">
+          <span
+            className={`block truncate text-xs font-black leading-tight ${
+              revealed ? "text-amber-950" : "text-neutral-700"
+            }`}
+          >
+            {title}
+          </span>
+          <span className="mt-1 block truncate text-[10px] font-bold uppercase leading-none tracking-normal text-neutral-700/70">
+            {revealed
+              ? `Act ${quest.progression.act} • ${formatTokenLabel(quest.progression.boardSlot)}`
+              : "Complete earlier guild work to reveal"}
+          </span>
+        </span>
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase leading-none ${
+            revealed ? "bg-emerald-700 text-white" : "bg-neutral-900/15 text-neutral-700"
           }`}
         >
-          {title}
+          {badgeLabel}
         </span>
-        <span className="mt-1 block truncate text-[10px] font-bold uppercase leading-none tracking-normal text-neutral-700/70">
-          {revealed
-            ? `Act ${quest.progression.act} • ${formatTokenLabel(quest.progression.boardSlot)}`
-            : "Complete earlier guild work to reveal"}
-        </span>
-      </span>
-      <span
-        className={`rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase leading-none ${
-          revealed ? "bg-emerald-700 text-white" : "bg-neutral-900/15 text-neutral-700"
-        }`}
-      >
-        {badgeLabel}
-      </span>
-    </article>
-  );
-});
+      </button>
+    );
+  },
+);
 
 const ReagentSlotPropsSchema = z.object({
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
@@ -1458,8 +1991,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [transmuteSwipeProgress, setTransmuteSwipeProgress] = useState(0);
   const [isTransmuteDragging, setIsTransmuteDragging] = useState(false);
   const [transmuteTrackWidth, setTransmuteTrackWidth] = useState(0);
-  const [questClaimSwipeProgress, setQuestClaimSwipeProgress] = useState(0);
-  const [isQuestClaimDragging, setIsQuestClaimDragging] = useState(false);
+  const [questClaimSwipeStateByQuestId, setQuestClaimSwipeStateByQuestId] =
+    useState<QuestClaimSwipeStateByQuestId>({});
   const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
   const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
   const [pendingRecipeNotificationIds, setPendingRecipeNotificationIds] = useState<string[]>([]);
@@ -1468,16 +2001,28 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const showBoardDebugBadges = useLocalhostMetaKeyDebugBadges();
   const nowMs = useInventoryClock(boardState.inventorySlots);
   const recipePreview = getAlchemyWorkbenchRecipePreview(getWorkbenchCardIds(boardState));
-  const firstQuestDelivery = boardState.questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
-  const firstQuestDeliveryCard = getAlchemyCard(firstQuestDelivery.cardId);
-  const claimedFirstQuest = boardState.completedQuestIds.includes(
-    ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
-  );
-  const canClaimFirstQuest =
-    !claimedFirstQuest && firstQuestDelivery.delivered >= firstQuestDelivery.required;
   const activeQuestIds = getAlchemyQuestBoard(boardState.completedQuestIds).map(
     (quest) => quest.id,
   );
+  const availableQuestIds = getAvailableAlchemyQuests(boardState.completedQuestIds).map(
+    (quest) => quest.id,
+  );
+  const unlockedQuestIds = [...new Set([...boardState.completedQuestIds, ...availableQuestIds])];
+  const selectedQuestId = getQuestAtWrappedIndex(getQuestIndexById(boardState.selectedQuestId)).id;
+  const selectedQuest = getRequiredAlchemyQuest(selectedQuestId);
+  const selectedQuestDelivery = getQuestDelivery(boardState.questDeliveries, selectedQuest);
+  const selectedQuestDeliveryCard = getAlchemyCard(selectedQuestDelivery.cardId);
+  const claimedSelectedQuest = boardState.completedQuestIds.includes(selectedQuestId);
+  const selectedQuestClaimSwipeState = getQuestClaimSwipeState(
+    questClaimSwipeStateByQuestId,
+    selectedQuestId,
+  );
+  const selectedQuestUnlocked = unlockedQuestIds.includes(selectedQuestId);
+  const canClaimSelectedQuest =
+    selectedQuestUnlocked &&
+    !claimedSelectedQuest &&
+    selectedQuestDelivery.delivered >= selectedQuestDelivery.required;
+  const questPanelAccepted = isQuestPanelAcceptedDrop(dropIntent);
   const transmuteKnobTravelPx = Math.max(
     0,
     transmuteTrackWidth - TRANSMUTE_KNOB_WIDTH_PX - TRANSMUTE_TRACK_PADDING_PX * 2,
@@ -1575,6 +2120,35 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (nextTab === "log") setPendingQuestNotificationIds([]);
   };
 
+  const handleQuestSelect = (questId: string) => {
+    const quest = getAlchemyQuestById(questId);
+    if (!quest) return;
+
+    setBoardState((previous) =>
+      previous.selectedQuestId === quest.id ? previous : { ...previous, selectedQuestId: quest.id },
+    );
+  };
+
+  const handleQuestLogScrollTopChange = (scrollTop: number) => {
+    const nextScrollTop = Math.max(0, Math.round(scrollTop));
+    setBoardState((previous) =>
+      previous.questLogScrollTop === nextScrollTop
+        ? previous
+        : { ...previous, questLogScrollTop: nextScrollTop },
+    );
+  };
+
+  const handleQuestOpenFromLog = (questId: string) => {
+    handleQuestSelect(questId);
+    setQuestPanelTab("current");
+  };
+
+  const setQuestClaimSwipeState = (questId: string, nextState: QuestClaimSwipeState) => {
+    setQuestClaimSwipeStateByQuestId((previous) =>
+      updateQuestClaimSwipeStateByQuestId(previous, questId, nextState),
+    );
+  };
+
   const announceRecipeDiscovery = (recipeId: string) => {
     if (infoPanelTab === "recipe") {
       setRecipeRevealIds([recipeId]);
@@ -1597,11 +2171,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     );
   };
 
-  const commitFirstQuestClaim = () => {
+  const commitQuestClaim = (questId: string) => {
     const currentBoardState = boardStateRef.current;
-    const currentDelivery = currentBoardState.questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+    const quest = getRequiredAlchemyQuest(questId);
+    const currentDelivery = getQuestDelivery(currentBoardState.questDeliveries, quest);
     if (
-      currentBoardState.completedQuestIds.includes(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID) ||
+      currentBoardState.completedQuestIds.includes(quest.id) ||
       currentDelivery.delivered < currentDelivery.required
     ) {
       return;
@@ -1609,91 +2184,93 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     questRewardFlyAnimationSequenceRef.current += 1;
     const flyAnimation = createQuestRewardFlyAnimation(
-      FIRST_QUEST.rewards,
+      quest.rewards,
       `quest-reward:${questRewardFlyAnimationSequenceRef.current}`,
     );
     if (flyAnimation.items.length > 0) setQuestRewardFlyAnimation(flyAnimation);
 
-    const nextCompletedQuestIds = appendUniqueId(
-      currentBoardState.completedQuestIds,
-      ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
-    );
+    const nextCompletedQuestIds = appendUniqueId(currentBoardState.completedQuestIds, quest.id);
     setBoardState((previous) => {
-      if (previous.completedQuestIds.includes(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID)) {
+      if (previous.completedQuestIds.includes(quest.id)) {
         return previous;
       }
 
       return {
         ...previous,
-        completedQuestIds: appendUniqueId(
-          previous.completedQuestIds,
-          ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
-        ),
-        profile: applyQuestRewards(previous.profile, FIRST_QUEST.rewards),
+        completedQuestIds: appendUniqueId(previous.completedQuestIds, quest.id),
+        profile: applyQuestRewards(previous.profile, quest.rewards),
+        questDeliveries: ensureQuestDelivery(previous.questDeliveries, quest),
       };
     });
     announceQuestAvailability(nextCompletedQuestIds);
   };
 
-  const handleQuestClaimSwipePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !canClaimFirstQuest) return;
+  const handleQuestClaimSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !canClaimSelectedQuest) return;
     event.preventDefault();
 
+    const claimQuestId = selectedQuestId;
     const pointerId = event.pointerId;
     const trackElement = event.currentTarget.parentElement;
     if (!(trackElement instanceof HTMLElement)) return;
 
-    const trackRect = trackElement.getBoundingClientRect();
     const knobRect = event.currentTarget.getBoundingClientRect();
-    const grabOffsetY = event.clientY - knobRect.top;
+    const trackRect = trackElement.getBoundingClientRect();
+    const grabOffsetX = event.clientX - knobRect.left;
     const travelDistance = Math.max(
-      trackRect.height - QUEST_CLAIM_KNOB_HEIGHT_PX - QUEST_CLAIM_TRACK_PADDING_PX * 2,
+      trackRect.width - QUEST_CLAIM_KNOB_WIDTH_PX - QUEST_CLAIM_TRACK_PADDING_PX * 2,
       1,
     );
     let latestProgress = 0;
-    let released = false;
-    setIsQuestClaimDragging(true);
+    setQuestClaimSwipeState(claimQuestId, {
+      dragging: true,
+      progress: 0,
+    });
 
-    const syncProgress = (clientY: number) => {
-      const knobTop = clientY - grabOffsetY;
+    const syncProgress = (clientX: number) => {
+      const knobLeft = clientX - grabOffsetX;
       latestProgress = clamp(
-        (trackRect.bottom - QUEST_CLAIM_TRACK_PADDING_PX - QUEST_CLAIM_KNOB_HEIGHT_PX - knobTop) /
-          travelDistance,
+        (knobLeft - trackRect.left - QUEST_CLAIM_TRACK_PADDING_PX) / travelDistance,
         0,
         1,
       );
-      setQuestClaimSwipeProgress(latestProgress);
+      setQuestClaimSwipeState(claimQuestId, {
+        dragging: true,
+        progress: latestProgress,
+      });
     };
-
-    function handlePointerMove(pointerEvent: PointerEvent) {
-      if (pointerEvent.pointerId !== pointerId || released) return;
-      pointerEvent.preventDefault();
-      syncProgress(pointerEvent.clientY);
-    }
+    const swipeMoveState: HorizontalSwipeMoveState = {
+      pointerId,
+      released: false,
+      syncProgress,
+    };
+    const handlePointerMove = handleHorizontalSwipeMove.bind(null, swipeMoveState);
 
     function handlePointerRelease(pointerEvent: PointerEvent) {
-      if (pointerEvent.pointerId !== pointerId || released) return;
-      released = true;
+      if (pointerEvent.pointerId !== pointerId || swipeMoveState.released) return;
+      swipeMoveState.released = true;
       pointerEvent.preventDefault();
-      syncProgress(pointerEvent.clientY);
+      syncProgress(pointerEvent.clientX);
       removePointerWindowListeners(handlePointerMove, handlePointerRelease);
 
       const committed = latestProgress >= QUEST_CLAIM_SWIPE_THRESHOLD;
-      setIsQuestClaimDragging(false);
       if (committed) {
-        setQuestClaimSwipeProgress(1);
+        setQuestClaimSwipeState(claimQuestId, {
+          dragging: false,
+          progress: 1,
+        });
         void sfx.play("transmute.complete");
         window.setTimeout(() => {
-          commitFirstQuestClaim();
-          setQuestClaimSwipeProgress(0);
+          commitQuestClaim(claimQuestId);
+          setQuestClaimSwipeState(claimQuestId, EMPTY_QUEST_CLAIM_SWIPE_STATE);
         }, QUEST_CLAIM_COMMIT_HOLD_MS);
         return;
       }
 
-      setQuestClaimSwipeProgress(0);
+      setQuestClaimSwipeState(claimQuestId, EMPTY_QUEST_CLAIM_SWIPE_STATE);
     }
 
-    syncProgress(event.clientY);
+    syncProgress(event.clientX);
     addPointerWindowListeners(handlePointerMove, handlePointerRelease);
   };
 
@@ -1754,7 +2331,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("card.massDissolve");
   };
 
-  const handleTransmutationSwipePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleTransmutationSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !recipePreview) return;
     event.preventDefault();
 
@@ -1769,7 +2346,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       1,
     );
     let latestProgress = 0;
-    let released = false;
     setIsTransmuteDragging(true);
 
     const syncProgress = (clientX: number) => {
@@ -1781,16 +2357,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       setTransmuteSwipeProgress(latestProgress);
       sfx.updateTransmuteRamp(latestProgress);
     };
-
-    function handlePointerMove(pointerEvent: PointerEvent) {
-      if (pointerEvent.pointerId !== pointerId || released) return;
-      pointerEvent.preventDefault();
-      syncProgress(pointerEvent.clientX);
-    }
+    const swipeMoveState: HorizontalSwipeMoveState = {
+      pointerId,
+      released: false,
+      syncProgress,
+    };
+    const handlePointerMove = handleHorizontalSwipeMove.bind(null, swipeMoveState);
 
     function handlePointerRelease(pointerEvent: PointerEvent) {
-      if (pointerEvent.pointerId !== pointerId || released) return;
-      released = true;
+      if (pointerEvent.pointerId !== pointerId || swipeMoveState.released) return;
+      swipeMoveState.released = true;
       pointerEvent.preventDefault();
       syncProgress(pointerEvent.clientX);
       removePointerWindowListeners(handlePointerMove, handlePointerRelease);
@@ -2040,7 +2616,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       const nextDropIntent = resolveDropIntent(
         activeDraggedCard,
         getDropSlotIdAtCardCenter(currentLeft, currentTop, slotHitRects),
-        isCardCenterInsideQuestDeliverySlot(currentLeft, currentTop),
+        isCardCenterInsideQuestPanel(currentLeft, currentTop),
         boardStateRef.current,
       );
 
@@ -2052,7 +2628,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     const commitRelease = (dropSlotId: AlchemistGuildReagentSlotId | null) => {
       const source = activeDraggedCard.source;
       const currentBoardState = boardStateRef.current;
-      const questDeliveryHit = isCardCenterInsideQuestDeliverySlot(currentLeft, currentTop);
+      const questDeliveryHit = isCardCenterInsideQuestPanel(currentLeft, currentTop);
       const queueInventoryReturnAnimation = (
         destinationSlotId: AlchemistGuildInventorySlotId,
         stackCount?: number,
@@ -2105,7 +2681,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 1,
                 deliveredAtMs,
               ),
-              questDeliveries: addFirstQuestDelivery(previous.questDeliveries),
+              questDeliveries: addSelectedQuestDelivery(
+                previous.questDeliveries,
+                currentBoardState.selectedQuestId,
+              ),
             }));
             void sfx.play("card.drop");
             return;
@@ -2114,7 +2693,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           if (source.kind === "slot") {
             setBoardState((previous) => ({
               ...previous,
-              questDeliveries: addFirstQuestDelivery(previous.questDeliveries),
+              questDeliveries: addSelectedQuestDelivery(
+                previous.questDeliveries,
+                currentBoardState.selectedQuestId,
+              ),
               reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
             }));
             void sfx.play("card.drop");
@@ -2361,7 +2943,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       >
         Periodic table Pixi canvas
       </canvas>
-      <div className="pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px] grid-rows-[5rem_0.75rem_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_0.75rem_minmax(0,1fr)]">
+      <div className="pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px] grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]">
         <section
           data-board-section="top-inventory-panel"
           data-board-name="Inventory"
@@ -2409,22 +2991,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           </div>
         </section>
 
-        <div className={`${GLASS_PANEL_CLASS} p-0`}>
-          <BoardDebugBadge
-            description={BOARD_DESCRIPTIONS.inventoryScrollbar}
-            label="Inventory Scrollbar"
-            visible={showBoardDebugBadges}
-          />
-          <div
-            data-board-section="inventory-scrollbar"
-            data-board-name="Inventory Scrollbar"
-            data-board-description={BOARD_DESCRIPTIONS.inventoryScrollbar}
-            className="h-3 overflow-hidden rounded-[8px] bg-neutral-950/10"
-            aria-hidden="true"
-          >
-            <span className="block h-full w-24 rounded-[8px] bg-sky-950/35" />
-          </div>
-        </div>
+        <BoardModeTabs />
 
         <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
           <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
@@ -2455,7 +3022,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               data-board-section="left-briefing-panel"
               data-board-name="Quest Briefing"
               data-board-description={BOARD_DESCRIPTIONS.questBriefing}
-              className={`${GLASS_PANEL_CLASS} grid content-start gap-2 overflow-hidden p-3`}
+              data-quest-drop-accepted={questPanelAccepted ? "true" : "false"}
+              className={`${GLASS_PANEL_CLASS} ${
+                questPanelAccepted ? "quest-panel-accepted" : ""
+              } grid h-full min-h-0 content-start gap-2 overflow-hidden p-3 transition-[box-shadow,transform] duration-150`}
             >
               <QuestBriefingAtmosphere />
               <BoardDebugBadge
@@ -2466,20 +3036,26 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               <QuestPanel
                 activeQuestIds={activeQuestIds}
                 activeTab={questPanelTab}
-                canClaim={canClaimFirstQuest}
+                canClaim={canClaimSelectedQuest}
                 claimedQuestIds={boardState.completedQuestIds}
-                claimProgress={questClaimSwipeProgress}
-                deliveryCard={firstQuestDeliveryCard}
+                claimProgress={selectedQuestClaimSwipeState.progress}
+                deliveryCard={selectedQuestUnlocked ? selectedQuestDeliveryCard : null}
                 deliveryDropFeedback={getQuestDeliveryDropFeedback(dropIntent)}
                 deliveryProgress={{
-                  delivered: firstQuestDelivery.delivered,
-                  required: firstQuestDelivery.required,
+                  delivered: selectedQuestDelivery.delivered,
+                  required: selectedQuestDelivery.required,
                 }}
                 developerNotesVisible={showBoardDebugBadges}
                 hasQuestNotifications={pendingQuestNotificationIds.length > 0}
-                isClaimDragging={isQuestClaimDragging}
+                isClaimDragging={selectedQuestClaimSwipeState.dragging}
                 onClaimPointerDown={handleQuestClaimSwipePointerDown}
+                onQuestLogScrollTopChange={handleQuestLogScrollTopChange}
+                onQuestOpenFromLog={handleQuestOpenFromLog}
+                onQuestSelect={handleQuestSelect}
                 onTabChange={handleQuestPanelTabChange}
+                questLogScrollTop={boardState.questLogScrollTop}
+                selectedQuestId={selectedQuestId}
+                unlockedQuestIds={unlockedQuestIds}
               />
             </div>
           </aside>
@@ -2563,19 +3139,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 >
                   {recipePreview ? "Swipe to transmute" : "Match a recipe first"}
                 </p>
-                <div
+                <button
+                  type="button"
                   data-board-section="swipe-rune-handle"
                   data-board-name="Swipe rune handle"
-                  role="slider"
                   tabIndex={recipePreview ? 0 : -1}
                   aria-label={
                     recipePreview
                       ? "Swipe to transmute output"
                       : "Match a recipe before transmuting"
                   }
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(transmuteSwipeProgress * 100)}
                   className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${
                     recipePreview
                       ? "cursor-grab bg-neutral-800"
@@ -2596,7 +3169,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                     <span className="h-full w-0.5 bg-neutral-300" />
                     <span className="h-full w-0.5 bg-neutral-300" />
                   </div>
-                </div>
+                </button>
               </div>
 
               <div
@@ -2758,6 +3331,15 @@ function addPointerWindowListeners(
   window.addEventListener("pointercancel", onRelease, WINDOW_POINTER_LISTENER_OPTIONS);
 }
 
+function handleHorizontalSwipeMove(
+  state: HorizontalSwipeMoveState,
+  pointerEvent: PointerEvent,
+): void {
+  if (pointerEvent.pointerId !== state.pointerId || state.released) return;
+  pointerEvent.preventDefault();
+  state.syncProgress(pointerEvent.clientX);
+}
+
 function removePointerWindowListeners(
   onMove: (event: PointerEvent) => void,
   onRelease: (event: PointerEvent) => void,
@@ -2860,6 +3442,120 @@ function getRequiredAlchemyQuest(questId: string): StaticAlchemyQuest {
   return quest;
 }
 
+function getQuestIndexById(questId: string): number {
+  const questIndex = ALCHEMY_QUESTS.findIndex((quest) => quest.id === questId);
+  return questIndex >= 0 ? questIndex : 0;
+}
+
+function getWrappedQuestIndex(index: number): number {
+  return ((index % ALCHEMY_QUESTS.length) + ALCHEMY_QUESTS.length) % ALCHEMY_QUESTS.length;
+}
+
+function getQuestAtWrappedIndex(index: number): StaticAlchemyQuest {
+  const quest = ALCHEMY_QUESTS[getWrappedQuestIndex(index)];
+  if (!quest) throw new Error("Alchemy quest list cannot be empty");
+
+  return quest;
+}
+
+function getQuestRequesterName(questId: string): string {
+  const quest = getRequiredAlchemyQuest(questId);
+  const requesterCharacter = getAlchemyCharactersByRequester(quest.narrative.requester)[0];
+  return requesterCharacter?.name ?? formatTokenLabel(quest.narrative.requester);
+}
+
+function getQuestCurrentCenterX(slideWidth: number): number {
+  return -QUEST_CURRENT_CENTER_SLIDE_INDEX * slideWidth;
+}
+
+function getQuestCurrentTargetX(direction: -1 | 1, slideWidth: number): number {
+  return -(QUEST_CURRENT_CENTER_SLIDE_INDEX + direction) * slideWidth;
+}
+
+function getQuestCurrentSwipeDirection(deltaX: number): -1 | 0 | 1 {
+  if (Math.abs(deltaX) < QUEST_CURRENT_SWIPE_MIN_PX) return 0;
+  if (deltaX < 0) return 1;
+  return -1;
+}
+
+function addQuestCurrentPointerListeners(
+  onMove: (event: PointerEvent) => void,
+  onRelease: (event: PointerEvent) => void,
+  onCancel: (event: PointerEvent) => void,
+): () => void {
+  window.addEventListener("pointermove", onMove, WINDOW_POINTER_LISTENER_OPTIONS);
+  window.addEventListener("pointerup", onRelease, WINDOW_POINTER_LISTENER_OPTIONS);
+  window.addEventListener("pointercancel", onCancel, WINDOW_POINTER_LISTENER_OPTIONS);
+
+  return () => {
+    window.removeEventListener("pointermove", onMove, WINDOW_POINTER_LISTENER_CAPTURE);
+    window.removeEventListener("pointerup", onRelease, WINDOW_POINTER_LISTENER_CAPTURE);
+    window.removeEventListener("pointercancel", onCancel, WINDOW_POINTER_LISTENER_CAPTURE);
+  };
+}
+
+function isInsideQuestBriefingCarousel(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("[data-quest-briefing-carousel]") instanceof HTMLElement
+  );
+}
+
+function snapQuestCurrentTrack(
+  trackElement: HTMLElement | null,
+  targetX: number,
+  animationRef: MutableRefObject<JSAnimation | null> | null,
+): void {
+  if (!trackElement) return;
+
+  animationRef?.current?.cancel();
+  if (animationRef) animationRef.current = null;
+
+  if (prefersReducedMotion()) {
+    trackElement.style.transform = `translateX(${targetX}px)`;
+    return;
+  }
+
+  const animation = animate(trackElement, {
+    duration: QUEST_CURRENT_SNAP_DURATION_MS,
+    ease: "out(3)",
+    x: targetX,
+    onComplete: () => {
+      if (animationRef) animationRef.current = null;
+    },
+  });
+  if (animationRef) animationRef.current = animation;
+}
+
+function getQuestLogStartIndex(scrollTop: number): number {
+  return Math.max(0, Math.floor(scrollTop / QUEST_LOG_ROW_PITCH_PX) - QUEST_LOG_OVERSCAN_ROWS);
+}
+
+function getQuestLogEndIndex(startIndex: number, viewportHeight: number): number {
+  const visibleCount =
+    Math.ceil(viewportHeight / QUEST_LOG_ROW_PITCH_PX) + QUEST_LOG_OVERSCAN_ROWS * 2;
+  return Math.min(
+    ALCHEMY_QUESTS.length,
+    startIndex + Math.max(visibleCount, QUEST_LOG_OVERSCAN_ROWS),
+  );
+}
+
+function getQuestLogScrollTopForSelectedQuest(
+  selectedQuestIndex: number,
+  scrollTop: number,
+  viewportHeight: number,
+): number {
+  const selectedTop = selectedQuestIndex * QUEST_LOG_ROW_PITCH_PX;
+  const selectedBottom = selectedTop + QUEST_LOG_ROW_HEIGHT_PX;
+  if (selectedTop >= scrollTop && selectedBottom <= scrollTop + viewportHeight) return scrollTop;
+
+  return Math.max(0, selectedTop - QUEST_LOG_ROW_PITCH_PX);
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(PRM).matches;
+}
+
 function getQuestLogRowTitle(
   quest: StaticAlchemyQuest,
   revealed: boolean,
@@ -2871,9 +3567,14 @@ function getQuestLogRowTitle(
   return "Redacted Quest";
 }
 
-function getQuestLogRowBadgeLabel(revealed: boolean, isAvailable: boolean): string {
-  if (revealed) return "Done";
-  if (isAvailable) return "New";
+function getQuestLogRowBadgeLabel(
+  isClaimed: boolean,
+  isActive: boolean,
+  isUnlocked: boolean,
+): string {
+  if (isClaimed) return "Done";
+  if (isActive) return "New";
+  if (isUnlocked) return "Open";
 
   return "?";
 }
@@ -3027,7 +3728,7 @@ function getScaledPointerOffset(
 }
 
 function useInventoryClock(inventory: AlchemistGuildInventorySlots): number {
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     const currentNowMs = Date.now();
@@ -3179,8 +3880,8 @@ function getCenteredCardRect(
   };
 }
 
-function isCardCenterInsideQuestDeliverySlot(cardLeft: number, cardTop: number): boolean {
-  const rect = getElementRect('[data-board-section="quest-delivery-drop-zone"]');
+function isCardCenterInsideQuestPanel(cardLeft: number, cardTop: number): boolean {
+  const rect = getQuestDropTargetRect();
   if (!rect) return false;
 
   const clientX = cardLeft + FLOATING_ELEMENT_CARD_WIDTH / 2;
@@ -3194,27 +3895,108 @@ function isCardCenterInsideQuestDeliverySlot(cardLeft: number, cardTop: number):
   );
 }
 
+function getQuestDropTargetRect(): SlotRect | null {
+  return (
+    getElementRect('[data-board-section="left-briefing-panel"]') ??
+    getElementRect('[data-board-section="quest-delivery-drop-zone"]')
+  );
+}
+
 function isQuestDeliveryAccepted(
   card: AlchemyBoardCard,
   boardState: AlchemistGuildBoardState,
 ): boolean {
-  const delivery = boardState.questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+  const quest = getRequiredAlchemyQuest(boardState.selectedQuestId);
+  if (!isQuestUnlocked(quest.id, boardState.completedQuestIds)) return false;
+  if (boardState.completedQuestIds.includes(quest.id)) return false;
+
+  const delivery = getQuestDelivery(boardState.questDeliveries, quest);
 
   return delivery.delivered < delivery.required && card.id === delivery.cardId;
 }
 
-function addFirstQuestDelivery(
+function addSelectedQuestDelivery(
   questDeliveries: AlchemistGuildQuestDeliveries,
+  questId: string,
 ): AlchemistGuildQuestDeliveries {
-  const delivery = questDeliveries[ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID];
+  const quest = getRequiredAlchemyQuest(questId);
+  const delivery = getQuestDelivery(questDeliveries, quest);
 
   return {
     ...questDeliveries,
-    [ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID]: {
+    [quest.id]: {
       ...delivery,
       delivered: Math.min(delivery.required, delivery.delivered + 1),
     },
   };
+}
+
+function ensureQuestDelivery(
+  questDeliveries: AlchemistGuildQuestDeliveries,
+  quest: StaticAlchemyQuest,
+): AlchemistGuildQuestDeliveries {
+  if (questDeliveries[quest.id]) return questDeliveries;
+
+  return { ...questDeliveries, [quest.id]: createQuestDelivery(quest) };
+}
+
+function getQuestDelivery(
+  questDeliveries: AlchemistGuildQuestDeliveries,
+  quest: StaticAlchemyQuest,
+): AlchemistGuildQuestDelivery {
+  return questDeliveries[quest.id] ?? createQuestDelivery(quest);
+}
+
+function createQuestDelivery(quest: StaticAlchemyQuest): AlchemistGuildQuestDelivery {
+  return {
+    cardId: getQuestDeliveryCardId(quest),
+    delivered: 0,
+    required: 1,
+  };
+}
+
+function getQuestDeliveryCardId(quest: StaticAlchemyQuest): string {
+  const recipeId = quest.recipeIds[0];
+  if (!recipeId) throw new Error(`Quest ${quest.id} does not define a delivery recipe`);
+
+  const recipe = getAlchemyRecipeById(recipeId);
+  if (!recipe) throw new Error(`Missing alchemy recipe: ${recipeId}`);
+
+  return recipe.output.cardId;
+}
+
+function getQuestClaimSwipeState(
+  stateByQuestId: QuestClaimSwipeStateByQuestId,
+  questId: string,
+): QuestClaimSwipeState {
+  return stateByQuestId[questId] ?? EMPTY_QUEST_CLAIM_SWIPE_STATE;
+}
+
+function updateQuestClaimSwipeStateByQuestId(
+  stateByQuestId: QuestClaimSwipeStateByQuestId,
+  questId: string,
+  nextState: QuestClaimSwipeState,
+): QuestClaimSwipeStateByQuestId {
+  const previousState = getQuestClaimSwipeState(stateByQuestId, questId);
+  if (
+    previousState.dragging === nextState.dragging &&
+    previousState.progress === nextState.progress
+  ) {
+    return stateByQuestId;
+  }
+
+  if (!nextState.dragging && nextState.progress === 0) {
+    const nextStateByQuestId = { ...stateByQuestId };
+    delete nextStateByQuestId[questId];
+    return nextStateByQuestId;
+  }
+
+  return { ...stateByQuestId, [questId]: nextState };
+}
+
+function isQuestUnlocked(questId: string, completedQuestIds: readonly string[]): boolean {
+  if (completedQuestIds.includes(questId)) return true;
+  return getAvailableAlchemyQuests(completedQuestIds).some((quest) => quest.id === questId);
 }
 
 function getInventoryDestinationSlotId(
@@ -3476,13 +4258,50 @@ function getQuestDeliveryDropFeedback(intent: DropIntent): DropFeedback {
   return getQuestDropFeedback(intent);
 }
 
+function isQuestPanelAcceptedDrop(intent: DropIntent): boolean {
+  return intent.kind === "quest" && intent.accepted;
+}
+
 function getQuestDropFeedback(intent: Extract<DropIntent, { kind: "quest" }>): DropFeedback {
   return intent.accepted ? "drop" : "blocked";
 }
 
-function getQuestDeliverySlotClass(feedback: DropFeedback, isComplete: boolean): string {
+function clearQuestDeliveryMotionStyles(
+  shellElement: HTMLElement | null,
+  claimElement: HTMLElement | null,
+): void {
+  shellElement?.style.removeProperty("rotate");
+  shellElement?.style.removeProperty("scale");
+  shellElement?.style.removeProperty("transform");
+  shellElement?.style.removeProperty("translate");
+  claimElement?.style.removeProperty("opacity");
+  claimElement?.style.removeProperty("rotate");
+  claimElement?.style.removeProperty("scale");
+  claimElement?.style.removeProperty("transform");
+  claimElement?.style.removeProperty("translate");
+}
+
+function getQuestDeliveryStatusText(
+  isComplete: boolean,
+  claimed: boolean,
+  cardName: string,
+): string {
+  if (claimed) return "Claimed";
+  if (isComplete) return QUEST_DELIVERY_COMPLETE_LABEL;
+  return `Deliver ${cardName} when it is ready.`;
+}
+
+function getQuestDeliverySlotClass(
+  feedback: DropFeedback,
+  isComplete: boolean,
+  claimed: boolean,
+): string {
   const base =
-    "relative rounded-[6px] border-2 p-3 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-100";
+    "relative rounded-[6px] border-2 border-dashed p-3 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-100";
+
+  if (claimed) {
+    return `${base} border-emerald-700/70 bg-emerald-50/90 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]`;
+  }
 
   if (isComplete) {
     return `${base} border-emerald-600/70 bg-emerald-50/85 shadow-[0_0_0_4px_rgba(16,185,129,0.16)]`;

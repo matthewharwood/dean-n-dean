@@ -41,5 +41,7 @@ describe("ProfileCard data projection", () => {
     expect(parsed.completedQuestIds).toEqual([]);
     expect(parsed.discoveredRecipeIds).toEqual([]);
     expect(parsed.questDeliveries).toEqual(ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT);
+    expect(parsed.questLogScrollTop).toBe(0);
+    expect(parsed.selectedQuestId).toBe("quest:first-water");
   });
 });
