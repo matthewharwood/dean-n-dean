@@ -15,12 +15,14 @@ import {
   AlchemistGuildReagentSlotIdSchema,
   type AlchemyQuestRewards,
   ELEMENT_CARDS,
+  EXTENDED_MOLECULE_RECIPES,
   getAlchemyCharactersByRequester,
   getAlchemyQuestBoard,
   getAlchemyQuestById,
   getAlchemyRecipeById,
   getAvailableAlchemyQuests,
   type StaticAlchemyQuest,
+  type StaticExtendedMoleculeRecipe,
 } from "@dean-stack/schemas";
 import {
   type AnimatableObject,
@@ -50,10 +52,13 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
+  type RefObject,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import * as z from "zod";
 
@@ -61,7 +66,7 @@ import { usePixiApp } from "~/canvas/use-pixi-app";
 import { defineComponent } from "~/lib/define-component";
 import { sfx } from "~/sound/sfx";
 import { alchemistGuildBoardAtom } from "~/state/atoms";
-
+import { setupExpeditionCanvasScene } from "./expedition-canvas-scene";
 import {
   FLOATING_ELEMENT_CARD_HEIGHT,
   FLOATING_ELEMENT_CARD_WIDTH,
@@ -71,8 +76,10 @@ import {
 import { FIRST_PROFILE_CARD_PROPS, ProfileCard } from "./profile-card";
 import { createQuestBriefingCardProps, QuestBriefingCard } from "./quest-briefing-card";
 import {
+  type AlchemyWorkbenchExtendedRecipePreview,
   type AlchemyWorkbenchRecipePreview,
   formatAlchemyRecipeFormula,
+  getAlchemyWorkbenchExtendedRecipePreview,
   getAlchemyWorkbenchRecipePreview,
 } from "./recipe-preview";
 import { AlchemistGuildBoardPropsSchema } from "./schema";
@@ -98,6 +105,7 @@ const QUEST_REWARD_FLY_STAGGER_MS = 72;
 const OUTPUT_CARD_COOLDOWN_MS = 1000;
 const OUTPUT_COOLDOWN_PREFIXES = new Map<string, number>([["material:", OUTPUT_CARD_COOLDOWN_MS]]);
 const MAX_VISIBLE_COOLDOWN_BARS = 4;
+const INVENTORY_CLOCK_INTERVAL_MS = 250;
 const RECIPE_REVEAL_STAGGER_MS = 70;
 const RECIPE_REVEAL_INTERSECTION_THRESHOLD = 0.36;
 const RECIPE_REVEAL_ID_SEPARATOR = "|";
@@ -133,6 +141,10 @@ const GLASS_PANEL_CLASS =
   "pointer-events-auto relative min-h-0 rounded-[8px] border border-white/50 bg-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)] backdrop-blur-md backdrop-saturate-150";
 const CLEAR_TABLE_WINDOW_CLASS =
   "pointer-events-none relative min-h-0 overflow-hidden rounded-[8px] border border-white/40 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
+const GATHERING_PANEL_LABEL_CLASS =
+  "pointer-events-none absolute left-3 top-3 z-20 text-xs font-black uppercase leading-none tracking-[-0.02em] text-neutral-950";
+const GATHERING_PANEL_TRANSITION_CLASS =
+  "transition-[grid-template-rows,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 const BOARD_DESCRIPTIONS = {
   alchemyWorkbench:
     "The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items.",
@@ -166,7 +178,24 @@ const inventorySlots = [
   { id: "inventory-slot-8", name: "Inventory slot 8" },
 ] satisfies readonly { id: AlchemistGuildInventorySlotId; name: string }[];
 
-const infoPanelTabs = ["element", "recipe"] as const;
+const gatheringGameCardSlots = [
+  "gathering-card-slot-1",
+  "gathering-card-slot-2",
+  "gathering-card-slot-3",
+  "gathering-card-slot-4",
+  "gathering-card-slot-5",
+] as const;
+
+const gatheringMonsterSlots = [
+  "gathering-monster-slot-1",
+  "gathering-monster-slot-2",
+  "gathering-monster-slot-3",
+  "gathering-monster-slot-4",
+  "gathering-monster-slot-5",
+  "gathering-monster-slot-6",
+] as const;
+
+const infoPanelTabs = ["element", "recipe", "extended"] as const;
 const InfoPanelTabSchema = z.enum(infoPanelTabs);
 type InfoPanelTab = z.infer<typeof InfoPanelTabSchema>;
 
@@ -205,13 +234,17 @@ type AlchemyBoardCard = {
   detailLabel: string;
   familyColor: string;
   id: string;
-  imagePath: string;
-  kind: "crafted" | "element";
+  imagePath?: string;
+  kind: "crafted" | "element" | "extended";
   kindLabel: string;
   name: string;
   symbol: string;
   atomicNumber?: number;
 };
+
+type AlchemyWorkbenchAnyRecipePreview =
+  | AlchemyWorkbenchRecipePreview
+  | AlchemyWorkbenchExtendedRecipePreview;
 
 const alchemyCardsById = new Map<string, AlchemyBoardCard>();
 for (const card of ELEMENT_CARDS) {
@@ -237,6 +270,17 @@ for (const card of ALCHEMY_CRAFTED_CARDS) {
     kindLabel: formatTokenLabel(card.kind),
     name: card.name,
     symbol: createCardSymbol(card.name),
+  });
+}
+for (const recipe of EXTENDED_MOLECULE_RECIPES) {
+  alchemyCardsById.set(recipe.output.cardId, {
+    detailLabel: `CID ${recipe.source.pubChemCid}`,
+    familyColor: "#34d399",
+    id: recipe.output.cardId,
+    kind: "extended",
+    kindLabel: "Molecule",
+    name: recipe.output.name,
+    symbol: recipe.output.formula,
   });
 }
 
@@ -272,6 +316,14 @@ type DropIntent =
   | { kind: "blocked"; slotId: AlchemistGuildReagentSlotId };
 
 type DropFeedback = DropIntent["kind"];
+
+type SlottedCardPointerDownHandler = (
+  slotId: AlchemistGuildReagentSlotId,
+  card: AlchemyBoardCard,
+  event: ReactPointerEvent<HTMLButtonElement>,
+) => void;
+
+type ButtonPointerDownHandler = (event: ReactPointerEvent<HTMLButtonElement>) => void;
 
 type SlotRect = {
   height: number;
@@ -358,16 +410,29 @@ const AlchemyCardFace = defineComponent(AlchemyCardFacePropsSchema, ({ card }) =
         {card.kindLabel}
       </span>
     )}
-    <span className="absolute inset-x-0 top-[19px] z-10 text-center text-[31px] font-bold leading-none text-neutral-950">
+    <span
+      className={`absolute inset-x-0 top-[19px] z-10 truncate px-1 text-center font-bold leading-none text-neutral-950 ${
+        card.kind === "extended" ? "text-[18px]" : "text-[31px]"
+      }`}
+    >
       {card.symbol}
     </span>
-    <img
-      src={getAlchemyCardArtSrc(card)}
-      alt=""
-      aria-hidden="true"
-      className="absolute left-1/2 top-[51px] size-[62px] -translate-x-1/2 object-contain"
-      draggable={false}
-    />
+    {card.imagePath ? (
+      <img
+        src={getAlchemyCardArtSrc(card)}
+        alt=""
+        aria-hidden="true"
+        className="absolute left-1/2 top-[51px] size-[62px] -translate-x-1/2 object-contain"
+        draggable={false}
+      />
+    ) : (
+      <span
+        className="absolute left-1/2 top-[54px] grid size-[58px] -translate-x-1/2 place-items-center rounded-full border border-emerald-900/20 bg-emerald-100/70 px-1 text-center font-mono text-[12px] font-black leading-tight text-emerald-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+        aria-hidden="true"
+      >
+        {card.symbol}
+      </span>
+    )}
     <span className="absolute inset-x-1 bottom-7 truncate text-center text-[12px] leading-none text-neutral-900">
       {card.name}
     </span>
@@ -771,6 +836,7 @@ const QuestPanelTabs = defineComponent(
           <button
             key={tab}
             type="button"
+            data-info-panel-tab={tab}
             role="tab"
             aria-selected={selected}
             className={`relative rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
@@ -803,17 +869,28 @@ const boardModeTabLabels = {
   gathering: "Gathering",
 } satisfies Record<BoardModeTab, string>;
 
-const BoardModeTabs = defineComponent(z.object({}), () => (
+const boardModeTabSoundIds = {
+  crafting: "board-mode.crafting",
+  expedition: "board-mode.expedition",
+  gathering: "board-mode.gathering",
+} as const satisfies Record<BoardModeTab, string>;
+
+const BoardModeTabsPropsSchema = z.object({
+  activeTab: BoardModeTabSchema,
+  onTabChange: z.custom<(tab: BoardModeTab) => void>(),
+});
+
+const BoardModeTabs = defineComponent(BoardModeTabsPropsSchema, ({ activeTab, onTabChange }) => (
   <div
     data-board-section="board-mode-tabs"
     data-board-name="Board Mode Tabs"
     data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
-    className="flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+    className="pointer-events-auto flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
     role="tablist"
     aria-label="Board modes"
   >
     {boardModeTabs.map((tab) => {
-      const selected = tab === "crafting";
+      const selected = activeTab === tab;
 
       return (
         <button
@@ -821,13 +898,10 @@ const BoardModeTabs = defineComponent(z.object({}), () => (
           type="button"
           role="tab"
           aria-selected={selected}
-          aria-disabled={selected ? undefined : true}
-          tabIndex={selected ? 0 : -1}
-          className={`shrink-0 rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
-            selected
-              ? "border-amber-900/45 bg-amber-950 text-white"
-              : "border-amber-900/20 bg-white/60 text-amber-950/70"
-          }`}
+          className={getBoardModeTabClass(selected)}
+          onClick={() => {
+            onTabChange(tab);
+          }}
         >
           {boardModeTabLabels[tab]}
         </button>
@@ -835,6 +909,15 @@ const BoardModeTabs = defineComponent(z.object({}), () => (
     })}
   </div>
 ));
+
+function getBoardModeTabClass(selected: boolean): string {
+  const baseClass =
+    "shrink-0 rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color]";
+
+  if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
+
+  return `${baseClass} border-amber-900/20 bg-white/60 text-amber-950/70 hover:bg-white/85`;
+}
 
 const QuestCurrentCarouselPropsSchema = z.object({
   developerNotesVisible: z.boolean(),
@@ -1081,6 +1164,7 @@ const QuestCurrentCarousel = defineComponent(
                   <QuestBriefingCard
                     {...cardProps}
                     developerNotesVisible={developerNotesVisible}
+                    {...(offset === 0 ? { onCarouselEdgeSwipe: animateToQuestDirection } : {})}
                     redacted={!isUnlocked}
                   />
                 </div>
@@ -1493,79 +1577,181 @@ const CooldownStack = defineComponent(CooldownStackPropsSchema, ({ cooldowns, no
 });
 
 const OutputSlotPreviewPropsSchema = z.object({
-  preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+  alreadyMade: z.boolean(),
+  preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
 });
 
-const OutputSlotPreview = defineComponent(OutputSlotPreviewPropsSchema, ({ preview }) => (
-  <div className="absolute inset-0 min-h-0" aria-live="polite">
-    {preview ? (
-      <OutputRecipeCard key={preview.recipe.id} preview={preview} />
-    ) : (
+const OutputSlotPreview = defineComponent(
+  OutputSlotPreviewPropsSchema,
+  ({ alreadyMade, preview }) => {
+    let content = (
       <span
         data-output-slot-empty=""
         className="grid size-full place-items-center px-2 text-center text-[11px] font-bold uppercase leading-snug tracking-normal text-neutral-700/70"
       >
         No output
       </span>
-    )}
-  </div>
-));
+    );
+
+    if (preview) {
+      content = (
+        <OutputRecipeCard key={preview.recipe.id} alreadyMade={alreadyMade} preview={preview} />
+      );
+    }
+    if (alreadyMade && !preview) {
+      content = (
+        <span
+          data-output-slot-already-made=""
+          className="grid size-full place-items-center px-2 text-center text-[11px] font-black uppercase leading-snug tracking-normal text-emerald-900"
+        >
+          Already made
+        </span>
+      );
+    }
+
+    return (
+      <div className="absolute inset-0 min-h-0" aria-live="polite">
+        {content}
+      </div>
+    );
+  },
+);
 
 const OutputRecipeCardPropsSchema = z.object({
-  preview: z.custom<AlchemyWorkbenchRecipePreview>(),
+  alreadyMade: z.boolean(),
+  preview: z.custom<AlchemyWorkbenchAnyRecipePreview>(),
 });
 
-const OutputRecipeCard = defineComponent(OutputRecipeCardPropsSchema, ({ preview }) => {
-  const [visible, setVisible] = useState(false);
+const OutputRecipeCard = defineComponent(
+  OutputRecipeCardPropsSchema,
+  ({ alreadyMade, preview }) => {
+    const [visible, setVisible] = useState(false);
 
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      setVisible(true);
-    });
+    useEffect(() => {
+      const frame = requestAnimationFrame(() => {
+        setVisible(true);
+      });
 
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, []);
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    }, []);
+
+    return (
+      <article
+        data-output-recipe-card=""
+        data-output-already-made={alreadyMade ? "true" : undefined}
+        data-recipe-id={preview.recipe.id}
+        className={`absolute -inset-px grid select-none grid-rows-[auto_1fr_auto] overflow-hidden rounded-[6px] border-2 border-sky-800/55 bg-sky-50/95 p-1.5 text-center shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition-opacity duration-200 ${
+          visible ? "opacity-100" : "opacity-0"
+        }`}
+        aria-label={`${getRecipePreviewOutputName(preview)} output preview`}
+      >
+        <span className="justify-self-end rounded-[3px] bg-sky-950 px-1.5 py-0.5 font-mono text-[10px] font-black leading-none text-white">
+          {preview.formula}
+        </span>
+        {isExtendedRecipePreview(preview) ? (
+          <span className="mx-auto grid size-16 place-items-center self-center rounded-full border border-emerald-900/20 bg-emerald-100/80 px-1 font-mono text-[13px] font-black leading-tight text-emerald-950">
+            {preview.recipe.output.formula}
+          </span>
+        ) : (
+          <img
+            src={resolvePublicAssetPath(preview.recipe.output.imagePath)}
+            alt=""
+            aria-hidden="true"
+            className="mx-auto size-16 self-center object-contain"
+            draggable={false}
+          />
+        )}
+        <span className="grid gap-0.5">
+          <span className="truncate font-serif text-lg font-bold leading-none text-sky-950">
+            {getRecipePreviewOutputName(preview)}
+          </span>
+          <span className="truncate text-[9px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
+            {getRecipePreviewKindLabel(preview)}
+          </span>
+        </span>
+        {alreadyMade ? <AlreadyMadeStamp /> : null}
+      </article>
+    );
+  },
+);
+
+const AlreadyMadeStamp = defineComponent(z.object({}), () => {
+  const stampPathId = `already-made-stamp-${useId().replaceAll(":", "")}`;
 
   return (
-    <article
-      data-output-recipe-card=""
-      data-recipe-id={preview.recipe.id}
-      className={`absolute -inset-px grid select-none grid-rows-[auto_1fr_auto] overflow-hidden rounded-[6px] border-2 border-sky-800/55 bg-sky-50/95 p-1.5 text-center shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition-opacity duration-200 ${
-        visible ? "opacity-100" : "opacity-0"
-      }`}
-      aria-label={`${preview.recipe.output.name} output preview`}
+    <span
+      data-output-slot-already-made=""
+      className="pointer-events-none absolute inset-0 z-20 grid place-items-center"
+      aria-hidden="true"
     >
-      <span className="justify-self-end rounded-[3px] bg-sky-950 px-1.5 py-0.5 font-mono text-[10px] font-black leading-none text-white">
-        {preview.formula}
-      </span>
-      <img
-        src={resolvePublicAssetPath(preview.recipe.output.imagePath)}
-        alt=""
+      <svg
+        viewBox="0 0 120 120"
         aria-hidden="true"
-        className="mx-auto size-16 self-center object-contain"
-        draggable={false}
-      />
-      <span className="grid gap-0.5">
-        <span className="truncate font-serif text-lg font-bold leading-none text-sky-950">
-          {preview.recipe.output.name}
-        </span>
-        <span className="truncate text-[9px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
-          {formatTokenLabel(preview.recipe.output.kind)}
-        </span>
-      </span>
-    </article>
+        className="size-[92px] -rotate-12 text-emerald-800/85 drop-shadow-[0_2px_0_rgba(255,255,255,0.55)]"
+      >
+        <defs>
+          <path id={stampPathId} d="M 22 63 A 38 38 0 0 1 98 63" />
+        </defs>
+        <circle
+          cx="60"
+          cy="60"
+          r="45"
+          fill="rgba(236,253,245,0.68)"
+          stroke="currentColor"
+          strokeWidth="4"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r="35"
+          fill="none"
+          stroke="currentColor"
+          strokeDasharray="3 4"
+          strokeWidth="2.5"
+        />
+        <text
+          className="font-mono text-[10px] font-black uppercase tracking-[0.16em]"
+          fill="currentColor"
+        >
+          <textPath href={`#${stampPathId}`} startOffset="50%" textAnchor="middle">
+            ALREADY MADE
+          </textPath>
+        </text>
+        <path
+          d="M 40 63 L 54 77 L 82 45"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="8"
+        />
+        <text
+          x="60"
+          y="94"
+          className="font-mono text-[9px] font-black uppercase tracking-[0.18em]"
+          fill="currentColor"
+          textAnchor="middle"
+        >
+          APPROVED
+        </text>
+      </svg>
+    </span>
   );
 });
 
 const AlchemyWorkbenchInfoPanelPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
+  discoveredExtendedRecipeIds: z.array(z.string().min(1)),
   discoveredRecipeIds: z.array(z.string().min(1)),
+  hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
+  onExtendedRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
-  preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+  preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  revealExtendedRecipeIds: z.array(z.string().min(1)),
   revealRecipeIds: z.array(z.string().min(1)),
 });
 
@@ -1573,48 +1759,68 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
   AlchemyWorkbenchInfoPanelPropsSchema,
   ({
     activeTab,
+    discoveredExtendedRecipeIds,
     discoveredRecipeIds,
+    hasExtendedRecipeNotifications,
     hasRecipeNotifications,
+    onExtendedRecipeRevealSeen,
     onRecipeRevealSeen,
     onTabChange,
     preview,
+    revealExtendedRecipeIds,
     revealRecipeIds,
-  }) => (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] text-neutral-950">
-      <InfoPanelTabs
-        activeTab={activeTab}
-        hasRecipeNotifications={hasRecipeNotifications}
-        onTabChange={onTabChange}
+  }) => {
+    let content = (
+      <ExtendedRecipeLedger
+        discoveredRecipeIds={discoveredExtendedRecipeIds}
+        onRevealSeen={onExtendedRecipeRevealSeen}
+        revealRecipeIds={revealExtendedRecipeIds}
       />
-      <div className="min-h-0">
-        {activeTab === "element" ? (
-          <AlchemyWorkbenchElementPanel preview={preview} />
-        ) : (
-          <RecipeLedger
-            discoveredRecipeIds={discoveredRecipeIds}
-            onRevealSeen={onRecipeRevealSeen}
-            revealRecipeIds={revealRecipeIds}
-          />
-        )}
-      </div>
-    </section>
-  ),
+    );
+
+    if (activeTab === "element") {
+      content = <AlchemyWorkbenchElementPanel preview={preview} />;
+    }
+    if (activeTab === "recipe") {
+      content = (
+        <RecipeLedger
+          discoveredRecipeIds={discoveredRecipeIds}
+          onRevealSeen={onRecipeRevealSeen}
+          revealRecipeIds={revealRecipeIds}
+        />
+      );
+    }
+
+    return (
+      <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] text-neutral-950">
+        <InfoPanelTabs
+          activeTab={activeTab}
+          hasExtendedRecipeNotifications={hasExtendedRecipeNotifications}
+          hasRecipeNotifications={hasRecipeNotifications}
+          onTabChange={onTabChange}
+        />
+        <div className="min-h-0">{content}</div>
+      </section>
+    );
+  },
 );
 
 const InfoPanelTabsPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
+  hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
 });
 
 const infoPanelTabLabels = {
   element: "Element",
+  extended: "Extended",
   recipe: "Recipe",
 } satisfies Record<InfoPanelTab, string>;
 
 const InfoPanelTabs = defineComponent(
   InfoPanelTabsPropsSchema,
-  ({ activeTab, hasRecipeNotifications, onTabChange }) => (
+  ({ activeTab, hasExtendedRecipeNotifications, hasRecipeNotifications, onTabChange }) => (
     <div
       data-board-section="alchemy-workbench-info-tabs"
       className="flex items-center gap-1 border-b border-white/45 p-2 pb-1.5"
@@ -1623,7 +1829,9 @@ const InfoPanelTabs = defineComponent(
     >
       {infoPanelTabs.map((tab) => {
         const selected = activeTab === tab;
-        const showBadge = tab === "recipe" && hasRecipeNotifications;
+        const showBadge =
+          (tab === "recipe" && hasRecipeNotifications) ||
+          (tab === "extended" && hasExtendedRecipeNotifications);
 
         return (
           <button
@@ -1656,7 +1864,7 @@ const InfoPanelTabs = defineComponent(
 );
 
 const AlchemyWorkbenchElementPanelPropsSchema = z.object({
-  preview: z.custom<AlchemyWorkbenchRecipePreview | null>(),
+  preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
 });
 
 const AlchemyWorkbenchElementPanel = defineComponent(
@@ -1672,6 +1880,79 @@ const AlchemyWorkbenchElementPanel = defineComponent(
             Match a recipe exactly in the Alchemy Workbench to preview its output here.
           </p>
         </div>
+      );
+    }
+
+    if (isExtendedRecipePreview(preview)) {
+      return (
+        <article
+          data-workbench-info-recipe=""
+          data-recipe-id={preview.recipe.id}
+          className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-3 text-neutral-950"
+        >
+          <header className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3">
+            <div className="grid size-14 place-items-center rounded-[5px] border border-emerald-900/25 bg-emerald-100/70 px-1 text-center font-mono text-sm font-black leading-tight text-emerald-950">
+              {preview.recipe.output.formula}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase leading-none tracking-normal text-emerald-950/65">
+                {preview.recipe.id}
+              </p>
+              <h2 className="truncate font-serif text-2xl leading-none text-emerald-950">
+                {preview.recipe.output.name}
+              </h2>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <InfoBadge label="Extended" />
+                <InfoBadge label="Discovery" />
+                <InfoBadge label={`CID ${preview.recipe.source.pubChemCid}`} />
+              </div>
+            </div>
+          </header>
+
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <section className="grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+              <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+                Formula
+              </h3>
+              <p className="font-mono text-sm font-black leading-none text-sky-950">
+                {preview.formula}
+              </p>
+              <dl className="grid gap-1">
+                {preview.ingredientRows.map((ingredient) => (
+                  <div
+                    key={`${ingredient.cardId}:${ingredient.role}`}
+                    className="grid grid-cols-[1fr_auto] gap-2 text-xs leading-tight"
+                  >
+                    <dt className="min-w-0 truncate font-bold text-neutral-900">
+                      {ingredient.label}
+                    </dt>
+                    <dd className="font-semibold text-neutral-700">x{ingredient.quantity}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            <section className="mt-2 grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+              <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+                Discovery note
+              </h3>
+              <p className="text-xs font-semibold leading-snug text-neutral-800">
+                Extended molecules are optional discoveries. They do not unlock quests, but their
+                molecule cards can be reused with elements or other molecules to discover more
+                formulas.
+              </p>
+            </section>
+
+            <section className="mt-2 grid gap-1.5 rounded-[5px] border border-sky-900/20 bg-white/55 p-2">
+              <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-sky-950/65">
+                Source
+              </h3>
+              <p className="break-all text-xs font-semibold leading-snug text-neutral-800">
+                {preview.recipe.source.url}
+              </p>
+            </section>
+          </div>
+        </article>
       );
     }
 
@@ -1942,6 +2223,152 @@ const RecipeLedgerItem = defineComponent(
     ),
 );
 
+const ExtendedRecipeLedgerPropsSchema = z.object({
+  discoveredRecipeIds: z.array(z.string().min(1)),
+  onRevealSeen: z.custom<(recipeId: string) => void>(),
+  revealRecipeIds: z.array(z.string().min(1)),
+});
+
+const ExtendedRecipeLedger = defineComponent(
+  ExtendedRecipeLedgerPropsSchema,
+  ({ discoveredRecipeIds, onRevealSeen, revealRecipeIds }) => {
+    const recipeListRef = useRef<HTMLUListElement>(null);
+    const onRevealSeenRef = useRef(onRevealSeen);
+    const revealRecipeIdsKey = revealRecipeIds.join(RECIPE_REVEAL_ID_SEPARATOR);
+    const discoveredRecipeIdsSet = new Set(discoveredRecipeIds);
+    const discoveredCount = EXTENDED_MOLECULE_RECIPES.reduce(
+      (total, recipe) => total + (discoveredRecipeIdsSet.has(recipe.id) ? 1 : 0),
+      0,
+    );
+
+    useEffect(() => {
+      onRevealSeenRef.current = onRevealSeen;
+    }, [onRevealSeen]);
+
+    useBrowserLayoutEffect(() => {
+      const recipeList = recipeListRef.current;
+      if (!recipeList || revealRecipeIdsKey.length === 0) return;
+
+      const cleanups = revealRecipeIdsKey
+        .split(RECIPE_REVEAL_ID_SEPARATOR)
+        .flatMap((recipeId, index) => {
+          const element = recipeList.querySelector(
+            `[data-recipe-id="${recipeId}"][data-recipe-discovered="true"]`,
+          );
+          if (!isHTMLElement(element)) return [];
+
+          return [
+            observeRecipeReveal({
+              delayMs: index * RECIPE_REVEAL_STAGGER_MS,
+              element,
+              onSeen: () => {
+                onRevealSeenRef.current(recipeId);
+              },
+              scrollRoot: recipeList,
+            }),
+          ];
+        });
+
+      if (cleanups.length === 0) return;
+
+      return () => {
+        for (const cleanup of cleanups) cleanup();
+      };
+    }, [revealRecipeIdsKey]);
+
+    return (
+      <section
+        data-board-section="extended-recipe-ledger"
+        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 p-3"
+      >
+        <header className="grid grid-cols-[1fr_auto] items-end gap-2">
+          <div>
+            <h2 className="font-serif text-xl leading-none text-emerald-950">Extended Ledger</h2>
+            <p className="mt-1 text-[11px] font-semibold leading-tight text-neutral-700">
+              Optional PubChem-backed molecule discoveries.
+            </p>
+          </div>
+          <span className="rounded-full border border-emerald-900/20 bg-white/65 px-2 py-1 font-mono text-[10px] font-black leading-none text-emerald-950">
+            {discoveredCount}/{EXTENDED_MOLECULE_RECIPES.length}
+          </span>
+        </header>
+        <ul
+          ref={recipeListRef}
+          data-board-section="extended-recipe-ledger-list"
+          className="grid min-h-0 content-start gap-1.5 overflow-y-auto pr-1"
+          aria-label="All extended molecule recipes"
+          aria-live="polite"
+        >
+          {EXTENDED_MOLECULE_RECIPES.map((recipe, recipeIndex) => (
+            <ExtendedRecipeLedgerItem
+              key={recipe.id}
+              isDiscovered={discoveredRecipeIdsSet.has(recipe.id)}
+              isReveal={revealRecipeIds.includes(recipe.id)}
+              recipe={recipe}
+              recipeIndex={recipeIndex}
+            />
+          ))}
+        </ul>
+      </section>
+    );
+  },
+);
+
+type ExtendedRecipeLedgerRecipe = (typeof EXTENDED_MOLECULE_RECIPES)[number];
+
+const ExtendedRecipeLedgerItemPropsSchema = z.object({
+  isDiscovered: z.boolean(),
+  isReveal: z.boolean(),
+  recipe: z.custom<ExtendedRecipeLedgerRecipe>(),
+  recipeIndex: z.number().min(0),
+});
+
+const ExtendedRecipeLedgerItem = defineComponent(
+  ExtendedRecipeLedgerItemPropsSchema,
+  ({ isDiscovered, isReveal, recipe, recipeIndex }) =>
+    isDiscovered ? (
+      <li
+        data-recipe-id={recipe.id}
+        data-recipe-discovered="true"
+        data-recipe-reveal={isReveal ? "true" : undefined}
+        className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border border-emerald-900/20 bg-white/70 p-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.08)]"
+      >
+        <span className="grid size-11 place-items-center rounded-[5px] border border-emerald-900/25 bg-emerald-50/80 px-1 text-center font-mono text-[10px] font-black leading-tight text-emerald-950">
+          {recipe.output.formula}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-black leading-tight text-emerald-950">
+            {recipe.output.name}
+          </span>
+          <span className="block truncate font-mono text-[10px] font-black leading-tight text-neutral-700">
+            {formatExtendedRecipeLedgerFormula(recipe)}
+          </span>
+        </span>
+        <span className="rounded-full border border-emerald-900/20 bg-emerald-50/85 px-1.5 py-0.5 text-[9px] font-black uppercase leading-none text-emerald-950">
+          Molecule
+        </span>
+      </li>
+    ) : (
+      <li
+        data-recipe-id={recipe.id}
+        data-recipe-discovered="false"
+        className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border border-neutral-900/10 bg-white/35 p-1.5"
+        aria-label={`Redacted extended recipe ${recipeIndex + 1}`}
+      >
+        <span className="grid size-11 place-items-center rounded-[5px] border border-neutral-900/15 bg-neutral-950/5">
+          <span className="size-7 rounded-full bg-neutral-950/15 blur-[1px]" aria-hidden="true" />
+        </span>
+        <span className="grid min-w-0 gap-1.5" aria-hidden="true">
+          <span className="h-3 w-[min(9rem,70%)] rounded-full bg-neutral-950/20" />
+          <span className="h-2 w-[min(6rem,50%)] rounded-full bg-neutral-950/10" />
+        </span>
+        <span className="rounded-full border border-neutral-900/15 bg-white/45 px-1.5 py-0.5 font-mono text-[9px] font-black leading-none text-neutral-600">
+          REDACTED
+        </span>
+      </li>
+    ),
+);
+
 const InfoBadgePropsSchema = z.object({
   label: z.string().min(1),
 });
@@ -1964,11 +2391,487 @@ const InfoFact = defineComponent(InfoFactPropsSchema, ({ label, value }) => (
   </>
 ));
 
+const LeftModePanelPropsSchema = z.object({
+  activeQuestIds: z.array(z.string().min(1)),
+  activeTab: QuestPanelTabSchema,
+  canClaim: z.boolean(),
+  claimedQuestIds: z.array(z.string().min(1)),
+  claimProgress: z.number().min(0).max(1),
+  deliveryCard: z.custom<AlchemyBoardCard | null>(),
+  deliveryDropFeedback: z.custom<DropFeedback>(),
+  deliveryProgress: z.object({
+    delivered: z.int().min(0),
+    required: z.int().min(1),
+  }),
+  developerNotesVisible: z.boolean(),
+  hasQuestNotifications: z.boolean(),
+  isClaimDragging: z.boolean(),
+  isGatheringMode: z.boolean(),
+  onClaimPointerDown: z.custom<ButtonPointerDownHandler>(),
+  onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
+  onQuestOpenFromLog: z.custom<(questId: string) => void>(),
+  onQuestSelect: z.custom<(questId: string) => void>(),
+  onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  questLogScrollTop: z.number().min(0),
+  questPanelAccepted: z.boolean(),
+  selectedQuestId: z.string().min(1),
+  unlockedQuestIds: z.array(z.string().min(1)),
+});
+
+const LeftModePanel = defineComponent(
+  LeftModePanelPropsSchema,
+  ({
+    activeQuestIds,
+    activeTab,
+    canClaim,
+    claimedQuestIds,
+    claimProgress,
+    deliveryCard,
+    deliveryDropFeedback,
+    deliveryProgress,
+    developerNotesVisible,
+    hasQuestNotifications,
+    isClaimDragging,
+    isGatheringMode,
+    onClaimPointerDown,
+    onQuestLogScrollTopChange,
+    onQuestOpenFromLog,
+    onQuestSelect,
+    onTabChange,
+    questLogScrollTop,
+    questPanelAccepted,
+    selectedQuestId,
+    unlockedQuestIds,
+  }) => {
+    if (isGatheringMode) {
+      return (
+        <div
+          data-board-section="gathering-log-panel"
+          data-board-name="Gather Log"
+          className={`${GLASS_PANEL_CLASS} overflow-hidden p-3`}
+        >
+          <span className={GATHERING_PANEL_LABEL_CLASS}>Gather Log Panel</span>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        data-board-section="left-briefing-panel"
+        data-board-name="Quest Briefing"
+        data-board-description={BOARD_DESCRIPTIONS.questBriefing}
+        data-quest-drop-accepted={questPanelAccepted ? "true" : "false"}
+        className={`${GLASS_PANEL_CLASS} ${
+          questPanelAccepted ? "quest-panel-accepted" : ""
+        } grid h-full min-h-0 content-start gap-2 overflow-hidden p-3 transition-[box-shadow,transform] duration-150`}
+      >
+        <QuestBriefingAtmosphere />
+        <BoardDebugBadge
+          description={BOARD_DESCRIPTIONS.questBriefing}
+          label="Quest Briefing"
+          visible={developerNotesVisible}
+        />
+        <QuestPanel
+          activeQuestIds={activeQuestIds}
+          activeTab={activeTab}
+          canClaim={canClaim}
+          claimedQuestIds={claimedQuestIds}
+          claimProgress={claimProgress}
+          deliveryCard={deliveryCard}
+          deliveryDropFeedback={deliveryDropFeedback}
+          deliveryProgress={deliveryProgress}
+          developerNotesVisible={developerNotesVisible}
+          hasQuestNotifications={hasQuestNotifications}
+          isClaimDragging={isClaimDragging}
+          onClaimPointerDown={onClaimPointerDown}
+          onQuestLogScrollTopChange={onQuestLogScrollTopChange}
+          onQuestOpenFromLog={onQuestOpenFromLog}
+          onQuestSelect={onQuestSelect}
+          onTabChange={onTabChange}
+          questLogScrollTop={questLogScrollTop}
+          selectedQuestId={selectedQuestId}
+          unlockedQuestIds={unlockedQuestIds}
+        />
+      </div>
+    );
+  },
+);
+
+const CenterBoardPanelsPropsSchema = z.object({
+  boardState: z.custom<AlchemistGuildBoardState>(),
+  canTransmutePreview: z.boolean(),
+  draggedCard: z.custom<DraggedAlchemyCard | null>(),
+  dropIntent: z.custom<DropIntent>(),
+  isOutputAlreadyMade: z.boolean(),
+  isGatheringMode: z.boolean(),
+  isTransmuteDragging: z.boolean(),
+  onSlottedCardPointerDown: z.custom<SlottedCardPointerDownHandler>(),
+  onTransmutationSwipePointerDown: z.custom<ButtonPointerDownHandler>(),
+  periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  recipePreview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  showBoardDebugBadges: z.boolean(),
+  swapAnimation: z.custom<SwapAnimation | null>(),
+  transmuteKnobTravelPx: z.number().min(0),
+  transmutePadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  transmuteSwipeProgress: z.number().min(0).max(1),
+});
+
+const CenterBoardPanels = defineComponent(
+  CenterBoardPanelsPropsSchema,
+  ({
+    boardState,
+    canTransmutePreview,
+    draggedCard,
+    dropIntent,
+    isOutputAlreadyMade,
+    isGatheringMode,
+    isTransmuteDragging,
+    onSlottedCardPointerDown,
+    onTransmutationSwipePointerDown,
+    periodicTableViewportRef,
+    recipePreview,
+    showBoardDebugBadges,
+    swapAnimation,
+    transmuteKnobTravelPx,
+    transmutePadTrackRef,
+    transmuteSwipeProgress,
+  }) => (
+    <section className={getCenterBoardPanelsClass(isGatheringMode)}>
+      <div
+        ref={periodicTableViewportRef}
+        data-board-section={isGatheringMode ? "gathering-game-panel" : "periodic-table-dock"}
+        data-board-name={isGatheringMode ? "Game Panel" : "Periodic Table Vault"}
+        data-board-description={
+          isGatheringMode ? "Primary gathering playfield." : BOARD_DESCRIPTIONS.periodicTableVault
+        }
+        className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS}`}
+      >
+        {isGatheringMode ? (
+          <span className={GATHERING_PANEL_LABEL_CLASS}>Game Panel</span>
+        ) : (
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.periodicTableVault}
+            label="Periodic Table Vault"
+            visible={showBoardDebugBadges}
+          />
+        )}
+      </div>
+
+      <div
+        data-board-section={isGatheringMode ? "gathering-game-cards-panel" : "alchemy-workbench"}
+        data-board-name={isGatheringMode ? "Game Cards" : "Alchemy Workbench"}
+        data-board-description={
+          isGatheringMode
+            ? "Cards available for the gathering encounter."
+            : BOARD_DESCRIPTIONS.alchemyWorkbench
+        }
+        className={getWorkbenchPanelClass(isGatheringMode)}
+      >
+        {isGatheringMode ? (
+          <>
+            <span className={GATHERING_PANEL_LABEL_CLASS}>Game Cards Panel</span>
+            {gatheringGameCardSlots.map((slotId) => (
+              <div
+                key={slotId}
+                data-board-section="gathering-game-card-slot"
+                data-board-name="Gathering game card slot"
+                className={getSlotShellClass("none")}
+              />
+            ))}
+          </>
+        ) : (
+          <>
+            <BoardDebugBadge
+              description={BOARD_DESCRIPTIONS.alchemyWorkbench}
+              label="Alchemy Workbench"
+              visible={showBoardDebugBadges}
+            />
+            {reagentSlots.map((slot) => (
+              <ReagentSlot
+                key={slot.id}
+                draggedCard={draggedCard}
+                dropFeedback={getSlotDropFeedback(dropIntent, slot.id)}
+                onSlottedCardPointerDown={onSlottedCardPointerDown}
+                sourceSwapGhostCard={getSourceSwapGhostCard(
+                  dropIntent,
+                  draggedCard,
+                  boardState,
+                  slot.id,
+                )}
+                slotId={slot.id}
+                slotName={slot.name}
+                slottedCard={getAlchemyCard(boardState.reagentSlots[slot.id])}
+                swapAnimation={swapAnimation}
+              />
+            ))}
+
+            <div
+              ref={transmutePadTrackRef}
+              data-board-section="transmutation-pad"
+              data-board-name="Transmutation Pad"
+              data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
+              data-transmutation-ready={canTransmutePreview ? "true" : "false"}
+              data-swipe-progress={transmuteSwipeProgress.toFixed(2)}
+              className={`relative col-span-full min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-4 ${
+                canTransmutePreview
+                  ? "cursor-ew-resize border-sky-800/70 bg-sky-50/35"
+                  : "border-neutral-600/80 bg-white/25"
+              }`}
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.transmutationPad}
+                label="Transmutation Pad"
+                visible={showBoardDebugBadges}
+              />
+              <span
+                className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
+                aria-hidden="true"
+              >
+                <span
+                  className="block h-full rounded-[5px] bg-emerald-400/28 transition-[width] duration-75"
+                  style={{ width: `${Math.round(transmuteSwipeProgress * 100)}%` }}
+                />
+              </span>
+              <p
+                className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-2xl italic lg:text-3xl ${
+                  canTransmutePreview ? "text-sky-950" : "text-neutral-700"
+                }`}
+              >
+                {getTransmutationPadPrompt(recipePreview, isOutputAlreadyMade)}
+              </p>
+              <button
+                type="button"
+                data-board-section="swipe-rune-handle"
+                data-board-name="Swipe rune handle"
+                disabled={!canTransmutePreview}
+                tabIndex={canTransmutePreview ? 0 : -1}
+                aria-label={getTransmutationPadAriaLabel(recipePreview, isOutputAlreadyMade)}
+                className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${
+                  canTransmutePreview
+                    ? "cursor-grab bg-neutral-800"
+                    : "cursor-not-allowed bg-neutral-700/55 opacity-70"
+                }`}
+                style={{
+                  left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
+                  transform: `translateX(${transmuteSwipeProgress * transmuteKnobTravelPx}px)`,
+                  transition: isTransmuteDragging
+                    ? "none"
+                    : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
+                  width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
+                }}
+                onPointerDown={onTransmutationSwipePointerDown}
+              >
+                <div className="flex h-14 items-center gap-3 lg:h-18 lg:gap-4" aria-hidden="true">
+                  <span className="h-full w-0.5 bg-neutral-300" />
+                  <span className="h-full w-0.5 bg-neutral-300" />
+                  <span className="h-full w-0.5 bg-neutral-300" />
+                </div>
+              </button>
+            </div>
+
+            <div
+              data-board-section="transmutation-output-slot"
+              data-board-name="Output Slot"
+              data-board-description={BOARD_DESCRIPTIONS.outputSlot}
+              className="relative col-span-full min-h-0 rounded-[6px] border border-neutral-600/80 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-1 sm:col-start-5"
+            >
+              <BoardDebugBadge
+                description={BOARD_DESCRIPTIONS.outputSlot}
+                label="Output Slot"
+                visible={showBoardDebugBadges}
+              />
+              <OutputSlotPreview alreadyMade={isOutputAlreadyMade} preview={recipePreview} />
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  ),
+);
+
+const ExpeditionCanvasPanelPropsSchema = z.object({
+  periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  showBoardDebugBadges: z.boolean(),
+});
+
+const ExpeditionCanvasPanel = defineComponent(
+  ExpeditionCanvasPanelPropsSchema,
+  ({ periodicTableViewportRef, showBoardDebugBadges }) => (
+    <section className="grid min-h-0">
+      <div
+        ref={periodicTableViewportRef}
+        data-board-section="expedition-canvas-panel"
+        data-board-name="Expedition Canvas"
+        data-board-description="An empty dotted expedition canvas that can be panned and zoomed."
+        className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS}`}
+      >
+        <BoardDebugBadge
+          description="An empty dotted expedition canvas that can be panned and zoomed."
+          label="Expedition Canvas"
+          visible={showBoardDebugBadges}
+        />
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Expedition Canvas</span>
+      </div>
+    </section>
+  ),
+);
+
+const RightModePanelsPropsSchema = z.object({
+  activeTab: InfoPanelTabSchema,
+  discoveredExtendedRecipeIds: z.array(z.string().min(1)),
+  discoveredRecipeIds: z.array(z.string().min(1)),
+  gatheringInfoPanelRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  hasExtendedRecipeNotifications: z.boolean(),
+  hasRecipeNotifications: z.boolean(),
+  isGatheringMode: z.boolean(),
+  onExtendedRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
+  onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
+  onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
+  preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  revealExtendedRecipeIds: z.array(z.string().min(1)),
+  revealRecipeIds: z.array(z.string().min(1)),
+  rightPrimaryPanelRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  showBoardDebugBadges: z.boolean(),
+});
+
+const RightModePanels = defineComponent(
+  RightModePanelsPropsSchema,
+  ({
+    activeTab,
+    discoveredExtendedRecipeIds,
+    discoveredRecipeIds,
+    gatheringInfoPanelRef,
+    hasExtendedRecipeNotifications,
+    hasRecipeNotifications,
+    isGatheringMode,
+    onExtendedRecipeRevealSeen,
+    onRecipeRevealSeen,
+    onTabChange,
+    preview,
+    revealExtendedRecipeIds,
+    revealRecipeIds,
+    rightPrimaryPanelRef,
+    showBoardDebugBadges,
+  }) => (
+    <aside className={getRightModePanelsClass(isGatheringMode)}>
+      <div
+        ref={rightPrimaryPanelRef}
+        data-board-section={
+          isGatheringMode ? "gathering-monster-panel" : "alchemy-workbench-info-panel"
+        }
+        data-board-name={isGatheringMode ? "Monster Panel" : "Alchemy Workbench Info"}
+        data-board-description={
+          isGatheringMode
+            ? "Gathering encounter monster slots."
+            : BOARD_DESCRIPTIONS.alchemyWorkbenchInfo
+        }
+        className={`${GLASS_PANEL_CLASS} overflow-hidden ${isGatheringMode ? "p-3" : ""}`}
+      >
+        {isGatheringMode ? (
+          <>
+            <span className={GATHERING_PANEL_LABEL_CLASS}>Monster Panel</span>
+            <div className="grid h-full min-h-0 grid-cols-2 grid-rows-3 gap-4 pt-10">
+              {gatheringMonsterSlots.map((slotId) => (
+                <div
+                  key={slotId}
+                  data-board-section="gathering-monster-slot"
+                  data-board-name="Gathering monster slot"
+                  className={getSlotShellClass("none")}
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <BoardDebugBadge
+              description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
+              label="Alchemy Workbench Info"
+              visible={showBoardDebugBadges}
+            />
+            <AlchemyWorkbenchInfoPanel
+              activeTab={activeTab}
+              discoveredExtendedRecipeIds={discoveredExtendedRecipeIds}
+              discoveredRecipeIds={discoveredRecipeIds}
+              hasExtendedRecipeNotifications={hasExtendedRecipeNotifications}
+              hasRecipeNotifications={hasRecipeNotifications}
+              onExtendedRecipeRevealSeen={onExtendedRecipeRevealSeen}
+              onRecipeRevealSeen={onRecipeRevealSeen}
+              onTabChange={onTabChange}
+              preview={preview}
+              revealExtendedRecipeIds={revealExtendedRecipeIds}
+              revealRecipeIds={revealRecipeIds}
+            />
+          </>
+        )}
+      </div>
+      <div
+        ref={gatheringInfoPanelRef}
+        data-board-section="gathering-info-panel"
+        data-board-name="Info Panel"
+        aria-hidden={isGatheringMode ? undefined : true}
+        className={`${GLASS_PANEL_CLASS} overflow-hidden p-3 ${GATHERING_PANEL_TRANSITION_CLASS} ${
+          isGatheringMode
+            ? "opacity-100 translate-y-0 scale-100"
+            : "pointer-events-none opacity-0 translate-y-3 scale-[0.98]"
+        }`}
+      >
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Info Panel</span>
+      </div>
+    </aside>
+  ),
+);
+
+function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
+  const baseClass = `grid min-h-0 gap-2.5 ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  if (isGatheringMode) {
+    return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
+  }
+
+  return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]`;
+}
+
+function getBoardChromeClass(isExpeditionMode: boolean): string {
+  const baseClass = "pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px]";
+  if (isExpeditionMode) return `${baseClass} grid-rows-[auto_minmax(0,1fr)] gap-2.5`;
+
+  return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
+}
+
+function getBoardCanvasName(isExpeditionMode: boolean): string {
+  return isExpeditionMode ? "Expedition Pixi canvas" : "Periodic table Pixi canvas";
+}
+
+function getBoardCanvasAriaLabel(isGatheringMode: boolean, isExpeditionMode: boolean): string {
+  if (isGatheringMode) return "Board canvas hidden while gathering";
+  if (isExpeditionMode) return "Expedition pan and zoom Pixi canvas";
+
+  return "Periodic table Pixi canvas";
+}
+
+function getWorkbenchPanelClass(isGatheringMode: boolean): string {
+  if (isGatheringMode) {
+    return `${GLASS_PANEL_CLASS} grid grid-cols-5 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 pt-10`;
+  }
+
+  return `${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8`;
+}
+
+function getRightModePanelsClass(isGatheringMode: boolean): string {
+  const baseClass = `hidden min-h-0 overflow-hidden lg:grid ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  if (isGatheringMode) {
+    return `${baseClass} gap-2.5 lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
+  }
+
+  return `${baseClass} gap-0 lg:grid-rows-[minmax(0,1fr)_minmax(0,0px)]`;
+}
+
 export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchema, () => {
   const boardState = useAtomValue(alchemistGuildBoardAtom);
   const setBoardState = useSetAtom(alchemistGuildBoardAtom);
   const periodicTableCanvasRef = useRef<HTMLCanvasElement>(null);
   const periodicTableViewportRef = useRef<HTMLDivElement>(null);
+  const rightPrimaryPanelRef = useRef<HTMLDivElement>(null);
+  const gatheringInfoPanelRef = useRef<HTMLDivElement>(null);
   const draggedCardElementRef = useRef<HTMLDivElement>(null);
   const swapAnimationElementRef = useRef<HTMLDivElement>(null);
   const transmuteFlyAnimationElementRef = useRef<HTMLDivElement>(null);
@@ -1993,14 +2896,29 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [transmuteTrackWidth, setTransmuteTrackWidth] = useState(0);
   const [questClaimSwipeStateByQuestId, setQuestClaimSwipeStateByQuestId] =
     useState<QuestClaimSwipeStateByQuestId>({});
+  const [activeBoardMode, setActiveBoardMode] = useState<BoardModeTab>("crafting");
   const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
   const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
   const [pendingRecipeNotificationIds, setPendingRecipeNotificationIds] = useState<string[]>([]);
+  const [pendingExtendedRecipeNotificationIds, setPendingExtendedRecipeNotificationIds] = useState<
+    string[]
+  >([]);
   const [pendingQuestNotificationIds, setPendingQuestNotificationIds] = useState<string[]>([]);
   const [recipeRevealIds, setRecipeRevealIds] = useState<string[]>([]);
+  const [extendedRecipeRevealIds, setExtendedRecipeRevealIds] = useState<string[]>([]);
   const showBoardDebugBadges = useLocalhostMetaKeyDebugBadges();
-  const nowMs = useInventoryClock(boardState.inventorySlots);
-  const recipePreview = getAlchemyWorkbenchRecipePreview(getWorkbenchCardIds(boardState));
+  const nowMs = useInventoryClock();
+  const workbenchCardIds = getWorkbenchCardIds(boardState);
+  const recipePreview = getAlchemyWorkbenchRecipePreview(workbenchCardIds);
+  const extendedRecipePreview = recipePreview
+    ? null
+    : getAlchemyWorkbenchExtendedRecipePreview(workbenchCardIds);
+  const transmutationPreview = recipePreview ?? extendedRecipePreview;
+  const isOutputAlreadyMade = isExtendedPreviewAlreadyDiscovered(
+    transmutationPreview,
+    boardState.discoveredExtendedRecipeIds,
+  );
+  const canTransmutePreview = Boolean(transmutationPreview) && !isOutputAlreadyMade;
   const activeQuestIds = getAlchemyQuestBoard(boardState.completedQuestIds).map(
     (quest) => quest.id,
   );
@@ -2023,10 +2941,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     !claimedSelectedQuest &&
     selectedQuestDelivery.delivered >= selectedQuestDelivery.required;
   const questPanelAccepted = isQuestPanelAcceptedDrop(dropIntent);
-  const transmuteKnobTravelPx = Math.max(
-    0,
-    transmuteTrackWidth - TRANSMUTE_KNOB_WIDTH_PX - TRANSMUTE_TRACK_PADDING_PX * 2,
-  );
+  const isGatheringMode = activeBoardMode === "gathering";
+  const isExpeditionMode = activeBoardMode === "expedition";
+  const transmuteKnobTravelPx = getTransmuteKnobTravelPx(transmuteTrackWidth);
   boardStateRef.current = boardState;
 
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
@@ -2109,10 +3026,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   const handleInfoPanelTabChange = (nextTab: InfoPanelTab) => {
     setInfoPanelTab(nextTab);
-    if (nextTab !== "recipe") return;
+    if (nextTab === "recipe") {
+      setRecipeRevealIds(pendingRecipeNotificationIds);
+      setPendingRecipeNotificationIds([]);
+      return;
+    }
 
-    setRecipeRevealIds(pendingRecipeNotificationIds);
-    setPendingRecipeNotificationIds([]);
+    if (nextTab === "extended") {
+      setExtendedRecipeRevealIds(pendingExtendedRecipeNotificationIds);
+      setPendingExtendedRecipeNotificationIds([]);
+    }
   };
 
   const handleQuestPanelTabChange = (nextTab: QuestPanelTab) => {
@@ -2138,6 +3061,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     );
   };
 
+  const handleBoardModeTabChange = (nextTab: BoardModeTab) => {
+    if (nextTab === activeBoardMode) return;
+
+    setActiveBoardMode(nextTab);
+    void sfx.play(boardModeTabSoundIds[nextTab]);
+  };
+
   const handleQuestOpenFromLog = (questId: string) => {
     handleQuestSelect(questId);
     setQuestPanelTab("current");
@@ -2158,8 +3088,18 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setPendingRecipeNotificationIds((previous) => appendUniqueId(previous, recipeId));
   };
 
+  const announceExtendedRecipeDiscovery = (recipeId: string) => {
+    setInfoPanelTab("extended");
+    setExtendedRecipeRevealIds([recipeId]);
+    setPendingExtendedRecipeNotificationIds((previous) => removeId(previous, recipeId));
+  };
+
   const handleRecipeRevealSeen = (recipeId: string) => {
     setRecipeRevealIds((previous) => removeId(previous, recipeId));
+  };
+
+  const handleExtendedRecipeRevealSeen = (recipeId: string) => {
+    setExtendedRecipeRevealIds((previous) => removeId(previous, recipeId));
   };
 
   const announceQuestAvailability = (completedQuestIds: string[]) => {
@@ -2203,6 +3143,49 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       };
     });
     announceQuestAvailability(nextCompletedQuestIds);
+  };
+
+  const commitExtendedRecipeAward = (
+    preview: AlchemyWorkbenchExtendedRecipePreview,
+    currentBoardState: AlchemistGuildBoardState,
+  ) => {
+    const recipeId = preview.recipe.id;
+    if (currentBoardState.discoveredExtendedRecipeIds.includes(recipeId)) return;
+
+    const outputCard = getExtendedRecipeOutputBoardCard(preview.recipe);
+    const fromRect = getCenteredCardRect(
+      getElementRect("[data-output-recipe-card]") ??
+        getElementRect('[data-board-section="transmutation-output-slot"]'),
+      FLOATING_ELEMENT_CARD_WIDTH,
+      FLOATING_ELEMENT_CARD_HEIGHT,
+    );
+    const toRect = getCenteredCardRect(
+      getElementRect('[data-info-panel-tab="extended"]'),
+      FLOATING_ELEMENT_CARD_WIDTH,
+      FLOATING_ELEMENT_CARD_HEIGHT,
+    );
+
+    if (fromRect && toRect) {
+      transmuteFlyAnimationSequenceRef.current += 1;
+      setTransmuteFlyAnimation({
+        card: outputCard,
+        fromRect,
+        id: `extended-award:${transmuteFlyAnimationSequenceRef.current}`,
+        toRect,
+      });
+    }
+
+    setBoardState((previous) => {
+      if (previous.discoveredExtendedRecipeIds.includes(recipeId)) return previous;
+
+      return {
+        ...previous,
+        discoveredExtendedRecipeIds: appendUniqueId(previous.discoveredExtendedRecipeIds, recipeId),
+        reagentSlots: clearReagentSlots(),
+      };
+    });
+    announceExtendedRecipeDiscovery(recipeId);
+    void sfx.play("card.massDissolve");
   };
 
   const handleQuestClaimSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -2275,11 +3258,24 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   };
 
   const commitTransmutation = () => {
-    if (!recipePreview) return;
+    if (!transmutationPreview) return;
 
-    const outputCard = getRecipeOutputBoardCard(recipePreview);
     const currentBoardState = boardStateRef.current;
-    const recipeId = recipePreview.recipe.id;
+    const recipeId = transmutationPreview.recipe.id;
+    const isExtendedRecipe = isExtendedRecipePreview(transmutationPreview);
+    if (
+      isExtendedRecipe &&
+      currentBoardState.discoveredExtendedRecipeIds.includes(transmutationPreview.recipe.id)
+    ) {
+      return;
+    }
+
+    if (isExtendedRecipe) {
+      commitExtendedRecipeAward(transmutationPreview, currentBoardState);
+      return;
+    }
+
+    const outputCard = getRecipePreviewOutputBoardCard(transmutationPreview);
     const isNewRecipeDiscovery = !currentBoardState.discoveredRecipeIds.includes(recipeId);
     const destinationSlotId = getInventoryDestinationSlotId(currentBoardState, outputCard.id);
     if (!destinationSlotId) {
@@ -2327,24 +3323,25 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         reagentSlots: clearReagentSlots(),
       };
     });
-    if (isNewRecipeDiscovery) announceRecipeDiscovery(recipeId);
+    if (isNewRecipeDiscovery) {
+      if (isExtendedRecipe) announceExtendedRecipeDiscovery(recipeId);
+      else announceRecipeDiscovery(recipeId);
+    }
     void sfx.play("card.massDissolve");
   };
 
   const handleTransmutationSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || !recipePreview) return;
+    if (event.button !== 0 || !canTransmutePreview) return;
     event.preventDefault();
 
     const pointerId = event.pointerId;
-    const trackRect = transmutePadTrackRef.current?.getBoundingClientRect();
-    if (!trackRect) return;
+    const trackElement = transmutePadTrackRef.current;
+    const trackRect = trackElement?.getBoundingClientRect();
+    if (!trackElement || !trackRect) return;
 
     const knobRect = event.currentTarget.getBoundingClientRect();
     const grabOffsetX = event.clientX - knobRect.left;
-    const travelDistance = Math.max(
-      trackRect.width - TRANSMUTE_KNOB_WIDTH_PX - TRANSMUTE_TRACK_PADDING_PX * 2,
-      1,
-    );
+    const travelDistance = Math.max(getTransmuteKnobTravelPx(trackElement.clientWidth), 1);
     let latestProgress = 0;
     setIsTransmuteDragging(true);
 
@@ -2395,29 +3392,89 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   usePixiApp(
     periodicTableCanvasRef,
-    (app) =>
-      setupPeriodicTableScene(app, {
+    (app) => {
+      if (activeBoardMode === "expedition") {
+        return setupExpeditionCanvasScene(app, {
+          getInteractionRect: () =>
+            periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
+        });
+      }
+
+      return setupPeriodicTableScene(app, {
         getInteractionRect: () => periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
         onElementGrab: beginElementDrag,
-      }),
-    [],
+      });
+    },
+    [activeBoardMode],
     { autoStart: false, backgroundAlpha: 0, preference: "canvas" },
   );
 
   useEffect(() => {
+    if (isGatheringMode || isExpeditionMode) return;
+
     const trackElement = transmutePadTrackRef.current;
     if (!trackElement) return;
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setTransmuteTrackWidth(entry.contentRect.width);
-    });
+    const syncTrackWidth = () => {
+      setTransmuteTrackWidth(trackElement.clientWidth);
+    };
+    syncTrackWidth();
+    const resizeObserver = new ResizeObserver(syncTrackWidth);
     resizeObserver.observe(trackElement);
 
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [isExpeditionMode, isGatheringMode]);
+
+  useBrowserLayoutEffect(() => {
+    if (!isGatheringMode || prefersReducedMotion()) return;
+
+    const animations: JSAnimation[] = [];
+    const gamePanelElement = periodicTableViewportRef.current;
+    const monsterPanelElement = rightPrimaryPanelRef.current;
+    const infoPanelElement = gatheringInfoPanelRef.current;
+
+    if (gamePanelElement) {
+      gamePanelElement.style.transformOrigin = "top center";
+      animations.push(
+        animate(gamePanelElement, {
+          duration: 460,
+          ease: "out(3)",
+          opacity: [0.82, 1],
+          scaleY: [0.92, 1],
+        }),
+      );
+    }
+
+    if (monsterPanelElement) {
+      animations.push(
+        animate(monsterPanelElement, {
+          duration: 380,
+          ease: "out(3)",
+          opacity: [0.88, 1],
+          scale: [1.04, 1],
+        }),
+      );
+    }
+
+    if (infoPanelElement) {
+      animations.push(
+        animate(infoPanelElement, {
+          delay: 130,
+          duration: 340,
+          ease: "out(3)",
+          opacity: [0, 1],
+          scale: [0.96, 1],
+          y: [18, 0],
+        }),
+      );
+    }
+
+    return () => {
+      for (const animation of animations) animation.cancel();
+    };
+  }, [isGatheringMode]);
 
   useEffect(() => {
     const notifiedCooldownIds = notifiedCooldownIdsRef.current;
@@ -2937,103 +3994,98 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       <canvas
         ref={periodicTableCanvasRef}
         data-board-section="periodic-table-canvas"
-        data-board-name="Periodic table Pixi canvas"
-        className="absolute inset-0 z-0 block size-full touch-none"
-        aria-label="Periodic table Pixi canvas"
+        data-board-name={getBoardCanvasName(isExpeditionMode)}
+        className={`absolute inset-0 z-0 block size-full touch-none transition-opacity duration-300 motion-reduce:transition-none ${
+          isGatheringMode ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+        aria-label={getBoardCanvasAriaLabel(isGatheringMode, isExpeditionMode)}
       >
-        Periodic table Pixi canvas
+        Alchemist Guild Pixi canvas
       </canvas>
-      <div className="pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px] grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]">
-        <section
-          data-board-section="top-inventory-panel"
-          data-board-name="Inventory"
-          data-board-description={BOARD_DESCRIPTIONS.inventory}
-          className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)] items-center gap-3 px-3 py-2`}
-          aria-label="Inventory"
-        >
-          <BoardDebugBadge
-            description={BOARD_DESCRIPTIONS.inventory}
-            label="Inventory"
-            visible={showBoardDebugBadges}
-          />
-          <div
-            className="grid size-10 place-items-center justify-self-start rounded-[6px] border border-sky-950/20 bg-white/40 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)]"
-            aria-hidden="true"
+      <div className={getBoardChromeClass(isExpeditionMode)}>
+        {isExpeditionMode ? null : (
+          <section
+            data-board-section="top-inventory-panel"
+            data-board-name="Inventory"
+            data-board-description={BOARD_DESCRIPTIONS.inventory}
+            className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)] items-center gap-3 px-3 py-2`}
+            aria-label="Inventory"
           >
-            <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
-          </div>
-          <span className="h-10 w-px bg-neutral-950/25" aria-hidden="true" />
-          <div
-            data-board-section="inventory-shelf"
-            data-board-name="Inventory shelf"
-            className="flex min-h-14 min-w-0 items-center gap-2 overflow-x-auto pr-1"
-          >
-            {inventorySlots.map((slot) => {
-              const item = boardState.inventorySlots[slot.id];
-
-              return (
-                <InventorySlot
-                  key={slot.id}
-                  card={getAlchemyCard(item?.cardId ?? null)}
-                  cooldowns={item?.cooldowns ?? []}
-                  draggedCard={draggedCard}
-                  isFlyDestination={
-                    transmuteFlyAnimation?.toInventorySlotId === slot.id &&
-                    transmuteFlyAnimation.card.id === item?.cardId
-                  }
-                  nowMs={nowMs}
-                  onPointerDown={beginInventoryCardDrag}
-                  slotId={slot.id}
-                  slotName={slot.name}
-                />
-              );
-            })}
-          </div>
-        </section>
-
-        <BoardModeTabs />
-
-        <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
-          <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
+            <BoardDebugBadge
+              description={BOARD_DESCRIPTIONS.inventory}
+              label="Inventory"
+              visible={showBoardDebugBadges}
+            />
             <div
-              data-board-section="left-profile-panel"
-              data-board-name="Profile"
-              data-board-description={BOARD_DESCRIPTIONS.profile}
-              className={`${GLASS_PANEL_CLASS} p-3`}
+              className="grid size-10 place-items-center justify-self-start rounded-[6px] border border-sky-950/20 bg-white/40 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)]"
+              aria-hidden="true"
             >
-              <BoardDebugBadge
-                description={BOARD_DESCRIPTIONS.profile}
-                label="Profile"
-                visible={showBoardDebugBadges}
-              />
-              <ProfileCard
-                {...FIRST_PROFILE_CARD_PROPS}
-                playerName={boardState.profile.playerName}
-                stats={createProfileStats(boardState.profile)}
-                onPlayerNameChange={(nextPlayerName) => {
-                  setBoardState((previous) => ({
-                    ...previous,
-                    profile: { ...previous.profile, playerName: nextPlayerName },
-                  }));
-                }}
-              />
+              <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
             </div>
+            <span className="h-10 w-px bg-neutral-950/25" aria-hidden="true" />
             <div
-              data-board-section="left-briefing-panel"
-              data-board-name="Quest Briefing"
-              data-board-description={BOARD_DESCRIPTIONS.questBriefing}
-              data-quest-drop-accepted={questPanelAccepted ? "true" : "false"}
-              className={`${GLASS_PANEL_CLASS} ${
-                questPanelAccepted ? "quest-panel-accepted" : ""
-              } grid h-full min-h-0 content-start gap-2 overflow-hidden p-3 transition-[box-shadow,transform] duration-150`}
+              data-board-section="inventory-shelf"
+              data-board-name="Inventory shelf"
+              className="flex min-h-14 min-w-0 items-center gap-2 overflow-x-auto pr-1"
             >
-              <QuestBriefingAtmosphere />
-              <BoardDebugBadge
-                description={BOARD_DESCRIPTIONS.questBriefing}
-                label="Quest Briefing"
-                visible={showBoardDebugBadges}
-              />
-              <QuestPanel
+              {inventorySlots.map((slot) => {
+                const item = boardState.inventorySlots[slot.id];
+
+                return (
+                  <InventorySlot
+                    key={slot.id}
+                    card={getAlchemyCard(item?.cardId ?? null)}
+                    cooldowns={item?.cooldowns ?? []}
+                    draggedCard={draggedCard}
+                    isFlyDestination={
+                      transmuteFlyAnimation?.toInventorySlotId === slot.id &&
+                      transmuteFlyAnimation.card.id === item?.cardId
+                    }
+                    nowMs={nowMs}
+                    onPointerDown={beginInventoryCardDrag}
+                    slotId={slot.id}
+                    slotName={slot.name}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        <BoardModeTabs activeTab={activeBoardMode} onTabChange={handleBoardModeTabChange} />
+
+        {isExpeditionMode ? (
+          <ExpeditionCanvasPanel
+            periodicTableViewportRef={periodicTableViewportRef}
+            showBoardDebugBadges={showBoardDebugBadges}
+          />
+        ) : (
+          <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
+            <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
+              <div
+                data-board-section="left-profile-panel"
+                data-board-name="Profile"
+                data-board-description={BOARD_DESCRIPTIONS.profile}
+                className={`${GLASS_PANEL_CLASS} p-3`}
+              >
+                <BoardDebugBadge
+                  description={BOARD_DESCRIPTIONS.profile}
+                  label="Profile"
+                  visible={showBoardDebugBadges}
+                />
+                <ProfileCard
+                  {...FIRST_PROFILE_CARD_PROPS}
+                  playerName={boardState.profile.playerName}
+                  stats={createProfileStats(boardState.profile)}
+                  onPlayerNameChange={(nextPlayerName) => {
+                    setBoardState((previous) => ({
+                      ...previous,
+                      profile: { ...previous.profile, playerName: nextPlayerName },
+                    }));
+                  }}
+                />
+              </div>
+              <LeftModePanel
                 activeQuestIds={activeQuestIds}
                 activeTab={questPanelTab}
                 canClaim={canClaimSelectedQuest}
@@ -3048,170 +4100,57 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 developerNotesVisible={showBoardDebugBadges}
                 hasQuestNotifications={pendingQuestNotificationIds.length > 0}
                 isClaimDragging={selectedQuestClaimSwipeState.dragging}
+                isGatheringMode={isGatheringMode}
+                questLogScrollTop={boardState.questLogScrollTop}
+                questPanelAccepted={questPanelAccepted}
+                selectedQuestId={selectedQuestId}
+                unlockedQuestIds={unlockedQuestIds}
                 onClaimPointerDown={handleQuestClaimSwipePointerDown}
                 onQuestLogScrollTopChange={handleQuestLogScrollTopChange}
                 onQuestOpenFromLog={handleQuestOpenFromLog}
                 onQuestSelect={handleQuestSelect}
                 onTabChange={handleQuestPanelTabChange}
-                questLogScrollTop={boardState.questLogScrollTop}
-                selectedQuestId={selectedQuestId}
-                unlockedQuestIds={unlockedQuestIds}
               />
-            </div>
-          </aside>
+            </aside>
 
-          <section className="grid min-h-0 gap-2.5 lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]">
-            <div
-              ref={periodicTableViewportRef}
-              data-board-section="periodic-table-dock"
-              data-board-name="Periodic Table Vault"
-              data-board-description={BOARD_DESCRIPTIONS.periodicTableVault}
-              className={CLEAR_TABLE_WINDOW_CLASS}
-            >
-              <BoardDebugBadge
-                description={BOARD_DESCRIPTIONS.periodicTableVault}
-                label="Periodic Table Vault"
-                visible={showBoardDebugBadges}
-              />
-            </div>
+            <CenterBoardPanels
+              boardState={boardState}
+              canTransmutePreview={canTransmutePreview}
+              draggedCard={draggedCard}
+              dropIntent={dropIntent}
+              isOutputAlreadyMade={isOutputAlreadyMade}
+              isGatheringMode={isGatheringMode}
+              isTransmuteDragging={isTransmuteDragging}
+              periodicTableViewportRef={periodicTableViewportRef}
+              recipePreview={transmutationPreview}
+              showBoardDebugBadges={showBoardDebugBadges}
+              swapAnimation={swapAnimation}
+              transmuteKnobTravelPx={transmuteKnobTravelPx}
+              transmutePadTrackRef={transmutePadTrackRef}
+              transmuteSwipeProgress={transmuteSwipeProgress}
+              onSlottedCardPointerDown={beginSlottedCardDrag}
+              onTransmutationSwipePointerDown={handleTransmutationSwipePointerDown}
+            />
 
-            <div
-              data-board-section="alchemy-workbench"
-              data-board-name="Alchemy Workbench"
-              data-board-description={BOARD_DESCRIPTIONS.alchemyWorkbench}
-              className={`${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8`}
-            >
-              <BoardDebugBadge
-                description={BOARD_DESCRIPTIONS.alchemyWorkbench}
-                label="Alchemy Workbench"
-                visible={showBoardDebugBadges}
-              />
-              {reagentSlots.map((slot) => (
-                <ReagentSlot
-                  key={slot.id}
-                  draggedCard={draggedCard}
-                  dropFeedback={getSlotDropFeedback(dropIntent, slot.id)}
-                  onSlottedCardPointerDown={beginSlottedCardDrag}
-                  sourceSwapGhostCard={getSourceSwapGhostCard(
-                    dropIntent,
-                    draggedCard,
-                    boardState,
-                    slot.id,
-                  )}
-                  slotId={slot.id}
-                  slotName={slot.name}
-                  slottedCard={getAlchemyCard(boardState.reagentSlots[slot.id])}
-                  swapAnimation={swapAnimation}
-                />
-              ))}
-
-              <div
-                ref={transmutePadTrackRef}
-                data-board-section="transmutation-pad"
-                data-board-name="Transmutation Pad"
-                data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
-                data-transmutation-ready={recipePreview ? "true" : "false"}
-                data-swipe-progress={transmuteSwipeProgress.toFixed(2)}
-                className={`relative col-span-full min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-4 ${
-                  recipePreview
-                    ? "cursor-ew-resize border-sky-800/70 bg-sky-50/35"
-                    : "border-neutral-600/80 bg-white/25"
-                }`}
-              >
-                <BoardDebugBadge
-                  description={BOARD_DESCRIPTIONS.transmutationPad}
-                  label="Transmutation Pad"
-                  visible={showBoardDebugBadges}
-                />
-                <span
-                  className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
-                  aria-hidden="true"
-                >
-                  <span
-                    className="block h-full rounded-[5px] bg-emerald-400/28 transition-[width] duration-75"
-                    style={{ width: `${Math.round(transmuteSwipeProgress * 100)}%` }}
-                  />
-                </span>
-                <p
-                  className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-2xl italic lg:text-3xl ${
-                    recipePreview ? "text-sky-950" : "text-neutral-700"
-                  }`}
-                >
-                  {recipePreview ? "Swipe to transmute" : "Match a recipe first"}
-                </p>
-                <button
-                  type="button"
-                  data-board-section="swipe-rune-handle"
-                  data-board-name="Swipe rune handle"
-                  tabIndex={recipePreview ? 0 : -1}
-                  aria-label={
-                    recipePreview
-                      ? "Swipe to transmute output"
-                      : "Match a recipe before transmuting"
-                  }
-                  className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${
-                    recipePreview
-                      ? "cursor-grab bg-neutral-800"
-                      : "cursor-not-allowed bg-neutral-700/55 opacity-70"
-                  }`}
-                  style={{
-                    left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
-                    transform: `translateX(${transmuteSwipeProgress * transmuteKnobTravelPx}px)`,
-                    transition: isTransmuteDragging
-                      ? "none"
-                      : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
-                    width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
-                  }}
-                  onPointerDown={handleTransmutationSwipePointerDown}
-                >
-                  <div className="flex h-14 items-center gap-3 lg:h-18 lg:gap-4" aria-hidden="true">
-                    <span className="h-full w-0.5 bg-neutral-300" />
-                    <span className="h-full w-0.5 bg-neutral-300" />
-                    <span className="h-full w-0.5 bg-neutral-300" />
-                  </div>
-                </button>
-              </div>
-
-              <div
-                data-board-section="transmutation-output-slot"
-                data-board-name="Output Slot"
-                data-board-description={BOARD_DESCRIPTIONS.outputSlot}
-                className="relative col-span-full min-h-0 rounded-[6px] border border-neutral-600/80 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-1 sm:col-start-5"
-              >
-                <BoardDebugBadge
-                  description={BOARD_DESCRIPTIONS.outputSlot}
-                  label="Output Slot"
-                  visible={showBoardDebugBadges}
-                />
-                <OutputSlotPreview preview={recipePreview} />
-              </div>
-            </div>
+            <RightModePanels
+              activeTab={infoPanelTab}
+              discoveredExtendedRecipeIds={boardState.discoveredExtendedRecipeIds}
+              discoveredRecipeIds={boardState.discoveredRecipeIds}
+              gatheringInfoPanelRef={gatheringInfoPanelRef}
+              hasExtendedRecipeNotifications={pendingExtendedRecipeNotificationIds.length > 0}
+              hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
+              isGatheringMode={isGatheringMode}
+              preview={transmutationPreview}
+              revealExtendedRecipeIds={extendedRecipeRevealIds}
+              revealRecipeIds={recipeRevealIds}
+              rightPrimaryPanelRef={rightPrimaryPanelRef}
+              showBoardDebugBadges={showBoardDebugBadges}
+              onExtendedRecipeRevealSeen={handleExtendedRecipeRevealSeen}
+              onRecipeRevealSeen={handleRecipeRevealSeen}
+              onTabChange={handleInfoPanelTabChange}
+            />
           </section>
-
-          <aside className="hidden min-h-0 lg:grid">
-            <div
-              data-board-section="alchemy-workbench-info-panel"
-              data-board-name="Alchemy Workbench Info"
-              data-board-description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
-              className={GLASS_PANEL_CLASS}
-            >
-              <BoardDebugBadge
-                description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
-                label="Alchemy Workbench Info"
-                visible={showBoardDebugBadges}
-              />
-              <AlchemyWorkbenchInfoPanel
-                activeTab={infoPanelTab}
-                discoveredRecipeIds={boardState.discoveredRecipeIds}
-                hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
-                onRecipeRevealSeen={handleRecipeRevealSeen}
-                onTabChange={handleInfoPanelTabChange}
-                preview={recipePreview}
-                revealRecipeIds={recipeRevealIds}
-              />
-            </div>
-          </aside>
-        </section>
+        )}
       </div>
       {draggedCard ? (
         <div
@@ -3716,6 +4655,9 @@ function observeRecipeReveal({
 }
 
 const noop = (): void => undefined;
+const inventoryClockSubscribers = new Set<() => void>();
+let inventoryClockIntervalId: number | null = null;
+let inventoryClockNowMs = Date.now();
 
 function getScaledPointerOffset(
   event: ReactPointerEvent<HTMLElement>,
@@ -3727,35 +4669,95 @@ function getScaledPointerOffset(
   };
 }
 
-function useInventoryClock(inventory: AlchemistGuildInventorySlots): number {
-  const [nowMs, setNowMs] = useState(() => Date.now());
+function useInventoryClock(): number {
+  return useSyncExternalStore(
+    subscribeInventoryClock,
+    getInventoryClockSnapshot,
+    getInventoryClockSnapshot,
+  );
+}
 
-  useEffect(() => {
-    const currentNowMs = Date.now();
-    setNowMs(currentNowMs);
-    if (!hasActiveCooldown(inventory, currentNowMs)) return;
+function subscribeInventoryClock(onStoreChange: () => void): () => void {
+  inventoryClockSubscribers.add(onStoreChange);
+  if (inventoryClockIntervalId === null) {
+    inventoryClockIntervalId = window.setInterval(() => {
+      inventoryClockNowMs = Date.now();
+      for (const subscriber of inventoryClockSubscribers) subscriber();
+    }, INVENTORY_CLOCK_INTERVAL_MS);
+  }
 
-    const interval = window.setInterval(() => {
-      const nextNowMs = Date.now();
-      setNowMs(nextNowMs);
-      if (!hasActiveCooldown(inventory, nextNowMs)) window.clearInterval(interval);
-    }, 250);
+  return () => {
+    inventoryClockSubscribers.delete(onStoreChange);
+    if (inventoryClockSubscribers.size > 0 || inventoryClockIntervalId === null) return;
 
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [inventory]);
+    window.clearInterval(inventoryClockIntervalId);
+    inventoryClockIntervalId = null;
+  };
+}
 
-  return nowMs;
+function getInventoryClockSnapshot(): number {
+  return inventoryClockNowMs;
 }
 
 function getAlchemyCardArtSrc(card: AlchemyBoardCard): string {
+  if (!card.imagePath) return "";
   return resolvePublicAssetPath(card.imagePath);
 }
 
 function getAlchemyCard(cardId: string | null): AlchemyBoardCard | null {
   if (!cardId) return null;
   return alchemyCardsById.get(cardId) ?? null;
+}
+
+function isExtendedRecipePreview(
+  preview: AlchemyWorkbenchAnyRecipePreview,
+): preview is AlchemyWorkbenchExtendedRecipePreview {
+  return "source" in preview.recipe;
+}
+
+function getRecipePreviewOutputName(preview: AlchemyWorkbenchAnyRecipePreview): string {
+  return preview.recipe.output.name;
+}
+
+function getRecipePreviewKindLabel(preview: AlchemyWorkbenchAnyRecipePreview): string {
+  return isExtendedRecipePreview(preview)
+    ? "Molecule"
+    : formatTokenLabel(preview.recipe.output.kind);
+}
+
+function getTransmutationPadPrompt(
+  preview: AlchemyWorkbenchAnyRecipePreview | null,
+  alreadyMade: boolean,
+): string {
+  if (alreadyMade) return "Already made";
+  return preview ? "Swipe to transmute" : "Match a recipe first";
+}
+
+function getTransmutationPadAriaLabel(
+  preview: AlchemyWorkbenchAnyRecipePreview | null,
+  alreadyMade: boolean,
+): string {
+  if (alreadyMade) return "Extended recipe already made";
+  return preview ? "Swipe to transmute output" : "Match a recipe before transmuting";
+}
+
+function isExtendedPreviewAlreadyDiscovered(
+  preview: AlchemyWorkbenchAnyRecipePreview | null,
+  discoveredExtendedRecipeIds: readonly string[],
+): boolean {
+  return (
+    preview !== null &&
+    isExtendedRecipePreview(preview) &&
+    discoveredExtendedRecipeIds.includes(preview.recipe.id)
+  );
+}
+
+function getRecipePreviewOutputBoardCard(
+  preview: AlchemyWorkbenchAnyRecipePreview,
+): AlchemyBoardCard {
+  return isExtendedRecipePreview(preview)
+    ? getExtendedRecipeOutputBoardCard(preview.recipe)
+    : getRecipeOutputBoardCard(preview);
 }
 
 function getRecipeOutputBoardCard(preview: AlchemyWorkbenchRecipePreview): AlchemyBoardCard {
@@ -3772,6 +4774,31 @@ function getRecipeOutputBoardCard(preview: AlchemyWorkbenchRecipePreview): Alche
     name: preview.recipe.output.name,
     symbol: createCardSymbol(preview.recipe.output.name),
   };
+}
+
+function getExtendedRecipeOutputBoardCard(recipe: StaticExtendedMoleculeRecipe): AlchemyBoardCard {
+  const existingCard = getAlchemyCard(recipe.output.cardId);
+  if (existingCard) return existingCard;
+
+  return {
+    detailLabel: `CID ${recipe.source.pubChemCid}`,
+    familyColor: "#34d399",
+    id: recipe.output.cardId,
+    kind: "extended",
+    kindLabel: "Molecule",
+    name: recipe.output.name,
+    symbol: recipe.output.formula,
+  };
+}
+
+function formatExtendedRecipeLedgerFormula(recipe: StaticExtendedMoleculeRecipe): string {
+  return recipe.ingredients
+    .map((ingredient) =>
+      ingredient.quantity === 1
+        ? ingredient.elementSymbol
+        : `${ingredient.quantity}${ingredient.elementSymbol}`,
+    )
+    .join(" + ");
 }
 
 function getWorkbenchCardIds(boardState: AlchemistGuildBoardState): (string | null)[] {
@@ -4123,13 +5150,8 @@ function getCooldownProgress(cooldown: AlchemistGuildInventoryCooldown, nowMs: n
   return clamp((nowMs - cooldown.startedAtMs) / durationMs, 0, 1);
 }
 
-function hasActiveCooldown(inventory: AlchemistGuildInventorySlots, nowMs: number): boolean {
-  for (const slot of inventorySlots) {
-    const item = inventory[slot.id];
-    if (item?.cooldowns.some((cooldown) => cooldown.readyAtMs > nowMs)) return true;
-  }
-
-  return false;
+function getTransmuteKnobTravelPx(trackWidthPx: number): number {
+  return Math.max(0, trackWidthPx - TRANSMUTE_KNOB_WIDTH_PX - TRANSMUTE_TRACK_PADDING_PX * 2);
 }
 
 function getOutputCooldownMs(cardId: string): number {

@@ -2,10 +2,14 @@ import {
   ALCHEMY_GATHERABLE_CARDS,
   ALCHEMY_RECIPES,
   ELEMENT_CARDS,
+  ELEMENT_SYMBOLS,
+  EXTENDED_MOLECULE_RECIPES,
   getAlchemyRecipeArgumentSlots,
   getAlchemyRecipeKidInfoById,
+  getExtendedMoleculeRecipeByFormulaKey,
   type StaticAlchemyRecipe,
   type StaticAlchemyRecipeKidInfo,
+  type StaticExtendedMoleculeRecipe,
 } from "@dean-stack/schemas";
 
 type AlchemyWorkbenchRecipeIngredient = {
@@ -23,8 +27,23 @@ export type AlchemyWorkbenchRecipePreview = {
   slotCardIds: readonly string[];
 };
 
+export type AlchemyWorkbenchExtendedRecipePreview = {
+  formula: string;
+  ingredientRows: readonly AlchemyWorkbenchRecipeIngredient[];
+  recipe: StaticExtendedMoleculeRecipe;
+  slotCardIds: readonly string[];
+};
+
+type ElementCounts = Map<string, number>;
+
 const cardLabelsById = new Map<string, string>();
 const elementSymbolsById = new Map<string, string>();
+const elementOrderBySymbol: ReadonlyMap<string, number> = new Map(
+  ELEMENT_SYMBOLS.map((symbol, index) => [symbol, index]),
+);
+const recipeByOutputCardId: ReadonlyMap<string, StaticAlchemyRecipe> = new Map(
+  ALCHEMY_RECIPES.map((recipe) => [recipe.output.cardId, recipe]),
+);
 const TOKEN_PREFIX_PATTERN = /^[a-z-]+:/;
 
 for (const card of ELEMENT_CARDS) {
@@ -37,6 +56,10 @@ for (const card of ALCHEMY_GATHERABLE_CARDS) {
 }
 
 for (const recipe of ALCHEMY_RECIPES) {
+  cardLabelsById.set(recipe.output.cardId, recipe.output.name);
+}
+
+for (const recipe of EXTENDED_MOLECULE_RECIPES) {
   cardLabelsById.set(recipe.output.cardId, recipe.output.name);
 }
 
@@ -63,6 +86,31 @@ export function getAlchemyWorkbenchRecipePreview(
   return null;
 }
 
+export function getAlchemyWorkbenchExtendedRecipePreview(
+  workbenchCardIds: readonly (string | null)[],
+): AlchemyWorkbenchExtendedRecipePreview | null {
+  const slotCardIds = workbenchCardIds.filter((cardId) => cardId !== null);
+  if (slotCardIds.length === 0) return null;
+
+  const formulaKey = getElementFormulaKeyForCardIds(slotCardIds);
+  if (!formulaKey) return null;
+
+  const recipe = getExtendedMoleculeRecipeByFormulaKey(formulaKey);
+  if (!recipe) return null;
+
+  return {
+    formula: formatExtendedMoleculeFormula(recipe),
+    ingredientRows: recipe.ingredients.map((ingredient) => ({
+      cardId: ingredient.cardId,
+      label: formatAlchemyCardLabel(ingredient.cardId),
+      quantity: ingredient.quantity,
+      role: "Element",
+    })),
+    recipe,
+    slotCardIds,
+  };
+}
+
 export function doesWorkbenchMatchRecipe(
   workbenchCardIds: readonly (string | null)[],
   recipe: StaticAlchemyRecipe,
@@ -83,6 +131,91 @@ export function getAlchemyRecipeSlotCardIds(recipe: StaticAlchemyRecipe): string
 
 export function formatAlchemyRecipeFormula(recipe: StaticAlchemyRecipe): string {
   return recipe.arguments.map(formatAlchemyRecipeArgumentFormula).join(" + ");
+}
+
+export function getAlchemyRecipeElementFormulaKey(recipe: StaticAlchemyRecipe): string | null {
+  let counts = createEmptyElementCounts();
+
+  for (const argument of recipe.arguments) {
+    const argumentCounts = getCardElementCounts(argument.cardId);
+    if (!argumentCounts) return null;
+    counts = addElementCounts(counts, argumentCounts, argument.quantity);
+  }
+
+  return formatElementFormulaKey(counts);
+}
+
+function getElementFormulaKeyForCardIds(cardIds: readonly string[]): string | null {
+  let counts = createEmptyElementCounts();
+
+  for (const cardId of cardIds) {
+    const elementSymbol = elementSymbolsById.get(cardId);
+    if (!elementSymbol) return null;
+    counts = addElementCounts(counts, new Map([[elementSymbol, 1]]));
+  }
+
+  return formatElementFormulaKey(counts);
+}
+
+function getCardElementCounts(
+  cardId: string,
+  seenCardIds = new Set<string>(),
+): ElementCounts | null {
+  const elementSymbol = elementSymbolsById.get(cardId);
+  if (elementSymbol) return new Map([[elementSymbol, 1]]);
+
+  const recipe = recipeByOutputCardId.get(cardId);
+  if (!recipe || seenCardIds.has(cardId)) return null;
+
+  seenCardIds.add(cardId);
+  let counts = createEmptyElementCounts();
+  for (const argument of recipe.arguments) {
+    const argumentCounts = getCardElementCounts(argument.cardId, seenCardIds);
+    if (!argumentCounts) return null;
+    counts = addElementCounts(counts, argumentCounts, argument.quantity);
+  }
+  seenCardIds.delete(cardId);
+
+  return counts;
+}
+
+function createEmptyElementCounts(): ElementCounts {
+  return new Map();
+}
+
+function addElementCounts(
+  left: ElementCounts,
+  right: ReadonlyMap<string, number>,
+  multiplier = 1,
+): ElementCounts {
+  const next = new Map(left);
+  for (const [symbol, quantity] of right) {
+    next.set(symbol, (next.get(symbol) ?? 0) + quantity * multiplier);
+  }
+
+  return next;
+}
+
+function formatElementFormulaKey(counts: ReadonlyMap<string, number>): string {
+  return [...counts]
+    .toSorted(([left], [right]) => getElementOrder(left) - getElementOrder(right))
+    .map(([symbol, quantity]) => `${symbol}:${quantity}`)
+    .join("|");
+}
+
+function getElementOrder(symbol: string): number {
+  return elementOrderBySymbol.get(symbol) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function formatExtendedMoleculeFormula(recipe: StaticExtendedMoleculeRecipe): string {
+  return recipe.ingredients.map(formatExtendedMoleculeIngredientFormula).join(" + ");
+}
+
+function formatExtendedMoleculeIngredientFormula(
+  ingredient: StaticExtendedMoleculeRecipe["ingredients"][number],
+): string {
+  const label = ingredient.elementSymbol;
+  return ingredient.quantity === 1 ? label : `${ingredient.quantity}${label}`;
 }
 
 function formatAlchemyRecipeArgumentFormula(

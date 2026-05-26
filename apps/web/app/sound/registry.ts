@@ -4,6 +4,51 @@ import { type SoundDefinition, SoundDefinitionSchema } from "./schema";
 
 export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).parse([
   {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.9, holdMs: 40, releaseMs: 110 },
+      { attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 35, releaseMs: 100 },
+    ],
+    generatorPrompt:
+      "Polished brass alchemy tab switch, tiny gear latch clicks into place with warm glass sparkle, dry close-miked mobile UI, 0.5s one-shot, precise and focused.",
+    id: "board-mode.crafting",
+    interruptFadeMs: 8,
+    maxVoices: 4,
+    replay: "restart",
+    url: "/sfx/ui/board-mode-crafting.mp3",
+    volume: 0.58,
+  },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.9, holdMs: 40, releaseMs: 110 },
+      { attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 35, releaseMs: 100 },
+    ],
+    generatorPrompt:
+      "Soft leather field-map tab flip, leaf rustle with small wooden bead tick, dry centered mobile UI, 0.5s one-shot, curious and outdoorsy.",
+    id: "board-mode.gathering",
+    interruptFadeMs: 8,
+    maxVoices: 4,
+    replay: "restart",
+    url: "/sfx/ui/board-mode-gathering.mp3",
+    volume: 0.58,
+  },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.9, holdMs: 40, releaseMs: 110 },
+      { attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 35, releaseMs: 100 },
+    ],
+    generatorPrompt:
+      "Compass bezel tab selection, bright brass click with airy map whoosh, dry close-miked adventure UI, 0.5s one-shot, adventurous and open.",
+    id: "board-mode.expedition",
+    interruptFadeMs: 8,
+    maxVoices: 4,
+    replay: "restart",
+    url: "/sfx/ui/board-mode-expedition.mp3",
+    volume: 0.6,
+  },
+  {
     bus: "sfx",
     ducking: [
       { attackMs: 12, bus: "music", gain: 0.82, holdMs: 40, releaseMs: 120 },

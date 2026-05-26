@@ -1,4 +1,5 @@
 import {
+  ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
   ELEMENT_CARDS,
   getAlchemyCharactersByRequester,
   getAlchemyQuestById,
@@ -29,6 +30,8 @@ const CARD_ID_PREFIX_PATTERN = /^[a-z-]+:/;
 const QUEST_CAROUSEL_DOTS = ["training", "recipe", "teaching"] as const;
 const QUEST_CAROUSEL_SLIDE_COUNT = QUEST_CAROUSEL_DOTS.length;
 const QUEST_CAROUSEL_INITIAL_INDEX = 1;
+const QUEST_CAROUSEL_FIRST_SLIDE_INDEX = 0;
+const QUEST_CAROUSEL_LAST_SLIDE_INDEX = QUEST_CAROUSEL_SLIDE_COUNT - 1;
 const QUEST_CAROUSEL_SWIPE_MIN_PX = 34;
 const QUEST_CAROUSEL_EDGE_RESISTANCE = 0.32;
 const QUEST_CAROUSEL_SNAP_DURATION_MS = 230;
@@ -86,6 +89,7 @@ export const QuestBriefingCardPropsSchema = z.object({
   hint: z.string().min(1),
   id: z.string().regex(QUEST_CARD_ID_PATTERN),
   need: z.string().min(1),
+  onCarouselEdgeSwipe: z.custom<(direction: -1 | 1) => void>().optional(),
   recipeLabels: z.array(QuestBriefingRecipeSchema).min(1),
   redacted: z.boolean(),
   requesterAvatarPath: z.string().regex(PUBLIC_PATH_PATTERN).nullable(),
@@ -110,6 +114,7 @@ export const QuestBriefingCard = defineComponent(
     hint,
     id,
     need,
+    onCarouselEdgeSwipe,
     redacted,
     recipeLabels,
     requesterAvatarPath,
@@ -167,7 +172,9 @@ export const QuestBriefingCard = defineComponent(
         <QuestBriefingCarousel
           developerNotesVisible={developerNotesVisible}
           hint={hint}
+          initialSlideIndex={getQuestBriefingInitialSlideIndex(id)}
           need={need}
+          onEdgeSwipe={onCarouselEdgeSwipe}
           primaryRecipe={getPrimaryRecipe(recipeLabels)}
           requesterName={requesterName}
           requesterTitle={requesterTitle}
@@ -246,7 +253,9 @@ const QuestRequesterAvatar = defineComponent(
 const QuestBriefingCarouselPropsSchema = z.object({
   developerNotesVisible: z.boolean(),
   hint: z.string().min(1),
+  initialSlideIndex: z.int().min(0).max(QUEST_CAROUSEL_LAST_SLIDE_INDEX),
   need: z.string().min(1),
+  onEdgeSwipe: z.custom<(direction: -1 | 1) => void>().optional(),
   primaryRecipe: QuestBriefingRecipeSchema,
   requesterName: z.string().min(1),
   requesterTitle: z.string().min(1),
@@ -277,7 +286,9 @@ const QuestBriefingCarousel = defineComponent(
   ({
     developerNotesVisible,
     hint,
+    initialSlideIndex,
     need,
+    onEdgeSwipe,
     primaryRecipe,
     requesterName,
     requesterTitle,
@@ -285,11 +296,11 @@ const QuestBriefingCarousel = defineComponent(
   }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
     const trackRef = useRef<HTMLDivElement>(null);
-    const activeSlideIndexRef = useRef(QUEST_CAROUSEL_INITIAL_INDEX);
+    const activeSlideIndexRef = useRef(initialSlideIndex);
     const swipeRef = useRef<QuestCarouselSwipe | null>(null);
     const snapAnimationRef = useRef<JSAnimation | null>(null);
     const removePointerListenersRef = useRef<(() => void) | null>(null);
-    const [activeSlideIndex, setActiveSlideIndex] = useState(QUEST_CAROUSEL_INITIAL_INDEX);
+    const [activeSlideIndex, setActiveSlideIndex] = useState(initialSlideIndex);
 
     const settleSlide = (index: number, animated: boolean) => {
       const nextIndex = clampCarouselIndex(index);
@@ -381,10 +392,18 @@ const QuestBriefingCarousel = defineComponent(
       }
 
       const direction = getQuestCarouselSwipeDirection(swipe.latestDeltaX);
-      const nextIndex = clampCarouselIndex(swipe.activeIndex + direction);
+      const edgeSwipeDirection = getQuestCarouselEdgeSwipeDirection(swipe.activeIndex, direction);
+      const nextIndex = edgeSwipeDirection
+        ? swipe.activeIndex
+        : clampCarouselIndex(swipe.activeIndex + direction);
       swipeRef.current = null;
       if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
         swipe.captureElement.releasePointerCapture(event.pointerId);
+      }
+      if (edgeSwipeDirection && onEdgeSwipe) {
+        settleSlide(swipe.activeIndex, true);
+        onEdgeSwipe(edgeSwipeDirection);
+        return;
       }
       settleSlide(nextIndex, true);
     };
@@ -451,7 +470,9 @@ const QuestBriefingCarousel = defineComponent(
           <div
             ref={trackRef}
             className="grid grid-flow-col auto-cols-[100%]"
-            style={{ transform: "translateX(-33.333333%)" }}
+            style={{
+              transform: `translateX(-${(initialSlideIndex * 100) / QUEST_CAROUSEL_SLIDE_COUNT}%)`,
+            }}
           >
             <QuestBriefingInfoSlide
               eyebrow={`${requesterName} • ${requesterTitle}`}
@@ -559,8 +580,8 @@ function getQuestCarouselSnapX(index: number, slideWidth: number): number {
 
 function getResistedCarouselDeltaX(swipe: QuestCarouselSwipe): number {
   if (
-    (swipe.activeIndex === 0 && swipe.latestDeltaX > 0) ||
-    (swipe.activeIndex === QUEST_CAROUSEL_SLIDE_COUNT - 1 && swipe.latestDeltaX < 0)
+    (swipe.activeIndex === QUEST_CAROUSEL_FIRST_SLIDE_INDEX && swipe.latestDeltaX > 0) ||
+    (swipe.activeIndex === QUEST_CAROUSEL_LAST_SLIDE_INDEX && swipe.latestDeltaX < 0)
   ) {
     return swipe.latestDeltaX * QUEST_CAROUSEL_EDGE_RESISTANCE;
   }
@@ -572,6 +593,22 @@ function getQuestCarouselSwipeDirection(deltaX: number): -1 | 0 | 1 {
   if (Math.abs(deltaX) < QUEST_CAROUSEL_SWIPE_MIN_PX) return 0;
   if (deltaX < 0) return 1;
   return -1;
+}
+
+export function getQuestBriefingInitialSlideIndex(questId: string): number {
+  return questId === ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID
+    ? QUEST_CAROUSEL_INITIAL_INDEX
+    : QUEST_CAROUSEL_FIRST_SLIDE_INDEX;
+}
+
+export function getQuestCarouselEdgeSwipeDirection(
+  activeIndex: number,
+  direction: -1 | 0 | 1,
+): -1 | 1 | null {
+  if (activeIndex === QUEST_CAROUSEL_FIRST_SLIDE_INDEX && direction === -1) return -1;
+  if (activeIndex === QUEST_CAROUSEL_LAST_SLIDE_INDEX && direction === 1) return 1;
+
+  return null;
 }
 
 function setCarouselMotionX(motion: AnimatableObject, x: number): void {

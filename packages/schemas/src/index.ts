@@ -2,6 +2,7 @@ import * as z from "zod";
 
 import { AlchemyQuestIdSchema } from "./data/alchemy-quests";
 import { AlchemyCardIdSchema, AlchemyRecipeIdSchema } from "./data/alchemy-recipes";
+import { ExtendedMoleculeRecipeIdSchema } from "./data/extended-molecule-recipes";
 
 export * from "./adding-game";
 export * from "./data";
@@ -141,6 +142,7 @@ export const ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT: AlchemistGuildQuestDelive
 export const AlchemistGuildBoardStateSchema = z.object({
   completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
+  discoveredExtendedRecipeIds: z.array(ExtendedMoleculeRecipeIdSchema).default([]),
   discoveredRecipeIds: z.array(AlchemyRecipeIdSchema).default([]),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(

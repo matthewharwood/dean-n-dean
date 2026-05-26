@@ -6,6 +6,9 @@ export type SoundBus = z.infer<typeof SoundBusSchema>;
 export const SoundReplayPolicySchema = z.enum(["overlap", "restart", "ignore", "cancel-bus"]);
 
 export const SoundIdSchema = z.enum([
+  "board-mode.crafting",
+  "board-mode.expedition",
+  "board-mode.gathering",
   "card.pickup",
   "card.dissolve",
   "card.drop",
