@@ -116,13 +116,11 @@ export function doesWorkbenchMatchRecipe(
   recipe: StaticAlchemyRecipe,
 ): boolean {
   const recipeCardIds = getAlchemyRecipeSlotCardIds(recipe);
+  const actualCardIds = workbenchCardIds.filter((cardId) => cardId !== null);
 
-  if (workbenchCardIds.length < recipeCardIds.length) return false;
+  if (actualCardIds.length !== recipeCardIds.length) return false;
 
-  return workbenchCardIds.every((cardId, index) => {
-    const expectedCardId = recipeCardIds[index] ?? null;
-    return cardId === expectedCardId;
-  });
+  return haveSameCardIdCounts(actualCardIds, recipeCardIds);
 }
 
 export function getAlchemyRecipeSlotCardIds(recipe: StaticAlchemyRecipe): string[] {
@@ -194,6 +192,22 @@ function addElementCounts(
   }
 
   return next;
+}
+
+function haveSameCardIdCounts(left: readonly string[], right: readonly string[]): boolean {
+  const counts = new Map<string, number>();
+  for (const cardId of left) {
+    counts.set(cardId, (counts.get(cardId) ?? 0) + 1);
+  }
+
+  for (const cardId of right) {
+    const nextCount = (counts.get(cardId) ?? 0) - 1;
+    if (nextCount < 0) return false;
+    if (nextCount === 0) counts.delete(cardId);
+    else counts.set(cardId, nextCount);
+  }
+
+  return counts.size === 0;
 }
 
 function formatElementFormulaKey(counts: ReadonlyMap<string, number>): string {

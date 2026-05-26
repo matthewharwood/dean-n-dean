@@ -680,27 +680,33 @@ const QuestBriefingFormulaPropsSchema = z.object({
   ingredients: z.array(QuestBriefingRecipeIngredientSchema).min(1),
 });
 
-const QuestBriefingFormula = defineComponent(QuestBriefingFormulaPropsSchema, ({ ingredients }) => (
-  <span
-    className="flex max-w-full items-baseline justify-center overflow-hidden whitespace-nowrap font-serif text-5xl font-bold leading-none tracking-normal text-sky-950"
-    aria-hidden="true"
-  >
-    {ingredients.map((ingredient, index) => (
-      <span
-        key={`${ingredient.cardId}:${ingredient.quantity}`}
-        className="flex items-baseline leading-none"
-      >
-        {ingredient.quantity > 1 ? (
-          <span className="mr-0.5 text-[0.56em] leading-none">{ingredient.quantity}</span>
-        ) : null}
-        <span>{ingredient.symbol}</span>
-        {index < ingredients.length - 1 ? (
-          <span className="mx-1.5 text-[0.68em] font-normal leading-none">+</span>
-        ) : null}
-      </span>
-    ))}
-  </span>
-));
+const QuestBriefingFormula = defineComponent(QuestBriefingFormulaPropsSchema, ({ ingredients }) => {
+  const hasWordLabels = ingredients.some((ingredient) => ingredient.symbol.length > 2);
+
+  return (
+    <span
+      className={`flex max-w-full items-baseline justify-center overflow-hidden whitespace-nowrap font-serif font-bold leading-none tracking-normal text-sky-950 ${
+        hasWordLabels ? "text-2xl" : "text-5xl"
+      }`}
+      aria-hidden="true"
+    >
+      {ingredients.map((ingredient, index) => (
+        <span
+          key={`${ingredient.cardId}:${ingredient.quantity}`}
+          className="flex items-baseline leading-none"
+        >
+          {ingredient.quantity > 1 ? (
+            <span className="mr-0.5 text-[0.56em] leading-none">{ingredient.quantity}</span>
+          ) : null}
+          <span>{ingredient.symbol}</span>
+          {index < ingredients.length - 1 ? (
+            <span className="mx-1.5 text-[0.68em] font-normal leading-none">+</span>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  );
+});
 
 function getPrimaryRecipe(
   recipeLabels: readonly z.infer<typeof QuestBriefingRecipeSchema>[],
@@ -794,12 +800,13 @@ function formatRecipeIngredient(
   argument: StaticAlchemyRecipe["arguments"][number],
 ): z.infer<typeof QuestBriefingRecipeIngredientSchema> {
   const elementCard = ELEMENT_CARDS.find((card) => card.id === argument.cardId);
+  const cardLabel = elementCard?.name ?? formatTokenLabel(argument.cardId);
 
   return {
     cardId: argument.cardId,
-    name: elementCard?.name ?? formatTokenLabel(argument.cardId),
+    name: cardLabel,
     quantity: argument.quantity,
-    symbol: elementCard?.symbol ?? formatTokenLabel(argument.cardId).slice(0, 2),
+    symbol: elementCard?.symbol ?? cardLabel,
   };
 }
 

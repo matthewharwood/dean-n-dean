@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { getAlchemyQuestById } from "@dean-stack/schemas";
+
 import {
+  createQuestBriefingCardProps,
   FIRST_QUEST_BRIEFING_CARD_PROPS,
   getQuestBriefingInitialSlideIndex,
   getQuestCarouselEdgeSwipeDirection,
@@ -33,6 +36,24 @@ describe("QuestBriefingCard data projection", () => {
       { icon: "discovery", label: "Discovery Token", value: "1" },
       { icon: "muddlefog", label: "Muddlefog Cleared", value: "3%" },
     ]);
+  });
+
+  test("labels raw and crafted ingredients by full names instead of pseudo element symbols", () => {
+    const quest = getAlchemyQuestById("quest:field-kit-basics");
+    if (!quest) throw new Error("Missing field kit quest");
+
+    const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
+    const herbalMash = cardProps.recipeLabels[0];
+    if (!herbalMash) throw new Error("Missing Herbal Mash briefing recipe");
+
+    expect(herbalMash).toMatchObject({
+      formula: "Herbs + Water",
+      ingredients: [
+        { cardId: "raw:herbs", name: "Herbs", quantity: 1, symbol: "Herbs" },
+        { cardId: "material:water", name: "Water", quantity: 1, symbol: "Water" },
+      ],
+      name: "Herbal Mash",
+    });
   });
 });
 

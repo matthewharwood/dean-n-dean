@@ -80,13 +80,25 @@ export function selectGatheringAnswer(
 ): AlchemistGuildGatheringState {
   if (state.phase !== "solving") return state;
 
-  const correct = value === state.equation.answer;
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
     equation: {
       ...state.equation,
       selectedValue: value,
     },
+    lastAnswerCorrect: null,
+    phase: "solving",
+  });
+}
+
+export function confirmGatheringAnswer(
+  state: AlchemistGuildGatheringState,
+): AlchemistGuildGatheringState {
+  if (state.phase !== "solving" || state.equation.selectedValue === null) return state;
+
+  const correct = state.equation.selectedValue === state.equation.answer;
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...state,
     lastAnswerCorrect: correct,
     phase: correct ? "move" : "solving",
   });

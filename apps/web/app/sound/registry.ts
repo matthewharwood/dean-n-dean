@@ -183,4 +183,19 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     url: "/sfx/ui/cooldown-ready.mp3",
     volume: 0.64,
   },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.88, holdMs: 60, releaseMs: 130 },
+      { attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 50, releaseMs: 120 },
+    ],
+    generatorPrompt:
+      "Soft wrong-answer UI thunk, tiny detuned wooden block tap with muted rubber mallet, dry close-miked mobile game UI, half-second one-shot with quick falling tail, gentle and clear.",
+    id: "gathering.answerWrong",
+    interruptFadeMs: 8,
+    maxVoices: 4,
+    replay: "restart",
+    url: "/sfx/ui/gathering-answer-wrong.mp3",
+    volume: 0.68,
+  },
 ]);

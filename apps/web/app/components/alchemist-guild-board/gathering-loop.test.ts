@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   claimGatheringReward,
   clearGatheringAnswer,
+  confirmGatheringAnswer,
   createGatheringEquation,
   createGatheringRound,
   getGatheringMoves,
@@ -28,10 +29,19 @@ describe("gathering loop", () => {
     if (wrongAnswer === undefined) throw new Error("expected a distractor answer");
 
     const missed = selectGatheringAnswer(round, wrongAnswer);
+    expect(missed.equation.selectedValue).toBe(wrongAnswer);
+    expect(missed.lastAnswerCorrect).toBeNull();
     expect(missed.phase).toBe("solving");
-    expect(missed.lastAnswerCorrect).toBe(false);
 
-    const solved = selectGatheringAnswer(missed, round.equation.answer);
+    const confirmedMiss = confirmGatheringAnswer(missed);
+    expect(confirmedMiss.phase).toBe("solving");
+    expect(confirmedMiss.lastAnswerCorrect).toBe(false);
+
+    const staged = selectGatheringAnswer(confirmedMiss, round.equation.answer);
+    expect(staged.phase).toBe("solving");
+    expect(staged.lastAnswerCorrect).toBeNull();
+
+    const solved = confirmGatheringAnswer(staged);
     expect(solved.phase).toBe("move");
     expect(solved.lastAnswerCorrect).toBe(true);
 
@@ -39,10 +49,22 @@ describe("gathering loop", () => {
     expect(sumStrike?.damage).toBe(round.equation.answer);
   });
 
+  test("slotting an answer waits for confirmation before unlocking attacks", () => {
+    const round = createGatheringRound(1);
+
+    const staged = selectGatheringAnswer(round, round.equation.answer);
+    expect(staged.phase).toBe("solving");
+    expect(staged.lastAnswerCorrect).toBeNull();
+
+    const solved = confirmGatheringAnswer(staged);
+    expect(solved.phase).toBe("move");
+    expect(solved.lastAnswerCorrect).toBe(true);
+  });
+
   test("moves damage the monster until a reward choice appears", () => {
     const round = createGatheringRound(1);
     const almostDefeated = {
-      ...selectGatheringAnswer(round, round.equation.answer),
+      ...confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer)),
       monster: { ...round.monster, hp: 1 },
     };
 
@@ -54,7 +76,7 @@ describe("gathering loop", () => {
 
   test("dragging the equation answer back out clears the slot", () => {
     const round = createGatheringRound(1);
-    const solved = selectGatheringAnswer(round, round.equation.answer);
+    const solved = confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer));
 
     const cleared = clearGatheringAnswer(solved);
     expect(cleared.phase).toBe("solving");
@@ -66,7 +88,7 @@ describe("gathering loop", () => {
     const round = createGatheringRound(1);
     const rewarded = selectGatheringMove(
       {
-        ...selectGatheringAnswer(round, round.equation.answer),
+        ...confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer)),
         monster: { ...round.monster, hp: 1 },
       },
       "sum-strike",

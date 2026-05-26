@@ -18,8 +18,9 @@ import {
 describe("alchemy workbench recipe preview", () => {
   const waterRecipe = getAlchemyRecipeById("alchemy:water");
   const distilledWaterRecipe = getAlchemyRecipeById("alchemy:distilled-water");
+  const herbalMashRecipe = getAlchemyRecipeById("alchemy:herbal-mash");
 
-  if (!waterRecipe || !distilledWaterRecipe) {
+  if (!waterRecipe || !distilledWaterRecipe || !herbalMashRecipe) {
     throw new Error("Missing recipe preview test anchors");
   }
 
@@ -31,14 +32,17 @@ describe("alchemy workbench recipe preview", () => {
     ]);
   });
 
-  test("matches water only when the exact ordered slot sequence is present", () => {
+  test("matches recipes by card ID counts regardless of slot order", () => {
     expect(
       doesWorkbenchMatchRecipe(["element:h", "element:h", "element:o", null, null], waterRecipe),
     ).toBe(true);
-
     expect(
       doesWorkbenchMatchRecipe(["element:h", "element:o", "element:h", null, null], waterRecipe),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      doesWorkbenchMatchRecipe(["material:water", "raw:herbs", null, null, null], herbalMashRecipe),
+    ).toBe(true);
+
     expect(
       doesWorkbenchMatchRecipe(["element:h", "element:h", null, null, null], waterRecipe),
     ).toBe(false);
@@ -46,6 +50,12 @@ describe("alchemy workbench recipe preview", () => {
       doesWorkbenchMatchRecipe(
         ["element:h", "element:h", "element:o", "element:c", null],
         waterRecipe,
+      ),
+    ).toBe(false);
+    expect(
+      doesWorkbenchMatchRecipe(
+        ["element:he", "material:water", null, null, null],
+        herbalMashRecipe,
       ),
     ).toBe(false);
   });
@@ -65,6 +75,23 @@ describe("alchemy workbench recipe preview", () => {
     expect(preview?.ingredientRows.map((row) => [row.label, row.quantity])).toEqual([
       ["Hydrogen", 2],
       ["Oxygen", 1],
+    ]);
+  });
+
+  test("previews Herbal Mash from Herbs and Water by card IDs in either slot order", () => {
+    const preview = getAlchemyWorkbenchRecipePreview([
+      "material:water",
+      "raw:herbs",
+      null,
+      null,
+      null,
+    ]);
+
+    expect(preview?.recipe.id).toBe("alchemy:herbal-mash");
+    expect(preview?.formula).toBe("Herbs + Water");
+    expect(preview?.ingredientRows.map((row) => [row.cardId, row.label, row.quantity])).toEqual([
+      ["raw:herbs", "Herbs", 1],
+      ["material:water", "Water", 1],
     ]);
   });
 
