@@ -198,4 +198,19 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     url: "/sfx/ui/gathering-answer-wrong.mp3",
     volume: 0.68,
   },
+  {
+    bus: "sfx",
+    ducking: [
+      { attackMs: 18, bus: "music", gain: 0.72, holdMs: 160, releaseMs: 260 },
+      { attackMs: 14, bus: "ambience", gain: 0.82, holdMs: 140, releaseMs: 220 },
+    ],
+    generatorPrompt:
+      "Fragile paper monster card collapsing into sparkling dust, soft low thump with airy magic fizz, dry close-miked mobile game event, one-shot with one-second falling tail, defeated and clean.",
+    id: "gathering.monsterDeath",
+    interruptFadeMs: 24,
+    maxVoices: 4,
+    replay: "restart",
+    url: "/sfx/combat/gathering-monster-death.mp3",
+    volume: 0.84,
+  },
 ]);

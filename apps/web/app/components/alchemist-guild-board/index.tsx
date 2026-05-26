@@ -119,6 +119,8 @@ const TRANSMUTE_COMMIT_HOLD_MS = 160;
 const GATHERING_CONFIRM_SWIPE_THRESHOLD = TRANSMUTE_SWIPE_THRESHOLD;
 const GATHERING_CONFIRM_COMMIT_HOLD_MS = TRANSMUTE_COMMIT_HOLD_MS;
 const GATHERING_TAP_MAX_DISTANCE_PX = 8;
+const GATHERING_MONSTER_DEATH_DURATION_MS = 1080;
+const GATHERING_MONSTER_DEATH_PARTICLE_COUNT = 84;
 const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
 const QUEST_CLAIM_COMMIT_HOLD_MS = 120;
 const QUEST_CLAIM_KNOB_WIDTH_PX = 72;
@@ -146,6 +148,10 @@ const EMPTY_QUEST_CLAIM_SWIPE_STATE = {
   dragging: false,
   progress: 0,
 } satisfies QuestClaimSwipeState;
+const EMPTY_GATHERING_MONSTER_DEATH_UI_STATE = {
+  animation: null,
+  completedRound: null,
+} satisfies GatheringMonsterDeathUiState;
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 const TOKEN_PREFIX_PATTERN = /^[a-z-]+:/;
 const CARD_SYMBOL_CLEANUP_PATTERN = /[^A-Za-z0-9 ]/g;
@@ -227,6 +233,36 @@ type GatheringAttackArcOverlayOptions = {
   reducedMotion: boolean;
   targetRef: RefObject<HTMLDivElement | null>;
 };
+
+type GatheringMonsterDeathAnimation = {
+  id: string;
+  round: number;
+};
+
+type GatheringMonsterDeathUiState = {
+  animation: GatheringMonsterDeathAnimation | null;
+  completedRound: number | null;
+};
+
+type GatheringMonsterDeathParticle = {
+  color: number;
+  delay: number;
+  driftX: number;
+  driftY: number;
+  originX: number;
+  originY: number;
+  size: number;
+  spin: number;
+};
+
+type GatheringMonsterDeathCanvasOptions = {
+  accentColor: number;
+  animationId: string;
+  particles: readonly GatheringMonsterDeathParticle[];
+  reducedMotion: boolean;
+};
+
+type GatheringMonsterDeathCompleteHandler = (animationId: string, round: number) => void;
 
 const gatheringMoveVisuals = {
   "left-spark": {
@@ -1072,6 +1108,45 @@ const GatheringAttackArcCanvas = defineComponent(
   },
 );
 
+const GatheringMonsterDeathCanvasPropsSchema = z.object({
+  accentColor: z.number().min(0),
+  animationId: z.string().min(1),
+});
+
+const GatheringMonsterDeathCanvas = defineComponent(
+  GatheringMonsterDeathCanvasPropsSchema,
+  ({ accentColor, animationId }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const particlesRef = useRef(createGatheringMonsterDeathParticles(animationId));
+
+    useEffect(() => {
+      particlesRef.current = createGatheringMonsterDeathParticles(animationId);
+    }, [animationId]);
+
+    usePixiApp(
+      canvasRef,
+      (app, { reducedMotion }) =>
+        setupGatheringMonsterDeathCanvas(app, {
+          accentColor,
+          animationId,
+          particles: particlesRef.current,
+          reducedMotion,
+        }),
+      [animationId, accentColor],
+      { backgroundAlpha: 0, preference: "canvas" },
+    );
+
+    return (
+      <canvas
+        ref={canvasRef}
+        data-board-section="gathering-monster-death-canvas"
+        data-board-name="Gathering monster death Pixi canvas"
+        className="pointer-events-none absolute inset-0 z-30 block size-full touch-none"
+      />
+    );
+  },
+);
+
 const GatheringRewardCardPropsSchema = z.object({
   cardId: z.string().min(1),
   onPointerDown: z.custom<GatheringRewardPointerDownHandler>(),
@@ -1213,55 +1288,138 @@ const GatheringLogRow = defineComponent(GatheringLogRowPropsSchema, ({ entry }) 
 });
 
 const GatheringMonsterPanelPropsSchema = z.object({
+  deathAnimation: z.custom<GatheringMonsterDeathAnimation | null>(),
+  deathCompletedRound: z.number().nullable(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
   gathering: z.custom<AlchemistGuildGatheringState>(),
+  onDeathAnimationComplete: z.custom<GatheringMonsterDeathCompleteHandler>(),
 });
 
 const GatheringMonsterPanel = defineComponent(
   GatheringMonsterPanelPropsSchema,
-  ({ gathering, gatheringDropTarget }) => {
+  ({
+    deathAnimation,
+    deathCompletedRound,
+    gathering,
+    gatheringDropTarget,
+    onDeathAnimationComplete,
+  }) => {
     const hpPercent = Math.round((gathering.monster.hp / gathering.monster.maxHp) * 100);
     const monsterDropActive = gatheringDropTarget === "monster-panel";
+    const monsterCardRef = useRef<HTMLElement | null>(null);
+    const onDeathAnimationCompleteRef = useRef(onDeathAnimationComplete);
+    const monsterDefeated =
+      gathering.phase === "reward" &&
+      gathering.monster.hp <= 0 &&
+      deathCompletedRound === gathering.round &&
+      !deathAnimation;
+
+    useEffect(() => {
+      onDeathAnimationCompleteRef.current = onDeathAnimationComplete;
+    }, [onDeathAnimationComplete]);
+
+    useBrowserLayoutEffect(() => {
+      if (!deathAnimation) return;
+
+      const monsterCardElement = monsterCardRef.current;
+      if (!monsterCardElement || prefersReducedMotion()) {
+        onDeathAnimationCompleteRef.current(deathAnimation.id, deathAnimation.round);
+        return;
+      }
+
+      monsterCardElement.style.transformOrigin = "50% 62%";
+      monsterCardElement.style.willChange = "filter, opacity, transform";
+      const animation = animate(monsterCardElement, {
+        duration: GATHERING_MONSTER_DEATH_DURATION_MS,
+        ease: "inOut(3)",
+        filter: [
+          "brightness(1) saturate(1)",
+          "brightness(1.28) saturate(1.3)",
+          "brightness(0.76) saturate(0.48)",
+        ],
+        opacity: [1, 0.18],
+        rotate: ["0deg", "-4deg", "13deg"],
+        scale: [1, 1.04, 0.86],
+        y: [0, -8, 18],
+        onComplete: () => {
+          onDeathAnimationCompleteRef.current(deathAnimation.id, deathAnimation.round);
+        },
+      });
+
+      return () => {
+        animation.cancel();
+        monsterCardElement.style.removeProperty("filter");
+        monsterCardElement.style.removeProperty("opacity");
+        monsterCardElement.style.removeProperty("transform");
+        monsterCardElement.style.removeProperty("transform-origin");
+        monsterCardElement.style.removeProperty("will-change");
+      };
+    }, [deathAnimation]);
 
     return (
       <>
         <span className={GATHERING_PANEL_LABEL_CLASS}>Monster Panel</span>
         <div className="grid h-full min-h-0 place-items-center pt-10">
-          <article
-            data-gathering-drop-target="monster-panel"
-            data-gathering-drop-active={monsterDropActive ? "true" : undefined}
-            data-board-section="gathering-monster-card"
-            data-board-name={gathering.monster.name}
-            className={`grid w-[13rem] gap-2 rounded-[7px] border-2 border-neutral-800/60 bg-white/80 p-2 shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition-[border-color,box-shadow] duration-150 ${
-              monsterDropActive
-                ? "border-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.22),0_14px_28px_rgba(15,23,42,0.18)]"
-                : ""
-            }`}
-          >
-            <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
-              <img
-                src={resolvePublicAssetPath(gathering.monster.imagePath)}
-                alt=""
-                aria-hidden="true"
-                className="size-full object-cover"
-                draggable={false}
-              />
+          {monsterDefeated ? (
+            <div
+              data-board-section="gathering-monster-cleared-slot"
+              data-board-name={`${gathering.monster.name} cleared`}
+              className="grid h-[20.625rem] w-[13rem] place-items-center rounded-[7px] border-2 border-dashed border-emerald-600/45 bg-emerald-50/45 p-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+            >
+              <span className="grid gap-2">
+                <span className="text-sm font-black uppercase leading-none text-emerald-950">
+                  Cleared
+                </span>
+                <span className="text-xs font-bold leading-snug text-emerald-900/75">
+                  Pick a reward card.
+                </span>
+              </span>
             </div>
-            <div className="grid gap-1">
-              <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
-                {gathering.monster.name}
-              </h3>
-              <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
-                  style={{ width: `${hpPercent}%` }}
+          ) : (
+            <article
+              ref={monsterCardRef}
+              data-gathering-drop-target="monster-panel"
+              data-gathering-drop-active={monsterDropActive ? "true" : undefined}
+              data-gathering-monster-death-active={deathAnimation ? "true" : "false"}
+              data-board-section="gathering-monster-card"
+              data-board-name={gathering.monster.name}
+              className={`grid w-[13rem] gap-2 rounded-[7px] border-2 border-neutral-800/60 bg-white/80 p-2 shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition-[border-color,box-shadow] duration-150 ${
+                monsterDropActive
+                  ? "border-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.22),0_14px_28px_rgba(15,23,42,0.18)]"
+                  : ""
+              }`}
+            >
+              <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
+                <img
+                  src={resolvePublicAssetPath(gathering.monster.imagePath)}
+                  alt=""
+                  aria-hidden="true"
+                  className="size-full object-cover"
+                  draggable={false}
                 />
+                {deathAnimation ? (
+                  <GatheringMonsterDeathCanvas
+                    accentColor={0x14b8a6}
+                    animationId={deathAnimation.id}
+                  />
+                ) : null}
               </div>
-              <p className="text-center text-[11px] font-black uppercase leading-none text-neutral-700">
-                {gathering.monster.hp} / {gathering.monster.maxHp} HP
-              </p>
-            </div>
-          </article>
+              <div className="grid gap-1">
+                <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
+                  {gathering.monster.name}
+                </h3>
+                <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
+                    style={{ width: `${hpPercent}%` }}
+                  />
+                </div>
+                <p className="text-center text-[11px] font-black uppercase leading-none text-neutral-700">
+                  {gathering.monster.hp} / {gathering.monster.maxHp} HP
+                </p>
+              </div>
+            </article>
+          )}
         </div>
       </>
     );
@@ -3537,6 +3695,8 @@ const ExpeditionCanvasPanel = defineComponent(
 
 const RightModePanelsPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
+  deathAnimation: z.custom<GatheringMonsterDeathAnimation | null>(),
+  deathCompletedRound: z.number().nullable(),
   discoveredExtendedRecipeIds: z.array(z.string().min(1)),
   discoveredRecipeIds: z.array(z.string().min(1)),
   gathering: z.custom<AlchemistGuildGatheringState>(),
@@ -3545,6 +3705,7 @@ const RightModePanelsPropsSchema = z.object({
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
   isGatheringMode: z.boolean(),
+  onDeathAnimationComplete: z.custom<GatheringMonsterDeathCompleteHandler>(),
   onExtendedRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
@@ -3559,6 +3720,8 @@ const RightModePanels = defineComponent(
   RightModePanelsPropsSchema,
   ({
     activeTab,
+    deathAnimation,
+    deathCompletedRound,
     discoveredExtendedRecipeIds,
     discoveredRecipeIds,
     gathering,
@@ -3567,6 +3730,7 @@ const RightModePanels = defineComponent(
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
     isGatheringMode,
+    onDeathAnimationComplete,
     onExtendedRecipeRevealSeen,
     onRecipeRevealSeen,
     onTabChange,
@@ -3591,7 +3755,13 @@ const RightModePanels = defineComponent(
         className={`${GLASS_PANEL_CLASS} overflow-hidden ${isGatheringMode ? "p-3" : ""}`}
       >
         {isGatheringMode ? (
-          <GatheringMonsterPanel gathering={gathering} gatheringDropTarget={gatheringDropTarget} />
+          <GatheringMonsterPanel
+            deathAnimation={deathAnimation}
+            deathCompletedRound={deathCompletedRound}
+            gathering={gathering}
+            gatheringDropTarget={gatheringDropTarget}
+            onDeathAnimationComplete={onDeathAnimationComplete}
+          />
         ) : (
           <>
             <BoardDebugBadge
@@ -3701,6 +3871,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const swapAnimationSequenceRef = useRef(0);
   const transmuteFlyAnimationSequenceRef = useRef(0);
   const questRewardFlyAnimationSequenceRef = useRef(0);
+  const gatheringMonsterDeathAnimationSequenceRef = useRef(0);
+  const previousGatheringStateRef = useRef<AlchemistGuildGatheringState | null>(null);
   const [draggedCard, setDraggedCard] = useState<DraggedAlchemyCard | null>(null);
   const [draggedGatheringCard, setDraggedGatheringCard] = useState<DraggedGatheringCard | null>(
     null,
@@ -3723,6 +3895,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [selectedGatheringRewardCardId, setSelectedGatheringRewardCardId] = useState<string | null>(
     null,
   );
+  const [gatheringMonsterDeathUiState, setGatheringMonsterDeathUiState] =
+    useState<GatheringMonsterDeathUiState>(EMPTY_GATHERING_MONSTER_DEATH_UI_STATE);
   const [questClaimSwipeStateByQuestId, setQuestClaimSwipeStateByQuestId] =
     useState<QuestClaimSwipeStateByQuestId>({});
   const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
@@ -3779,6 +3953,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     boardState.gathering.phase === "solving" &&
     boardState.gathering.equation.selectedValue !== null;
   boardStateRef.current = boardState;
+
+  const handleGatheringMonsterDeathAnimationComplete = (animationId: string, round: number) => {
+    setGatheringMonsterDeathUiState((current) =>
+      current.animation?.id === animationId ? { animation: null, completedRound: round } : current,
+    );
+  };
 
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
     const card = getAlchemyCard(grab.card.id);
@@ -4467,6 +4647,37 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   useEffect(() => {
     if (boardState.gathering.phase !== "reward") setSelectedGatheringRewardCardId(null);
   }, [boardState.gathering.phase]);
+
+  useEffect(() => {
+    const previousGathering = previousGatheringStateRef.current;
+    const currentGathering = boardState.gathering;
+    previousGatheringStateRef.current = currentGathering;
+
+    if (currentGathering.phase !== "reward") {
+      setGatheringMonsterDeathUiState(EMPTY_GATHERING_MONSTER_DEATH_UI_STATE);
+      return;
+    }
+
+    const shouldStartDeathAnimation =
+      isGatheringMode &&
+      currentGathering.monster.hp <= 0 &&
+      (previousGathering === null ||
+        previousGathering.phase !== "reward" ||
+        previousGathering.round !== currentGathering.round);
+
+    if (!shouldStartDeathAnimation) return;
+
+    gatheringMonsterDeathAnimationSequenceRef.current += 1;
+    const animationId = `gathering-monster-death:${currentGathering.round}:${gatheringMonsterDeathAnimationSequenceRef.current}`;
+    setGatheringMonsterDeathUiState({
+      animation: {
+        id: animationId,
+        round: currentGathering.round,
+      },
+      completedRound: null,
+    });
+    void sfx.play("gathering.monsterDeath");
+  }, [boardState.gathering, isGatheringMode]);
 
   useEffect(() => {
     if (!isGatheringMode) return;
@@ -5447,6 +5658,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
             <RightModePanels
               activeTab={infoPanelTab}
+              deathAnimation={gatheringMonsterDeathUiState.animation}
+              deathCompletedRound={gatheringMonsterDeathUiState.completedRound}
               discoveredExtendedRecipeIds={boardState.discoveredExtendedRecipeIds}
               discoveredRecipeIds={boardState.discoveredRecipeIds}
               gathering={boardState.gathering}
@@ -5460,6 +5673,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               revealRecipeIds={recipeRevealIds}
               rightPrimaryPanelRef={rightPrimaryPanelRef}
               showBoardDebugBadges={showBoardDebugBadges}
+              onDeathAnimationComplete={handleGatheringMonsterDeathAnimationComplete}
               onExtendedRecipeRevealSeen={handleExtendedRecipeRevealSeen}
               onRecipeRevealSeen={handleRecipeRevealSeen}
               onTabChange={handleInfoPanelTabChange}
@@ -6890,6 +7104,178 @@ function getGatheringFloatingCardClass(
 
 function getGatheringMoveVisual(moveId: GatheringMoveId): GatheringMoveVisual {
   return gatheringMoveVisuals[moveId];
+}
+
+function createGatheringMonsterDeathParticles(
+  animationId: string,
+): GatheringMonsterDeathParticle[] {
+  const seed = hashStringToUnit(animationId) * 10_000;
+  return Array.from({ length: GATHERING_MONSTER_DEATH_PARTICLE_COUNT }, (_, index) => {
+    const horizontal = seededUnit(seed, index, 1) - 0.5;
+    const vertical = seededUnit(seed, index, 2) - 0.5;
+    const outward = Math.sign(horizontal || 1);
+
+    return {
+      color: getGatheringMonsterDeathParticleColor(index, seed),
+      delay: seededUnit(seed, index, 3) * 0.38,
+      driftX: (26 + seededUnit(seed, index, 4) * 82) * outward,
+      driftY: -42 - seededUnit(seed, index, 5) * 118,
+      originX: horizontal * 0.86,
+      originY: vertical * 0.9,
+      size: 1.6 + seededUnit(seed, index, 6) * 4.2,
+      spin: (seededUnit(seed, index, 7) - 0.5) * 2.4,
+    };
+  });
+}
+
+function setupGatheringMonsterDeathCanvas(
+  app: Application,
+  options: GatheringMonsterDeathCanvasOptions,
+): () => void {
+  const cardLayer = new Graphics();
+  const dustLayer = new Graphics();
+  const startedAtMs = performance.now();
+  let finished = false;
+
+  app.stage.addChild(cardLayer, dustLayer);
+
+  const draw = () => {
+    const progress = options.reducedMotion
+      ? 1
+      : clamp((performance.now() - startedAtMs) / GATHERING_MONSTER_DEATH_DURATION_MS, 0, 1);
+    drawGatheringMonsterDeathFrame(app, cardLayer, dustLayer, options, progress);
+    if (progress < 1 || finished) return;
+
+    finished = true;
+    app.ticker.remove(draw);
+    app.stop();
+  };
+  const drawAndRender = () => {
+    draw();
+    app.render();
+  };
+
+  if (options.reducedMotion) {
+    app.stop();
+    drawAndRender();
+  } else {
+    app.ticker.add(draw);
+    drawAndRender();
+  }
+
+  window.addEventListener("resize", drawAndRender);
+
+  return () => {
+    app.ticker.remove(draw);
+    window.removeEventListener("resize", drawAndRender);
+    cardLayer.destroy();
+    dustLayer.destroy();
+  };
+}
+
+function drawGatheringMonsterDeathFrame(
+  app: Application,
+  cardLayer: Graphics,
+  dustLayer: Graphics,
+  options: GatheringMonsterDeathCanvasOptions,
+  progress: number,
+): void {
+  const width = Math.max(app.screen.width * 0.82, 1);
+  const height = Math.max(app.screen.height * 0.84, 1);
+  const rotation = -0.08 + progress * 0.34 + Math.sin(progress * Math.PI * 2) * 0.025;
+  const scale = 1.02 - progress * 0.14;
+
+  cardLayer.position.set(app.screen.width / 2, app.screen.height / 2);
+  cardLayer.rotation = rotation;
+  cardLayer.scale.set(scale);
+  dustLayer.position.set(cardLayer.position.x, cardLayer.position.y);
+  dustLayer.rotation = rotation + progress * 0.08;
+  dustLayer.scale.set(scale);
+
+  drawGatheringMonsterDeathCard(cardLayer, width, height, options.accentColor, progress);
+  drawGatheringMonsterDeathDust(dustLayer, width, height, options.particles, progress);
+}
+
+function drawGatheringMonsterDeathCard(
+  cardLayer: Graphics,
+  width: number,
+  height: number,
+  accentColor: number,
+  progress: number,
+): void {
+  const left = -width / 2;
+  const top = -height / 2;
+  const stripCount = 18;
+  const stripHeight = height / stripCount;
+  const shellAlpha = Math.max(0, 0.34 - progress * 0.3);
+
+  cardLayer
+    .clear()
+    .roundRect(left, top, width, height, 14)
+    .fill({ alpha: shellAlpha, color: 0xfffbeb })
+    .roundRect(left + 3, top + 3, width - 6, height - 6, 12)
+    .stroke({ alpha: Math.max(0, 0.5 - progress * 0.42), color: accentColor, width: 4 });
+
+  for (let index = 0; index < stripCount; index += 1) {
+    const stripProgress = clamp((progress - index * 0.024) / 0.7, 0, 1);
+    if (stripProgress >= 1) continue;
+
+    const stripWidth = width * (1 - stripProgress ** 1.45 * 0.92);
+    const stripLeft = left + Math.sin(index * 1.8 + progress * 6) * progress * 10;
+    const stripTop = top + index * stripHeight;
+    const alpha = (1 - stripProgress) * (0.58 - progress * 0.18);
+    const stripColor = index % 3 === 0 ? accentColor : 0xfff7ed;
+
+    cardLayer.rect(stripLeft, stripTop, stripWidth, stripHeight * 0.74).fill({
+      alpha,
+      color: stripColor,
+    });
+  }
+}
+
+function drawGatheringMonsterDeathDust(
+  dustLayer: Graphics,
+  width: number,
+  height: number,
+  particles: readonly GatheringMonsterDeathParticle[],
+  progress: number,
+): void {
+  dustLayer.clear();
+
+  for (const particle of particles) {
+    const particleProgress = clamp((progress - particle.delay) / (1 - particle.delay), 0, 1);
+    if (particleProgress <= 0) continue;
+
+    const fade = (1 - particleProgress) ** 1.35;
+    const swirl = Math.sin(particleProgress * Math.PI * 2 + particle.spin) * 14;
+    const x = particle.originX * width + particle.driftX * particleProgress + swirl;
+    const y = particle.originY * height + particle.driftY * particleProgress;
+    const size = particle.size * (1 - particleProgress * 0.46);
+
+    dustLayer.rect(x, y, size, size).fill({
+      alpha: fade * 0.78,
+      color: particle.color,
+    });
+  }
+}
+
+function getGatheringMonsterDeathParticleColor(index: number, seed: number): number {
+  const colors = [0xfef3c7, 0x5eead4, 0x38bdf8, 0xf0abfc] as const;
+  const colorIndex = Math.floor(seededUnit(seed, index, 8) * colors.length);
+  return colors[colorIndex] ?? colors[0];
+}
+
+function hashStringToUnit(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash / 0xffffffff;
+}
+
+function seededUnit(seed: number, index: number, salt: number): number {
+  const value = Math.sin((index + 1) * 12.9898 + seed * 78.233 + salt * 37.719) * 43_758.5453;
+  return value - Math.floor(value);
 }
 
 function setupGatheringAttackArcOverlay(
