@@ -69,6 +69,8 @@ const DEFAULT_BUS_GAIN: Record<SoundBus, number> = {
 const MIN_GAIN = 0.0001;
 const PUBLIC_URL_PROTOCOL_PATTERN = /^(blob:|data:|https?:)/;
 const TRANSMUTE_RAMP_BUS: SoundBus = "sfx";
+const SOUND_OCTAVE_DOWN_CENTS = -1200;
+const SOUND_OCTAVE_DOWN_FREQUENCY_RATIO = 0.5;
 const TRANSMUTE_RAMP_BASE_GAIN = 0.1;
 const TRANSMUTE_RAMP_MAX_GAIN = 0.46;
 const TRANSMUTE_RAMP_BODY_MIN_HZ = 55;
@@ -279,7 +281,10 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
 
     const body = audioContext.createOscillator();
     body.type = "triangle";
-    body.frequency.setValueAtTime(TRANSMUTE_RAMP_BODY_MIN_HZ, now);
+    body.frequency.setValueAtTime(
+      TRANSMUTE_RAMP_BODY_MIN_HZ * SOUND_OCTAVE_DOWN_FREQUENCY_RATIO,
+      now,
+    );
     body.connect(gain);
     body.start(now);
 
@@ -289,7 +294,10 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
 
     const grit = audioContext.createOscillator();
     grit.type = "sawtooth";
-    grit.frequency.setValueAtTime(TRANSMUTE_RAMP_BODY_MIN_HZ * TRANSMUTE_RAMP_GRIT_RATIO, now);
+    grit.frequency.setValueAtTime(
+      TRANSMUTE_RAMP_BODY_MIN_HZ * SOUND_OCTAVE_DOWN_FREQUENCY_RATIO * TRANSMUTE_RAMP_GRIT_RATIO,
+      now,
+    );
     grit.connect(gritGain);
     grit.start(now);
 
@@ -303,8 +311,9 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
 
     const boundedProgress = clamp(progress, 0, 1);
     const frequency =
-      TRANSMUTE_RAMP_BODY_MIN_HZ +
-      boundedProgress * (TRANSMUTE_RAMP_BODY_MAX_HZ - TRANSMUTE_RAMP_BODY_MIN_HZ);
+      (TRANSMUTE_RAMP_BODY_MIN_HZ +
+        boundedProgress * (TRANSMUTE_RAMP_BODY_MAX_HZ - TRANSMUTE_RAMP_BODY_MIN_HZ)) *
+      SOUND_OCTAVE_DOWN_FREQUENCY_RATIO;
     const gain =
       TRANSMUTE_RAMP_BASE_GAIN +
       boundedProgress * (TRANSMUTE_RAMP_MAX_GAIN - TRANSMUTE_RAMP_BASE_GAIN);
@@ -365,7 +374,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     const voiceId = `${soundId}:${voiceSequence}`;
     voiceSequence += 1;
     source.buffer = buffer;
-    source.detune.value = parsedOptions.detuneCents ?? 0;
+    source.detune.value = SOUND_OCTAVE_DOWN_CENTS + (parsedOptions.detuneCents ?? 0);
     gain.gain.value = definition.volume * (parsedOptions.volume ?? 1);
     source.connect(gain);
     gain.connect(bus.input);

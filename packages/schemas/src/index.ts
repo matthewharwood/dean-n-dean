@@ -139,11 +139,67 @@ export type AlchemistGuildQuestDeliveries = z.infer<typeof AlchemistGuildQuestDe
 export const ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT: AlchemistGuildQuestDeliveries =
   AlchemistGuildQuestDeliveriesSchema.parse({});
 
+export const ALCHEMIST_GUILD_BOARD_MODE_TABS = ["crafting", "gathering", "expedition"] as const;
+export const AlchemistGuildBoardModeSchema = z.enum(ALCHEMIST_GUILD_BOARD_MODE_TABS);
+export type AlchemistGuildBoardMode = z.infer<typeof AlchemistGuildBoardModeSchema>;
+
+export const AlchemistGuildGatheringPhaseSchema = z.enum(["solving", "move", "reward"]);
+export type AlchemistGuildGatheringPhase = z.infer<typeof AlchemistGuildGatheringPhaseSchema>;
+
+export const AlchemistGuildGatheringEquationSchema = z.object({
+  answer: z.int().min(0).max(40).default(9),
+  choiceValues: z.array(z.int().min(0).max(40)).length(5).default([11, 8, 10, 12, 9]),
+  id: z.string().min(1).default("gathering-equation:1:1"),
+  left: z.int().min(0).max(20).default(5),
+  right: z.int().min(0).max(20).default(4),
+  selectedValue: z.int().min(0).max(40).nullable().default(null),
+});
+export type AlchemistGuildGatheringEquation = z.infer<typeof AlchemistGuildGatheringEquationSchema>;
+export const ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT: AlchemistGuildGatheringEquation =
+  AlchemistGuildGatheringEquationSchema.parse({});
+
+export const AlchemistGuildGatheringMonsterSchema = z.object({
+  hp: z.int().min(0).default(14),
+  id: z.literal("monster:hadal-tide-minnow-echo").default("monster:hadal-tide-minnow-echo"),
+  imagePath: z.string().min(1).default("enemies/hadal-tide-minnow-echo.png"),
+  maxHp: z.int().min(1).default(14),
+  name: z.string().min(1).default("Tide Minnow Echo"),
+});
+export type AlchemistGuildGatheringMonster = z.infer<typeof AlchemistGuildGatheringMonsterSchema>;
+export const ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT: AlchemistGuildGatheringMonster =
+  AlchemistGuildGatheringMonsterSchema.parse({});
+
+export const AlchemistGuildGatheringLogEntrySchema = z.object({
+  cardId: AlchemistGuildCardIdSchema,
+  collectedAtMs: z.number().min(0),
+  id: z.string().min(1),
+  round: z.int().min(1),
+});
+export type AlchemistGuildGatheringLogEntry = z.infer<typeof AlchemistGuildGatheringLogEntrySchema>;
+
+export const AlchemistGuildGatheringStateSchema = z.object({
+  equation: AlchemistGuildGatheringEquationSchema.default(
+    ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT,
+  ),
+  equationIndex: z.int().min(1).default(1),
+  gatherLog: z.array(AlchemistGuildGatheringLogEntrySchema).default([]),
+  lastAnswerCorrect: z.boolean().nullable().default(null),
+  monster: AlchemistGuildGatheringMonsterSchema.default(ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT),
+  phase: AlchemistGuildGatheringPhaseSchema.default("solving"),
+  rewardOptionCardIds: z.array(AlchemistGuildCardIdSchema).max(3).default([]),
+  round: z.int().min(1).default(1),
+});
+export type AlchemistGuildGatheringState = z.infer<typeof AlchemistGuildGatheringStateSchema>;
+export const ALCHEMIST_GUILD_GATHERING_DEFAULT: AlchemistGuildGatheringState =
+  AlchemistGuildGatheringStateSchema.parse({});
+
 export const AlchemistGuildBoardStateSchema = z.object({
+  activeBoardMode: AlchemistGuildBoardModeSchema.default("crafting"),
   completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
   discoveredExtendedRecipeIds: z.array(ExtendedMoleculeRecipeIdSchema).default([]),
   discoveredRecipeIds: z.array(AlchemyRecipeIdSchema).default([]),
+  gathering: AlchemistGuildGatheringStateSchema.default(ALCHEMIST_GUILD_GATHERING_DEFAULT),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(
     ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,

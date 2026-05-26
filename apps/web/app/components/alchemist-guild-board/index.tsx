@@ -1,9 +1,14 @@
 import {
+  ALCHEMIST_GUILD_BOARD_MODE_TABS,
   ALCHEMY_CRAFTED_CARDS,
   ALCHEMY_QUESTS,
   ALCHEMY_RECIPES,
+  type AlchemistGuildBoardMode,
+  AlchemistGuildBoardModeSchema,
   type AlchemistGuildBoardSlots,
   type AlchemistGuildBoardState,
+  type AlchemistGuildGatheringLogEntry,
+  type AlchemistGuildGatheringState,
   type AlchemistGuildInventoryCooldown,
   type AlchemistGuildInventorySlotId,
   AlchemistGuildInventorySlotIdSchema,
@@ -41,15 +46,20 @@ import {
   ChevronUp,
   CloudFog,
   Coins,
+  Compass,
+  FlaskConical,
   LockKeyhole,
   type LucideIcon,
   PackageOpen,
+  Pickaxe,
   ScrollText,
   Sparkles,
 } from "lucide-react";
+import { type Application, Graphics } from "pixi.js";
 import {
   type CSSProperties,
   type MutableRefObject,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
   type RefObject,
@@ -67,6 +77,16 @@ import { defineComponent } from "~/lib/define-component";
 import { sfx } from "~/sound/sfx";
 import { alchemistGuildBoardAtom } from "~/state/atoms";
 import { setupExpeditionCanvasScene } from "./expedition-canvas-scene";
+import {
+  claimGatheringReward,
+  clearGatheringAnswer,
+  confirmGatheringAnswer,
+  type GatheringMove,
+  type GatheringMoveId,
+  getGatheringMoves,
+  selectGatheringAnswer,
+  selectGatheringMove,
+} from "./gathering-loop";
 import {
   FLOATING_ELEMENT_CARD_HEIGHT,
   FLOATING_ELEMENT_CARD_WIDTH,
@@ -96,6 +116,9 @@ const TRANSMUTE_SWIPE_THRESHOLD = 0.72;
 const TRANSMUTE_KNOB_WIDTH_PX = 96;
 const TRANSMUTE_TRACK_PADDING_PX = 12;
 const TRANSMUTE_COMMIT_HOLD_MS = 160;
+const GATHERING_CONFIRM_SWIPE_THRESHOLD = TRANSMUTE_SWIPE_THRESHOLD;
+const GATHERING_CONFIRM_COMMIT_HOLD_MS = TRANSMUTE_COMMIT_HOLD_MS;
+const GATHERING_TAP_MAX_DISTANCE_PX = 8;
 const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
 const QUEST_CLAIM_COMMIT_HOLD_MS = 120;
 const QUEST_CLAIM_KNOB_WIDTH_PX = 72;
@@ -145,6 +168,8 @@ const GATHERING_PANEL_LABEL_CLASS =
   "pointer-events-none absolute left-3 top-3 z-20 text-xs font-black uppercase leading-none tracking-[-0.02em] text-neutral-950";
 const GATHERING_PANEL_TRANSITION_CLASS =
   "transition-[grid-template-rows,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+const GATHERING_EQUATION_CARD_CLASS =
+  "relative grid h-[148px] w-[105px] place-items-center rounded-[6px] border-2 bg-white/75 text-neutral-950 shadow-[0_8px_18px_rgba(15,23,42,0.12)]";
 const BOARD_DESCRIPTIONS = {
   alchemyWorkbench:
     "The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items.",
@@ -186,14 +211,55 @@ const gatheringGameCardSlots = [
   "gathering-card-slot-5",
 ] as const;
 
-const gatheringMonsterSlots = [
-  "gathering-monster-slot-1",
-  "gathering-monster-slot-2",
-  "gathering-monster-slot-3",
-  "gathering-monster-slot-4",
-  "gathering-monster-slot-5",
-  "gathering-monster-slot-6",
-] as const;
+type GatheringMoveVisual = {
+  arcColor: number;
+  arcGlowAlpha: number;
+  auraClass: string;
+  cardClass: string;
+  detailClass: string;
+  iconPath: string;
+  nameClass: string;
+};
+
+type GatheringAttackArcOverlayOptions = {
+  cardRef: RefObject<HTMLDivElement | null>;
+  moveRef: MutableRefObject<GatheringMove | null>;
+  reducedMotion: boolean;
+  targetRef: RefObject<HTMLDivElement | null>;
+};
+
+const gatheringMoveVisuals = {
+  "left-spark": {
+    arcColor: 0xf59e0b,
+    arcGlowAlpha: 0.42,
+    auraClass: "bg-[radial-gradient(circle_at_28%_18%,rgba(251,191,36,0.22),transparent_48%)]",
+    cardClass:
+      "border-amber-500 bg-amber-50 hover:border-amber-500 hover:shadow-[inset_0_0_0_3px_rgba(245,158,11,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
+    detailClass: "bg-amber-50/90 text-amber-950",
+    iconPath: "gathering-attack-icons/left-spark.png",
+    nameClass: "text-amber-950",
+  },
+  "right-spark": {
+    arcColor: 0x06b6d4,
+    arcGlowAlpha: 0.42,
+    auraClass: "bg-[radial-gradient(circle_at_72%_18%,rgba(103,232,249,0.22),transparent_48%)]",
+    cardClass:
+      "border-cyan-500 bg-cyan-50 hover:border-cyan-500 hover:shadow-[inset_0_0_0_3px_rgba(6,182,212,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
+    detailClass: "bg-cyan-50/90 text-cyan-950",
+    iconPath: "gathering-attack-icons/right-spark.png",
+    nameClass: "text-cyan-950",
+  },
+  "sum-strike": {
+    arcColor: 0xa855f7,
+    arcGlowAlpha: 0.44,
+    auraClass: "bg-[radial-gradient(circle_at_50%_16%,rgba(216,180,254,0.25),transparent_50%)]",
+    cardClass:
+      "border-fuchsia-500 bg-fuchsia-50 hover:border-fuchsia-500 hover:shadow-[inset_0_0_0_3px_rgba(168,85,247,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
+    detailClass: "bg-fuchsia-50/90 text-fuchsia-950",
+    iconPath: "gathering-attack-icons/sum-strike.png",
+    nameClass: "text-fuchsia-950",
+  },
+} satisfies Record<GatheringMoveId, GatheringMoveVisual>;
 
 const infoPanelTabs = ["element", "recipe", "extended"] as const;
 const InfoPanelTabSchema = z.enum(infoPanelTabs);
@@ -203,9 +269,9 @@ const questPanelTabs = ["current", "log"] as const;
 const QuestPanelTabSchema = z.enum(questPanelTabs);
 type QuestPanelTab = z.infer<typeof QuestPanelTabSchema>;
 
-const boardModeTabs = ["crafting", "gathering", "expedition"] as const;
-const BoardModeTabSchema = z.enum(boardModeTabs);
-type BoardModeTab = z.infer<typeof BoardModeTabSchema>;
+const boardModeTabs = ALCHEMIST_GUILD_BOARD_MODE_TABS;
+const BoardModeTabSchema = AlchemistGuildBoardModeSchema;
+type BoardModeTab = AlchemistGuildBoardMode;
 
 type RewardKind = "discovery" | "gold" | "knowledge" | "muddlefog";
 
@@ -324,6 +390,72 @@ type SlottedCardPointerDownHandler = (
 ) => void;
 
 type ButtonPointerDownHandler = (event: ReactPointerEvent<HTMLButtonElement>) => void;
+type GatheringAnswerPointerDownHandler = (
+  value: number,
+  source: GatheringAnswerDragSource,
+  event: ReactPointerEvent<HTMLButtonElement>,
+) => void;
+type GatheringMovePointerDownHandler = (
+  move: GatheringMove,
+  event: ReactPointerEvent<HTMLButtonElement>,
+) => void;
+type GatheringRewardPointerDownHandler = (
+  cardId: string,
+  event: ReactPointerEvent<HTMLButtonElement>,
+) => void;
+type GatheringRewardPointerUpHandler = (
+  cardId: string,
+  event: ReactPointerEvent<HTMLButtonElement>,
+) => void;
+
+type GatheringConfirmPointerDownHandler = (event: ReactPointerEvent<HTMLButtonElement>) => void;
+
+type GatheringAnswerDragSource = { kind: "cards" } | { kind: "answer-slot" };
+type GatheringCardDragSource =
+  | GatheringAnswerDragSource
+  | { kind: "move-cards" }
+  | { kind: "reward-cards" };
+
+type DraggedGatheringCardBase = {
+  grabOffsetX: number;
+  grabOffsetY: number;
+  id: string;
+  pointerId: number;
+  source: GatheringCardDragSource;
+  startClientX: number;
+  startClientY: number;
+};
+
+type DraggedGatheringCard =
+  | (DraggedGatheringCardBase & {
+      kind: "answer";
+      value: number;
+    })
+  | (DraggedGatheringCardBase & {
+      kind: "move";
+      move: GatheringMove;
+    })
+  | (DraggedGatheringCardBase & {
+      card: AlchemyBoardCard;
+      kind: "reward";
+    });
+
+type GatheringDropTarget =
+  | "none"
+  | "answer-slot"
+  | "cards-panel"
+  | "action-zone"
+  | "monster-panel"
+  | "log-panel";
+
+type GatheringDropFeedback = "none" | "drop" | "blocked";
+
+type PendingGatheringRewardTap = {
+  cardId: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+};
 
 type SlotRect = {
   height: number;
@@ -515,6 +647,652 @@ const BoardDebugBadge = defineComponent(
       </span>
     ) : null,
 );
+
+const GatheringGamePanelPropsSchema = z.object({
+  confirmKnobTravelPx: z.number().min(0),
+  confirmPadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  confirmSwipeProgress: z.number().min(0).max(1),
+  draggedGatheringCard: z.custom<DraggedGatheringCard | null>(),
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+  isConfirmDragging: z.boolean(),
+  onAnswerPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  onConfirmPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
+});
+
+const GatheringGamePanel = defineComponent(
+  GatheringGamePanelPropsSchema,
+  ({
+    confirmKnobTravelPx,
+    confirmPadTrackRef,
+    confirmSwipeProgress,
+    draggedGatheringCard,
+    gathering,
+    gatheringDropTarget,
+    isConfirmDragging,
+    onAnswerPointerDown,
+    onConfirmPointerDown,
+  }) => {
+    const displayedAnswer = gathering.equation.selectedValue;
+    const answerStateClass = getGatheringAnswerStateClass(gathering.lastAnswerCorrect);
+    const answerDropActive = gatheringDropTarget === "answer-slot";
+    const actionDropActive = gatheringDropTarget === "action-zone";
+    const confirmReady = gathering.phase === "solving" && displayedAnswer !== null;
+    const confirmSucceeded = gathering.phase !== "solving" && gathering.lastAnswerCorrect === true;
+    const isDraggingAnswerFromSlot =
+      draggedGatheringCard?.kind === "answer" && draggedGatheringCard.source.kind === "answer-slot";
+
+    return (
+      <div
+        data-gathering-drop-target={gathering.phase === "move" ? "action-zone" : undefined}
+        data-gathering-drop-active={actionDropActive ? "true" : undefined}
+        className={`pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12 transition-[box-shadow] duration-150 ${
+          actionDropActive ? "shadow-[inset_0_0_0_4px_rgba(14,165,233,0.22)]" : ""
+        }`}
+      >
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Game Panel</span>
+        <div className="grid w-full max-w-[46rem] gap-5 text-center">
+          <div className="flex items-center justify-center gap-3 text-neutral-950">
+            <GatheringEquationValue value={gathering.equation.left} label="Left addend" />
+            <span className="text-4xl font-black leading-none" aria-hidden="true">
+              +
+            </span>
+            <GatheringEquationValue value={gathering.equation.right} label="Right addend" />
+            <span className="text-4xl font-black leading-none" aria-hidden="true">
+              =
+            </span>
+            <div
+              data-gathering-drop-target="answer-slot"
+              data-gathering-drop-active={answerDropActive ? "true" : undefined}
+              className={`${GATHERING_EQUATION_CARD_CLASS} text-5xl font-black leading-none transition-[background-color,border-color,box-shadow] duration-150 ${answerStateClass} ${
+                answerDropActive
+                  ? "border-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.22),0_8px_18px_rgba(15,23,42,0.12)]"
+                  : ""
+              }`}
+            >
+              <span className="absolute left-2 top-2 rounded-[4px] border border-neutral-900/10 bg-white/75 px-1.5 py-1 text-[10px] font-black uppercase leading-none text-neutral-600">
+                Answer
+              </span>
+              {displayedAnswer !== null && !isDraggingAnswerFromSlot ? (
+                <GatheringAnswerSlotCard
+                  onPointerDown={onAnswerPointerDown}
+                  value={displayedAnswer}
+                />
+              ) : (
+                <>
+                  <span className="sr-only">Selected answer: </span>?
+                </>
+              )}
+            </div>
+          </div>
+          <GatheringAnswerConfirmPad
+            active={confirmReady}
+            confirmed={confirmSucceeded}
+            isDragging={isConfirmDragging}
+            knobTravelPx={confirmKnobTravelPx}
+            onPointerDown={onConfirmPointerDown}
+            progress={confirmSucceeded ? 1 : confirmSwipeProgress}
+            trackRef={confirmPadTrackRef}
+          />
+          <div className="mx-auto grid w-full max-w-[24rem] gap-2">
+            <div className="flex items-center justify-between gap-3 rounded-[6px] border border-neutral-900/10 bg-white/65 px-3 py-2 text-xs font-black uppercase leading-none text-neutral-800">
+              <span>Round {gathering.round}</span>
+              <span>Equation {gathering.equationIndex}</span>
+            </div>
+            <p className="rounded-[6px] border border-neutral-900/10 bg-white/65 px-3 py-2 text-sm font-bold leading-snug text-neutral-900">
+              {getGatheringGamePanelStatus(gathering)}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  },
+);
+
+const GatheringEquationValuePropsSchema = z.object({
+  label: z.string().min(1),
+  value: z.int().min(0),
+});
+
+const GatheringEquationValue = defineComponent(
+  GatheringEquationValuePropsSchema,
+  ({ label, value }) => (
+    <span
+      className={`${GATHERING_EQUATION_CARD_CLASS} border-neutral-800/55 text-5xl font-black leading-none`}
+    >
+      <span className="absolute left-2 top-2 rounded-[4px] border border-neutral-900/10 bg-white/75 px-1.5 py-1 text-[10px] font-black uppercase leading-none text-neutral-600">
+        Addend
+      </span>
+      <span className="sr-only">{label}: </span>
+      {value}
+    </span>
+  ),
+);
+
+const GatheringAnswerConfirmPadPropsSchema = z.object({
+  active: z.boolean(),
+  confirmed: z.boolean(),
+  isDragging: z.boolean(),
+  knobTravelPx: z.number().min(0),
+  onPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
+  progress: z.number().min(0).max(1),
+  trackRef: z.custom<RefObject<HTMLDivElement | null>>(),
+});
+
+const GatheringAnswerConfirmPad = defineComponent(
+  GatheringAnswerConfirmPadPropsSchema,
+  ({ active, confirmed, isDragging, knobTravelPx, onPointerDown, progress, trackRef }) => (
+    <div
+      ref={trackRef}
+      data-board-section="gathering-answer-confirm-pad"
+      data-board-name="Gathering answer confirm pad"
+      data-confirm-ready={active ? "true" : "false"}
+      data-confirm-status={getGatheringConfirmPadStatus(active, confirmed)}
+      data-swipe-progress={progress.toFixed(2)}
+      className={`relative mx-auto min-h-20 w-full max-w-[24rem] overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm ${getGatheringConfirmPadStateClass(
+        active,
+        confirmed,
+      )}`}
+    >
+      <span
+        className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
+        aria-hidden="true"
+      >
+        <span
+          className="block h-full rounded-[5px] bg-emerald-400/30 transition-[width] duration-75"
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
+      </span>
+      <p
+        className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-xl italic ${
+          active || confirmed ? "text-emerald-950" : "text-neutral-700"
+        }`}
+      >
+        {getGatheringConfirmPadPrompt(active, confirmed)}
+      </p>
+      <button
+        type="button"
+        data-board-section="gathering-answer-confirm-handle"
+        data-board-name="Gathering answer confirm handle"
+        disabled={!active}
+        tabIndex={active ? 0 : -1}
+        aria-label={getGatheringConfirmPadAriaLabel(active, confirmed)}
+        className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${getGatheringConfirmHandleStateClass(
+          active,
+          confirmed,
+        )}`}
+        style={{
+          left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
+          transform: `translateX(${progress * knobTravelPx}px)`,
+          transition: isDragging ? "none" : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
+          width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
+        }}
+        onPointerDown={onPointerDown}
+      >
+        <div className="flex h-10 items-center gap-3" aria-hidden="true">
+          <span className="h-full w-0.5 bg-neutral-300" />
+          <span className="h-full w-0.5 bg-neutral-300" />
+          <span className="h-full w-0.5 bg-neutral-300" />
+        </div>
+      </button>
+    </div>
+  ),
+);
+
+const GatheringGameCardsPanelPropsSchema = z.object({
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+  onAnswerPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  onMovePointerDown: z.custom<GatheringMovePointerDownHandler>(),
+  onRewardPointerDown: z.custom<GatheringRewardPointerDownHandler>(),
+  onRewardPointerUp: z.custom<GatheringRewardPointerUpHandler>(),
+  selectedRewardCardId: z.string().nullable(),
+});
+
+const GatheringGameCardsPanel = defineComponent(
+  GatheringGameCardsPanelPropsSchema,
+  ({
+    gathering,
+    gatheringDropTarget,
+    onAnswerPointerDown,
+    onMovePointerDown,
+    onRewardPointerDown,
+    onRewardPointerUp,
+    selectedRewardCardId,
+  }) => {
+    let occupiedCards: ReactNode[];
+    if (gathering.phase === "solving") {
+      occupiedCards = gathering.equation.choiceValues.map((value) => (
+        <GatheringAnswerCard
+          key={value}
+          gathering={gathering}
+          onPointerDown={onAnswerPointerDown}
+          value={value}
+        />
+      ));
+    } else if (gathering.phase === "move") {
+      const moveCards = getGatheringMoves(gathering.equation).map((move) => (
+        <GatheringMoveCard key={move.id} move={move} onPointerDown={onMovePointerDown} />
+      ));
+      occupiedCards = [null, ...moveCards, null];
+    } else {
+      occupiedCards = gathering.rewardOptionCardIds.map((cardId) => (
+        <GatheringRewardCard
+          key={cardId}
+          cardId={cardId}
+          selected={selectedRewardCardId === cardId}
+          onPointerDown={onRewardPointerDown}
+          onPointerUp={onRewardPointerUp}
+        />
+      ));
+    }
+
+    return (
+      <>
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Game Cards Panel</span>
+        <div
+          data-gathering-drop-target="cards-panel"
+          data-gathering-drop-active={gatheringDropTarget === "cards-panel" ? "true" : undefined}
+          className="contents"
+        >
+          {gatheringGameCardSlots.map((slotId, index) => (
+            <div
+              key={slotId}
+              data-board-section="gathering-game-card-slot"
+              data-board-name="Gathering game card slot"
+              data-gathering-drop-target="cards-panel"
+              className={`${getSlotShellClass("none")} ${
+                gatheringDropTarget === "cards-panel"
+                  ? "shadow-[0_0_0_4px_rgba(16,185,129,0.18),inset_0_1px_0_rgba(255,255,255,0.55)]"
+                  : ""
+              }`}
+            >
+              {occupiedCards[index] ?? null}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  },
+);
+
+const GatheringAnswerCardPropsSchema = z.object({
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+  onPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  value: z.int().min(0),
+});
+
+const GatheringAnswerCard = defineComponent(
+  GatheringAnswerCardPropsSchema,
+  ({ gathering, onPointerDown, value }) => {
+    const selected = gathering.equation.selectedValue === value;
+    const selectedWrong = selected && gathering.lastAnswerCorrect === false;
+
+    return (
+      <button
+        type="button"
+        data-board-section="gathering-answer-card"
+        data-board-name={`Answer ${value}`}
+        className={`absolute inset-0 z-10 grid cursor-grab touch-none select-none place-items-center rounded-[3px] border-2 bg-white text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,transform] duration-150 active:cursor-grabbing active:scale-[0.98] ${
+          selectedWrong
+            ? "border-rose-500 shadow-[inset_0_0_0_3px_rgba(244,63,94,0.2),0_8px_18px_rgba(0,0,0,0.18)]"
+            : "border-[#888888] hover:border-emerald-500 hover:shadow-[inset_0_0_0_3px_rgba(16,185,129,0.18),0_8px_18px_rgba(0,0,0,0.18)]"
+        }`}
+        aria-label={`Drag answer ${value}`}
+        onPointerDown={(event) => onPointerDown(value, { kind: "cards" }, event)}
+      >
+        <span className="text-5xl font-black leading-none">{value}</span>
+        <span className="absolute bottom-3 left-2 right-2 truncate text-center text-[10px] font-black uppercase leading-none text-neutral-600">
+          Answer
+        </span>
+      </button>
+    );
+  },
+);
+
+const GatheringAnswerSlotCardPropsSchema = z.object({
+  onPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  value: z.int().min(0),
+});
+
+const GatheringAnswerSlotCard = defineComponent(
+  GatheringAnswerSlotCardPropsSchema,
+  ({ onPointerDown, value }) => (
+    <button
+      type="button"
+      data-board-section="gathering-answer-slot-card"
+      data-board-name={`Slotted answer ${value}`}
+      className="absolute inset-1 z-10 grid cursor-grab touch-none select-none place-items-center rounded-[6px] border-2 border-neutral-800/55 bg-white text-neutral-950 shadow-[0_8px_18px_rgba(15,23,42,0.12)] transition-[border-color,box-shadow,transform] duration-150 hover:border-sky-500 active:cursor-grabbing active:scale-[0.98]"
+      aria-label={`Drag slotted answer ${value}`}
+      onPointerDown={(event) => onPointerDown(value, { kind: "answer-slot" }, event)}
+    >
+      <span className="text-5xl font-black leading-none">{value}</span>
+    </button>
+  ),
+);
+
+const GatheringMoveCardPropsSchema = z.object({
+  move: z.custom<GatheringMove>(),
+  onPointerDown: z.custom<GatheringMovePointerDownHandler>(),
+});
+
+const GatheringMoveCard = defineComponent(
+  GatheringMoveCardPropsSchema,
+  ({ move, onPointerDown }) => {
+    const visual = getGatheringMoveVisual(move.id);
+
+    return (
+      <button
+        type="button"
+        data-board-section="gathering-move-card"
+        data-board-name={move.name}
+        className={`absolute inset-0 z-10 cursor-grab touch-none select-none overflow-hidden rounded-[3px] border-2 text-left text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,transform] duration-150 active:cursor-grabbing active:scale-[0.98] ${visual.cardClass}`}
+        aria-label={`Drag ${move.name} attack`}
+        onPointerDown={(event) => onPointerDown(move, event)}
+      >
+        <GatheringMoveCardFace move={move} />
+      </button>
+    );
+  },
+);
+
+const GatheringMoveCardFacePropsSchema = z.object({
+  move: z.custom<GatheringMove>(),
+});
+
+const GatheringMoveCardFace = defineComponent(GatheringMoveCardFacePropsSchema, ({ move }) => {
+  const visual = getGatheringMoveVisual(move.id);
+
+  return (
+    <span className="absolute inset-0 grid grid-rows-[1fr_auto] overflow-hidden rounded-[2px] bg-white">
+      <span className={`pointer-events-none absolute inset-0 ${visual.auraClass}`} />
+      <span className="relative m-1.5 min-h-0 overflow-hidden rounded-[4px] border border-white/70 bg-neutral-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
+        <img
+          data-board-section="gathering-move-card-icon"
+          src={resolvePublicAssetPath(visual.iconPath)}
+          alt=""
+          draggable={false}
+          className="h-full w-full object-cover"
+        />
+        <span
+          className={`absolute right-1 top-1 rounded-[4px] px-1.5 py-0.5 font-mono text-[10px] font-black leading-none shadow-[0_4px_10px_rgba(15,23,42,0.18)] ${visual.detailClass}`}
+        >
+          {move.detail}
+        </span>
+      </span>
+      <span className="relative grid min-h-8 place-items-center px-1.5 pb-1.5 text-center">
+        <span
+          data-board-section="gathering-move-card-name"
+          className={`truncate text-[12px] font-black uppercase leading-none ${visual.nameClass}`}
+        >
+          {move.name}
+        </span>
+      </span>
+    </span>
+  );
+});
+
+const GatheringAttackArcCanvasPropsSchema = z.object({
+  cardRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  move: z.custom<GatheringMove>(),
+  targetRef: z.custom<RefObject<HTMLDivElement | null>>(),
+});
+
+const GatheringAttackArcCanvas = defineComponent(
+  GatheringAttackArcCanvasPropsSchema,
+  ({ cardRef, move, targetRef }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const moveRef = useRef<GatheringMove | null>(move);
+
+    useEffect(() => {
+      moveRef.current = move;
+    }, [move]);
+
+    usePixiApp(
+      canvasRef,
+      (app, { reducedMotion }) =>
+        setupGatheringAttackArcOverlay(app, {
+          cardRef,
+          moveRef,
+          reducedMotion,
+          targetRef,
+        }),
+      [],
+      { backgroundAlpha: 0, preference: "canvas" },
+    );
+
+    return (
+      <canvas
+        ref={canvasRef}
+        data-board-section="gathering-attack-arc-canvas"
+        data-board-name={`${move.name} attack arc Pixi canvas`}
+        className="pointer-events-none fixed inset-0 z-[49] block size-full touch-none"
+      />
+    );
+  },
+);
+
+const GatheringRewardCardPropsSchema = z.object({
+  cardId: z.string().min(1),
+  onPointerDown: z.custom<GatheringRewardPointerDownHandler>(),
+  onPointerUp: z.custom<GatheringRewardPointerUpHandler>(),
+  selected: z.boolean(),
+});
+
+const GatheringRewardCard = defineComponent(
+  GatheringRewardCardPropsSchema,
+  ({ cardId, onPointerDown, onPointerUp, selected }) => {
+    const card = getAlchemyCard(cardId);
+    if (!card) return null;
+
+    return (
+      <button
+        type="button"
+        data-board-section="gathering-reward-card"
+        data-board-name={`${card.name} gathering reward`}
+        data-card-id={card.id}
+        data-gathering-reward-selected={selected ? "true" : "false"}
+        className={`${getCardShellClass("none", "slotted")} ${
+          selected
+            ? "ring-4 ring-emerald-400/70 ring-offset-2 ring-offset-white/40"
+            : "hover:border-emerald-500 hover:shadow-[inset_0_0_0_3px_rgba(16,185,129,0.18),0_8px_18px_rgba(0,0,0,0.18)]"
+        }`}
+        aria-label={
+          selected
+            ? `Tap ${card.name} again to add it to the gather log, or drag it there`
+            : `Tap ${card.name} to select it, or drag it to the gather log`
+        }
+        aria-pressed={selected}
+        onPointerDown={(event) => onPointerDown(card.id, event)}
+        onPointerUp={(event) => onPointerUp(card.id, event)}
+      >
+        <AlchemyCardFace card={card} />
+        {selected ? (
+          <span className="pointer-events-none absolute right-1 top-1 z-20 grid size-7 place-items-center rounded-full border border-emerald-900/20 bg-emerald-400 text-emerald-950 shadow-[0_6px_14px_rgba(15,23,42,0.22)]">
+            <CheckCircle2 className="size-4" strokeWidth={2.8} aria-hidden="true" />
+          </span>
+        ) : null}
+      </button>
+    );
+  },
+);
+
+const FloatingGatheringCardPropsSchema = z.object({
+  card: z.custom<DraggedGatheringCard>(),
+});
+
+const FloatingGatheringCard = defineComponent(FloatingGatheringCardPropsSchema, ({ card }) => {
+  if (card.kind === "answer") {
+    return (
+      <div className="absolute inset-0 grid place-items-center rounded-[3px] text-neutral-950">
+        <span className="text-5xl font-black leading-none">{card.value}</span>
+        <span className="absolute bottom-3 left-2 right-2 truncate text-center text-[10px] font-black uppercase leading-none text-neutral-600">
+          Answer
+        </span>
+      </div>
+    );
+  }
+
+  if (card.kind === "move") {
+    return (
+      <span className="absolute inset-0 overflow-hidden rounded-[2px]">
+        <GatheringMoveCardFace move={card.move} />
+      </span>
+    );
+  }
+
+  return <AlchemyCardFace card={card.card} />;
+});
+
+const GatheringLogPanelPropsSchema = z.object({
+  entries: z.array(z.custom<AlchemistGuildGatheringLogEntry>()),
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
+});
+
+const GatheringLogPanel = defineComponent(
+  GatheringLogPanelPropsSchema,
+  ({ entries, gatheringDropTarget }) => (
+    <div
+      data-gathering-drop-target="log-panel"
+      data-gathering-drop-active={gatheringDropTarget === "log-panel" ? "true" : undefined}
+      data-board-section="gathering-log-panel"
+      data-board-name="Gather Log"
+      className={`${GLASS_PANEL_CLASS} overflow-hidden p-3 transition-[box-shadow] duration-150 ${
+        gatheringDropTarget === "log-panel"
+          ? "shadow-[0_0_0_4px_rgba(16,185,129,0.2),inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)]"
+          : ""
+      }`}
+    >
+      <span className={GATHERING_PANEL_LABEL_CLASS}>Gather Log Panel</span>
+      <div className="grid h-full min-h-0 content-start gap-2 overflow-hidden pt-8">
+        {entries.length === 0 ? (
+          <p className="rounded-[6px] border border-neutral-900/10 bg-white/55 px-3 py-2 text-sm font-bold leading-snug text-neutral-700">
+            New elements will land here after each reward pick.
+          </p>
+        ) : (
+          entries.slice(0, 8).map((entry) => <GatheringLogRow key={entry.id} entry={entry} />)
+        )}
+      </div>
+    </div>
+  ),
+);
+
+const GatheringLogRowPropsSchema = z.object({
+  entry: z.custom<AlchemistGuildGatheringLogEntry>(),
+});
+
+const GatheringLogRow = defineComponent(GatheringLogRowPropsSchema, ({ entry }) => {
+  const card = getAlchemyCard(entry.cardId);
+  if (!card) return null;
+
+  return (
+    <div
+      data-board-section="gathering-log-row"
+      data-board-name={`${card.name} gathering log row`}
+      className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border border-neutral-900/10 bg-white/70 p-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.08)]"
+    >
+      <span
+        className="grid size-10 place-items-center rounded-[5px] border border-neutral-900/15 text-lg font-black leading-none text-neutral-950"
+        style={{ backgroundColor: card.familyColor }}
+      >
+        {card.symbol}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-black leading-tight text-neutral-950">
+          {card.name}
+        </span>
+        <span className="block text-[10px] font-black uppercase leading-tight text-neutral-600">
+          Round {entry.round}
+        </span>
+      </span>
+      <span className="rounded-full border border-emerald-900/20 bg-emerald-50/85 px-1.5 py-0.5 text-[9px] font-black uppercase leading-none text-emerald-950">
+        +1
+      </span>
+    </div>
+  );
+});
+
+const GatheringMonsterPanelPropsSchema = z.object({
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+});
+
+const GatheringMonsterPanel = defineComponent(
+  GatheringMonsterPanelPropsSchema,
+  ({ gathering, gatheringDropTarget }) => {
+    const hpPercent = Math.round((gathering.monster.hp / gathering.monster.maxHp) * 100);
+    const monsterDropActive = gatheringDropTarget === "monster-panel";
+
+    return (
+      <>
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Monster Panel</span>
+        <div className="grid h-full min-h-0 place-items-center pt-10">
+          <article
+            data-gathering-drop-target="monster-panel"
+            data-gathering-drop-active={monsterDropActive ? "true" : undefined}
+            data-board-section="gathering-monster-card"
+            data-board-name={gathering.monster.name}
+            className={`grid w-[13rem] gap-2 rounded-[7px] border-2 border-neutral-800/60 bg-white/80 p-2 shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition-[border-color,box-shadow] duration-150 ${
+              monsterDropActive
+                ? "border-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.22),0_14px_28px_rgba(15,23,42,0.18)]"
+                : ""
+            }`}
+          >
+            <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
+              <img
+                src={resolvePublicAssetPath(gathering.monster.imagePath)}
+                alt=""
+                aria-hidden="true"
+                className="size-full object-cover"
+                draggable={false}
+              />
+            </div>
+            <div className="grid gap-1">
+              <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
+                {gathering.monster.name}
+              </h3>
+              <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
+                  style={{ width: `${hpPercent}%` }}
+                />
+              </div>
+              <p className="text-center text-[11px] font-black uppercase leading-none text-neutral-700">
+                {gathering.monster.hp} / {gathering.monster.maxHp} HP
+              </p>
+            </div>
+          </article>
+        </div>
+      </>
+    );
+  },
+);
+
+const GatheringInfoPanelPropsSchema = z.object({
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+});
+
+const GatheringInfoPanel = defineComponent(GatheringInfoPanelPropsSchema, ({ gathering }) => (
+  <>
+    <span className={GATHERING_PANEL_LABEL_CLASS}>Info Panel</span>
+    <div className="grid h-full content-start gap-2 pt-8">
+      <div className="rounded-[6px] border border-neutral-900/10 bg-white/65 p-3">
+        <h3 className="text-sm font-black leading-tight text-neutral-950">
+          {getGatheringInfoTitle(gathering)}
+        </h3>
+        <p className="mt-1 text-xs font-bold leading-snug text-neutral-700">
+          {getGatheringInfoText(gathering)}
+        </p>
+      </div>
+      <dl className="grid grid-cols-2 gap-1 rounded-[6px] border border-neutral-900/10 bg-white/55 p-2 text-[11px] leading-tight">
+        <InfoFact label="Mode" value="Addition" />
+        <InfoFact label="Round" value={String(gathering.round)} />
+        <InfoFact label="Answer" value={String(gathering.equation.answer)} />
+        <InfoFact label="Monster HP" value={`${gathering.monster.hp}/${gathering.monster.maxHp}`} />
+      </dl>
+    </div>
+  </>
+));
 
 const QuestBriefingAtmosphere = defineComponent(z.object({}), () => (
   <div
@@ -869,6 +1647,12 @@ const boardModeTabLabels = {
   gathering: "Gathering",
 } satisfies Record<BoardModeTab, string>;
 
+const boardModeTabIcons = {
+  crafting: FlaskConical,
+  expedition: Compass,
+  gathering: Pickaxe,
+} satisfies Record<BoardModeTab, LucideIcon>;
+
 const boardModeTabSoundIds = {
   crafting: "board-mode.crafting",
   expedition: "board-mode.expedition",
@@ -891,6 +1675,7 @@ const BoardModeTabs = defineComponent(BoardModeTabsPropsSchema, ({ activeTab, on
   >
     {boardModeTabs.map((tab) => {
       const selected = activeTab === tab;
+      const TabIcon = boardModeTabIcons[tab];
 
       return (
         <button
@@ -903,7 +1688,8 @@ const BoardModeTabs = defineComponent(BoardModeTabsPropsSchema, ({ activeTab, on
             onTabChange(tab);
           }}
         >
-          {boardModeTabLabels[tab]}
+          <TabIcon className="size-3.5 stroke-[2.5]" aria-hidden="true" />
+          <span>{boardModeTabLabels[tab]}</span>
         </button>
       );
     })}
@@ -912,7 +1698,7 @@ const BoardModeTabs = defineComponent(BoardModeTabsPropsSchema, ({ activeTab, on
 
 function getBoardModeTabClass(selected: boolean): string {
   const baseClass =
-    "shrink-0 rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color]";
+    "flex shrink-0 items-center gap-1.5 rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color]";
 
   if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
 
@@ -2404,6 +3190,8 @@ const LeftModePanelPropsSchema = z.object({
     required: z.int().min(1),
   }),
   developerNotesVisible: z.boolean(),
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
   isGatheringMode: z.boolean(),
@@ -2430,6 +3218,8 @@ const LeftModePanel = defineComponent(
     deliveryDropFeedback,
     deliveryProgress,
     developerNotesVisible,
+    gathering,
+    gatheringDropTarget,
     hasQuestNotifications,
     isClaimDragging,
     isGatheringMode,
@@ -2445,13 +3235,10 @@ const LeftModePanel = defineComponent(
   }) => {
     if (isGatheringMode) {
       return (
-        <div
-          data-board-section="gathering-log-panel"
-          data-board-name="Gather Log"
-          className={`${GLASS_PANEL_CLASS} overflow-hidden p-3`}
-        >
-          <span className={GATHERING_PANEL_LABEL_CLASS}>Gather Log Panel</span>
-        </div>
+        <GatheringLogPanel
+          entries={gathering.gatherLog}
+          gatheringDropTarget={gatheringDropTarget}
+        />
       );
     }
 
@@ -2500,15 +3287,27 @@ const LeftModePanel = defineComponent(
 const CenterBoardPanelsPropsSchema = z.object({
   boardState: z.custom<AlchemistGuildBoardState>(),
   canTransmutePreview: z.boolean(),
+  gatheringConfirmKnobTravelPx: z.number().min(0),
+  gatheringConfirmPadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  gatheringConfirmSwipeProgress: z.number().min(0).max(1),
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
+  draggedGatheringCard: z.custom<DraggedGatheringCard | null>(),
   dropIntent: z.custom<DropIntent>(),
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
+  isGatheringConfirmDragging: z.boolean(),
   isOutputAlreadyMade: z.boolean(),
   isGatheringMode: z.boolean(),
   isTransmuteDragging: z.boolean(),
+  onGatheringAnswerPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  onGatheringConfirmPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
+  onGatheringMovePointerDown: z.custom<GatheringMovePointerDownHandler>(),
+  onGatheringRewardPointerDown: z.custom<GatheringRewardPointerDownHandler>(),
+  onGatheringRewardPointerUp: z.custom<GatheringRewardPointerUpHandler>(),
   onSlottedCardPointerDown: z.custom<SlottedCardPointerDownHandler>(),
   onTransmutationSwipePointerDown: z.custom<ButtonPointerDownHandler>(),
   periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
   recipePreview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  selectedGatheringRewardCardId: z.string().nullable(),
   showBoardDebugBadges: z.boolean(),
   swapAnimation: z.custom<SwapAnimation | null>(),
   transmuteKnobTravelPx: z.number().min(0),
@@ -2521,15 +3320,27 @@ const CenterBoardPanels = defineComponent(
   ({
     boardState,
     canTransmutePreview,
+    gatheringConfirmKnobTravelPx,
+    gatheringConfirmPadTrackRef,
+    gatheringConfirmSwipeProgress,
     draggedCard,
+    draggedGatheringCard,
     dropIntent,
+    gatheringDropTarget,
+    isGatheringConfirmDragging,
     isOutputAlreadyMade,
     isGatheringMode,
     isTransmuteDragging,
+    onGatheringAnswerPointerDown,
+    onGatheringConfirmPointerDown,
+    onGatheringMovePointerDown,
+    onGatheringRewardPointerDown,
+    onGatheringRewardPointerUp,
     onSlottedCardPointerDown,
     onTransmutationSwipePointerDown,
     periodicTableViewportRef,
     recipePreview,
+    selectedGatheringRewardCardId,
     showBoardDebugBadges,
     swapAnimation,
     transmuteKnobTravelPx,
@@ -2547,7 +3358,17 @@ const CenterBoardPanels = defineComponent(
         className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS}`}
       >
         {isGatheringMode ? (
-          <span className={GATHERING_PANEL_LABEL_CLASS}>Game Panel</span>
+          <GatheringGamePanel
+            confirmKnobTravelPx={gatheringConfirmKnobTravelPx}
+            confirmPadTrackRef={gatheringConfirmPadTrackRef}
+            confirmSwipeProgress={gatheringConfirmSwipeProgress}
+            draggedGatheringCard={draggedGatheringCard}
+            gathering={boardState.gathering}
+            gatheringDropTarget={gatheringDropTarget}
+            isConfirmDragging={isGatheringConfirmDragging}
+            onAnswerPointerDown={onGatheringAnswerPointerDown}
+            onConfirmPointerDown={onGatheringConfirmPointerDown}
+          />
         ) : (
           <BoardDebugBadge
             description={BOARD_DESCRIPTIONS.periodicTableVault}
@@ -2568,17 +3389,15 @@ const CenterBoardPanels = defineComponent(
         className={getWorkbenchPanelClass(isGatheringMode)}
       >
         {isGatheringMode ? (
-          <>
-            <span className={GATHERING_PANEL_LABEL_CLASS}>Game Cards Panel</span>
-            {gatheringGameCardSlots.map((slotId) => (
-              <div
-                key={slotId}
-                data-board-section="gathering-game-card-slot"
-                data-board-name="Gathering game card slot"
-                className={getSlotShellClass("none")}
-              />
-            ))}
-          </>
+          <GatheringGameCardsPanel
+            gathering={boardState.gathering}
+            gatheringDropTarget={gatheringDropTarget}
+            onAnswerPointerDown={onGatheringAnswerPointerDown}
+            onMovePointerDown={onGatheringMovePointerDown}
+            onRewardPointerDown={onGatheringRewardPointerDown}
+            onRewardPointerUp={onGatheringRewardPointerUp}
+            selectedRewardCardId={selectedGatheringRewardCardId}
+          />
         ) : (
           <>
             <BoardDebugBadge
@@ -2720,6 +3539,8 @@ const RightModePanelsPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
   discoveredExtendedRecipeIds: z.array(z.string().min(1)),
   discoveredRecipeIds: z.array(z.string().min(1)),
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+  gatheringDropTarget: z.custom<GatheringDropTarget>(),
   gatheringInfoPanelRef: z.custom<RefObject<HTMLDivElement | null>>(),
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
@@ -2740,6 +3561,8 @@ const RightModePanels = defineComponent(
     activeTab,
     discoveredExtendedRecipeIds,
     discoveredRecipeIds,
+    gathering,
+    gatheringDropTarget,
     gatheringInfoPanelRef,
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
@@ -2768,19 +3591,7 @@ const RightModePanels = defineComponent(
         className={`${GLASS_PANEL_CLASS} overflow-hidden ${isGatheringMode ? "p-3" : ""}`}
       >
         {isGatheringMode ? (
-          <>
-            <span className={GATHERING_PANEL_LABEL_CLASS}>Monster Panel</span>
-            <div className="grid h-full min-h-0 grid-cols-2 grid-rows-3 gap-4 pt-10">
-              {gatheringMonsterSlots.map((slotId) => (
-                <div
-                  key={slotId}
-                  data-board-section="gathering-monster-slot"
-                  data-board-name="Gathering monster slot"
-                  className={getSlotShellClass("none")}
-                />
-              ))}
-            </div>
-          </>
+          <GatheringMonsterPanel gathering={gathering} gatheringDropTarget={gatheringDropTarget} />
         ) : (
           <>
             <BoardDebugBadge
@@ -2815,7 +3626,7 @@ const RightModePanels = defineComponent(
             : "pointer-events-none opacity-0 translate-y-3 scale-[0.98]"
         }`}
       >
-        <span className={GATHERING_PANEL_LABEL_CLASS}>Info Panel</span>
+        {isGatheringMode ? <GatheringInfoPanel gathering={gathering} /> : null}
       </div>
     </aside>
   ),
@@ -2873,18 +3684,30 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const rightPrimaryPanelRef = useRef<HTMLDivElement>(null);
   const gatheringInfoPanelRef = useRef<HTMLDivElement>(null);
   const draggedCardElementRef = useRef<HTMLDivElement>(null);
+  const draggedGatheringCardElementRef = useRef<HTMLDivElement>(null);
   const swapAnimationElementRef = useRef<HTMLDivElement>(null);
   const transmuteFlyAnimationElementRef = useRef<HTMLDivElement>(null);
   const transmutePadTrackRef = useRef<HTMLDivElement>(null);
+  const gatheringConfirmPadTrackRef = useRef<HTMLDivElement>(null);
   const boardStateRef = useRef(boardState);
   const dropIntentRef = useRef<DropIntent>(EMPTY_DROP_INTENT);
+  const gatheringDropTargetRef = useRef<GatheringDropTarget>("none");
+  const gatheringDropFeedbackRef = useRef<GatheringDropFeedback>("none");
+  const pendingGatheringRewardTapRef = useRef<PendingGatheringRewardTap | null>(null);
+  const handledGatheringRewardTapPointerIdsRef = useRef<Set<number>>(new Set());
   const notifiedCooldownIdsRef = useRef<Set<string> | null>(null);
   const dragSequenceRef = useRef(0);
+  const gatheringDragSequenceRef = useRef(0);
   const swapAnimationSequenceRef = useRef(0);
   const transmuteFlyAnimationSequenceRef = useRef(0);
   const questRewardFlyAnimationSequenceRef = useRef(0);
   const [draggedCard, setDraggedCard] = useState<DraggedAlchemyCard | null>(null);
+  const [draggedGatheringCard, setDraggedGatheringCard] = useState<DraggedGatheringCard | null>(
+    null,
+  );
   const [dropIntent, setDropIntent] = useState<DropIntent>(EMPTY_DROP_INTENT);
+  const [gatheringDropTarget, setGatheringDropTarget] = useState<GatheringDropTarget>("none");
+  const [gatheringDropFeedback, setGatheringDropFeedback] = useState<GatheringDropFeedback>("none");
   const [swapAnimation, setSwapAnimation] = useState<SwapAnimation | null>(null);
   const [transmuteFlyAnimation, setTransmuteFlyAnimation] = useState<TransmuteFlyAnimation | null>(
     null,
@@ -2894,9 +3717,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [transmuteSwipeProgress, setTransmuteSwipeProgress] = useState(0);
   const [isTransmuteDragging, setIsTransmuteDragging] = useState(false);
   const [transmuteTrackWidth, setTransmuteTrackWidth] = useState(0);
+  const [gatheringConfirmSwipeProgress, setGatheringConfirmSwipeProgress] = useState(0);
+  const [isGatheringConfirmDragging, setIsGatheringConfirmDragging] = useState(false);
+  const [gatheringConfirmTrackWidth, setGatheringConfirmTrackWidth] = useState(0);
+  const [selectedGatheringRewardCardId, setSelectedGatheringRewardCardId] = useState<string | null>(
+    null,
+  );
   const [questClaimSwipeStateByQuestId, setQuestClaimSwipeStateByQuestId] =
     useState<QuestClaimSwipeStateByQuestId>({});
-  const [activeBoardMode, setActiveBoardMode] = useState<BoardModeTab>("crafting");
   const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
   const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
   const [pendingRecipeNotificationIds, setPendingRecipeNotificationIds] = useState<string[]>([]);
@@ -2941,9 +3769,15 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     !claimedSelectedQuest &&
     selectedQuestDelivery.delivered >= selectedQuestDelivery.required;
   const questPanelAccepted = isQuestPanelAcceptedDrop(dropIntent);
+  const activeBoardMode = boardState.activeBoardMode;
   const isGatheringMode = activeBoardMode === "gathering";
   const isExpeditionMode = activeBoardMode === "expedition";
   const transmuteKnobTravelPx = getTransmuteKnobTravelPx(transmuteTrackWidth);
+  const gatheringConfirmKnobTravelPx = getTransmuteKnobTravelPx(gatheringConfirmTrackWidth);
+  const canConfirmGatheringAnswer =
+    isGatheringMode &&
+    boardState.gathering.phase === "solving" &&
+    boardState.gathering.equation.selectedValue !== null;
   boardStateRef.current = boardState;
 
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
@@ -3064,8 +3898,139 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const handleBoardModeTabChange = (nextTab: BoardModeTab) => {
     if (nextTab === activeBoardMode) return;
 
-    setActiveBoardMode(nextTab);
+    setBoardState((previous) => ({ ...previous, activeBoardMode: nextTab }));
     void sfx.play(boardModeTabSoundIds[nextTab]);
+  };
+
+  const beginGatheringAnswerDrag = (
+    value: number,
+    source: GatheringAnswerDragSource,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    capturePointer(event.currentTarget, event.pointerId);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const grabOffset = getScaledPointerOffset(event, rect);
+    gatheringDragSequenceRef.current += 1;
+    gatheringDropTargetRef.current = "none";
+    gatheringDropFeedbackRef.current = "none";
+    setGatheringDropTarget("none");
+    setGatheringDropFeedback("none");
+    setDraggedGatheringCard({
+      grabOffsetX: grabOffset.x,
+      grabOffsetY: grabOffset.y,
+      id: `gathering-answer:${value}:${gatheringDragSequenceRef.current}`,
+      kind: "answer",
+      pointerId: event.pointerId,
+      source,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      value,
+    });
+    void sfx.play("card.slot.pickup");
+  };
+
+  const beginGatheringMoveDrag = (
+    move: GatheringMove,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    capturePointer(event.currentTarget, event.pointerId);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const grabOffset = getScaledPointerOffset(event, rect);
+    gatheringDragSequenceRef.current += 1;
+    gatheringDropTargetRef.current = "none";
+    gatheringDropFeedbackRef.current = "none";
+    setGatheringDropTarget("none");
+    setGatheringDropFeedback("none");
+    setDraggedGatheringCard({
+      grabOffsetX: grabOffset.x,
+      grabOffsetY: grabOffset.y,
+      id: `gathering-move:${move.id}:${gatheringDragSequenceRef.current}`,
+      kind: "move",
+      move,
+      pointerId: event.pointerId,
+      source: { kind: "move-cards" },
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+    });
+    void sfx.play("card.slot.pickup");
+  };
+
+  const commitGatheringRewardTap = (cardId: string, pointerId: number) => {
+    if (handledGatheringRewardTapPointerIdsRef.current.has(pointerId)) return;
+
+    handledGatheringRewardTapPointerIdsRef.current.add(pointerId);
+    if (selectedGatheringRewardCardId === cardId) {
+      setSelectedGatheringRewardCardId(null);
+      setBoardState((previous) => ({
+        ...previous,
+        gathering: claimGatheringReward(previous.gathering, cardId),
+      }));
+      void sfx.play("card.drop");
+      return;
+    }
+
+    setSelectedGatheringRewardCardId(cardId);
+    void sfx.play("card.drop");
+  };
+
+  const beginGatheringRewardDrag = (
+    cardId: string,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0) return;
+    const card = getAlchemyCard(cardId);
+    if (!card) return;
+    event.preventDefault();
+    capturePointer(event.currentTarget, event.pointerId);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const grabOffset = getScaledPointerOffset(event, rect);
+    gatheringDragSequenceRef.current += 1;
+    gatheringDropTargetRef.current = "none";
+    gatheringDropFeedbackRef.current = "none";
+    handledGatheringRewardTapPointerIdsRef.current.delete(event.pointerId);
+    pendingGatheringRewardTapRef.current = {
+      cardId,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+    };
+    setGatheringDropTarget("none");
+    setGatheringDropFeedback("none");
+    setDraggedGatheringCard({
+      card,
+      grabOffsetX: grabOffset.x,
+      grabOffsetY: grabOffset.y,
+      id: `gathering-reward:${card.id}:${gatheringDragSequenceRef.current}`,
+      kind: "reward",
+      pointerId: event.pointerId,
+      source: { kind: "reward-cards" },
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+    });
+    void sfx.play("card.slot.pickup");
+  };
+
+  const handleGatheringRewardPointerUp = (
+    cardId: string,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const pendingTap = pendingGatheringRewardTapRef.current;
+    if (!pendingTap || pendingTap.cardId !== cardId || pendingTap.pointerId !== event.pointerId) {
+      return;
+    }
+
+    pendingGatheringRewardTapRef.current = null;
+    const totalDistance = Math.hypot(
+      event.clientX - pendingTap.startClientX,
+      event.clientY - pendingTap.startClientY,
+    );
+    if (totalDistance <= GATHERING_TAP_MAX_DISTANCE_PX) {
+      commitGatheringRewardTap(cardId, event.pointerId);
+    }
   };
 
   const handleQuestOpenFromLog = (questId: string) => {
@@ -3390,6 +4355,74 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     addPointerWindowListeners(handlePointerMove, handlePointerRelease);
   };
 
+  const commitGatheringAnswerConfirmation = () => {
+    setBoardState((previous) => ({
+      ...previous,
+      gathering: confirmGatheringAnswer(previous.gathering),
+    }));
+    setGatheringConfirmSwipeProgress(0);
+  };
+
+  const handleGatheringConfirmSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !canConfirmGatheringAnswer) return;
+    event.preventDefault();
+
+    const pointerId = event.pointerId;
+    const trackElement = gatheringConfirmPadTrackRef.current;
+    const trackRect = trackElement?.getBoundingClientRect();
+    if (!trackElement || !trackRect) return;
+
+    const knobRect = event.currentTarget.getBoundingClientRect();
+    const grabOffsetX = event.clientX - knobRect.left;
+    const travelDistance = Math.max(getTransmuteKnobTravelPx(trackElement.clientWidth), 1);
+    let latestProgress = 0;
+    setIsGatheringConfirmDragging(true);
+
+    const syncProgress = (clientX: number) => {
+      latestProgress = clamp(
+        (clientX - trackRect.left - TRANSMUTE_TRACK_PADDING_PX - grabOffsetX) / travelDistance,
+        0,
+        1,
+      );
+      setGatheringConfirmSwipeProgress(latestProgress);
+      sfx.updateTransmuteRamp(latestProgress);
+    };
+    const swipeMoveState: HorizontalSwipeMoveState = {
+      pointerId,
+      released: false,
+      syncProgress,
+    };
+    const handlePointerMove = handleHorizontalSwipeMove.bind(null, swipeMoveState);
+
+    function handlePointerRelease(pointerEvent: PointerEvent) {
+      if (pointerEvent.pointerId !== pointerId || swipeMoveState.released) return;
+      swipeMoveState.released = true;
+      pointerEvent.preventDefault();
+      syncProgress(pointerEvent.clientX);
+      removePointerWindowListeners(handlePointerMove, handlePointerRelease);
+
+      const committed = latestProgress >= GATHERING_CONFIRM_SWIPE_THRESHOLD;
+      sfx.stopTransmuteRamp(committed ? 30 : 80);
+      setIsGatheringConfirmDragging(false);
+
+      if (committed) {
+        const currentGathering = boardStateRef.current.gathering;
+        const answerCorrect =
+          currentGathering.equation.selectedValue === currentGathering.equation.answer;
+        setGatheringConfirmSwipeProgress(1);
+        void sfx.play(answerCorrect ? "transmute.complete" : "gathering.answerWrong");
+        window.setTimeout(commitGatheringAnswerConfirmation, GATHERING_CONFIRM_COMMIT_HOLD_MS);
+        return;
+      }
+
+      setGatheringConfirmSwipeProgress(0);
+    }
+
+    sfx.startTransmuteRamp();
+    syncProgress(event.clientX);
+    addPointerWindowListeners(handlePointerMove, handlePointerRelease);
+  };
+
   usePixiApp(
     periodicTableCanvasRef,
     (app) => {
@@ -3426,6 +4459,31 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       resizeObserver.disconnect();
     };
   }, [isExpeditionMode, isGatheringMode]);
+
+  useEffect(() => {
+    if (!canConfirmGatheringAnswer) setGatheringConfirmSwipeProgress(0);
+  }, [canConfirmGatheringAnswer]);
+
+  useEffect(() => {
+    if (boardState.gathering.phase !== "reward") setSelectedGatheringRewardCardId(null);
+  }, [boardState.gathering.phase]);
+
+  useEffect(() => {
+    if (!isGatheringMode) return;
+    const trackElement = gatheringConfirmPadTrackRef.current;
+    if (!trackElement) return;
+
+    const syncTrackWidth = () => {
+      setGatheringConfirmTrackWidth(trackElement.clientWidth);
+    };
+    syncTrackWidth();
+    const resizeObserver = new ResizeObserver(syncTrackWidth);
+    resizeObserver.observe(trackElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [isGatheringMode]);
 
   useBrowserLayoutEffect(() => {
     if (!isGatheringMode || prefersReducedMotion()) return;
@@ -3945,6 +5003,237 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     };
 
     function handlePointerMove(event: PointerEvent) {
+      if (!isActiveDragPointerEvent(event, pointerId, released)) return;
+      event.preventDefault();
+      latestSample = getPointerSample(event);
+      queuePaint();
+    }
+
+    function handlePointerRelease(event: PointerEvent) {
+      if (!isMatchingDragPointerEvent(event, pointerId)) return;
+      event.preventDefault();
+      latestSample = getPointerSample(event);
+      finishDrag();
+    }
+
+    setMotionProperty(motion, "x", currentLeft);
+    setMotionProperty(motion, "y", currentTop);
+    setMotionProperty(motion, "rotate", 0);
+    setMotionProperty(motion, "scale", 1);
+    syncDropIntent();
+
+    addPointerWindowListeners(handlePointerMove, handlePointerRelease);
+
+    return () => {
+      removeDragListeners();
+      if (animationFrame !== 0) cancelAnimationFrame(animationFrame);
+      if (!releaseComplete) releaseAnimation?.cancel();
+      if (!released) motion.revert();
+    };
+  }, [draggedCard]);
+
+  useBrowserLayoutEffect(() => {
+    const activeDraggedCard = draggedGatheringCard;
+    if (!activeDraggedCard) return;
+
+    const cardElement = draggedGatheringCardElementRef.current;
+    if (!cardElement) return;
+
+    const reducedMotion = typeof window !== "undefined" && window.matchMedia(PRM).matches;
+    const motion = createAnimatable(cardElement, {
+      rotate: { duration: 110, ease: "out(3)", unit: "deg" },
+      scale: { duration: 120, ease: "out(3)" },
+      x: { duration: 0, unit: "px" },
+      y: { duration: 0, unit: "px" },
+    });
+    let latestSample: PointerSample = {
+      clientX: activeDraggedCard.startClientX,
+      clientY: activeDraggedCard.startClientY,
+      time: performance.now(),
+    };
+    const grabOffsetX = activeDraggedCard.grabOffsetX;
+    const grabOffsetY = activeDraggedCard.grabOffsetY;
+    const pointerId = activeDraggedCard.pointerId;
+    let lastSample = latestSample;
+    let velocityX = 0;
+    let velocityY = 0;
+    let currentLeft = activeDraggedCard.startClientX - grabOffsetX;
+    let currentTop = activeDraggedCard.startClientY - grabOffsetY;
+    let animationFrame = 0;
+    let released = false;
+    let releaseComplete = false;
+    let releaseAnimation: JSAnimation | null = null;
+
+    const clearDragState = () => {
+      gatheringDropTargetRef.current = "none";
+      gatheringDropFeedbackRef.current = "none";
+      pendingGatheringRewardTapRef.current = null;
+      setGatheringDropTarget("none");
+      setGatheringDropFeedback("none");
+      setDraggedGatheringCard(null);
+    };
+
+    const syncDropTarget = () => {
+      const rawDropTarget = getGatheringDropTargetAtCardCenter(currentLeft, currentTop);
+      const nextDropTarget = resolveGatheringDropTarget(
+        activeDraggedCard,
+        rawDropTarget,
+        boardStateRef.current.gathering,
+      );
+      const nextDropFeedback = getGatheringDropFeedback(rawDropTarget, nextDropTarget);
+
+      if (gatheringDropTargetRef.current !== nextDropTarget) {
+        gatheringDropTargetRef.current = nextDropTarget;
+        setGatheringDropTarget(nextDropTarget);
+      }
+      if (gatheringDropFeedbackRef.current !== nextDropFeedback) {
+        gatheringDropFeedbackRef.current = nextDropFeedback;
+        setGatheringDropFeedback(nextDropFeedback);
+      }
+    };
+
+    const commitRelease = (target: GatheringDropTarget, tapRelease: boolean) => {
+      if (activeDraggedCard.kind === "answer") {
+        if (target === "answer-slot") {
+          const currentValue = boardStateRef.current.gathering.equation.selectedValue;
+          setBoardState((previous) => ({
+            ...previous,
+            gathering: selectGatheringAnswer(previous.gathering, activeDraggedCard.value),
+          }));
+          setGatheringConfirmSwipeProgress(0);
+          void sfx.play(
+            currentValue !== null && currentValue !== activeDraggedCard.value
+              ? "card.swap"
+              : "card.drop",
+          );
+          return;
+        }
+
+        if (activeDraggedCard.source.kind === "answer-slot" && target === "cards-panel") {
+          setBoardState((previous) => ({
+            ...previous,
+            gathering: clearGatheringAnswer(previous.gathering),
+          }));
+          setGatheringConfirmSwipeProgress(0);
+          void sfx.play("card.drop");
+          return;
+        }
+
+        void sfx.play("card.drop");
+        return;
+      }
+
+      if (activeDraggedCard.kind === "move") {
+        if (target === "action-zone" || target === "monster-panel") {
+          setBoardState((previous) => ({
+            ...previous,
+            gathering: selectGatheringMove(previous.gathering, activeDraggedCard.move.id),
+          }));
+          void sfx.play("card.drop");
+          return;
+        }
+
+        void sfx.play("card.drop");
+        return;
+      }
+
+      if (target === "log-panel") {
+        setSelectedGatheringRewardCardId(null);
+        setBoardState((previous) => ({
+          ...previous,
+          gathering: claimGatheringReward(previous.gathering, activeDraggedCard.card.id),
+        }));
+        void sfx.play("card.drop");
+        return;
+      }
+
+      if (tapRelease) {
+        commitGatheringRewardTap(activeDraggedCard.card.id, pointerId);
+        return;
+      }
+
+      void sfx.play("card.drop");
+    };
+
+    const paintDrag = () => {
+      animationFrame = 0;
+      const deltaMs = Math.max(latestSample.time - lastSample.time, 16);
+
+      velocityX = (latestSample.clientX - lastSample.clientX) / deltaMs;
+      velocityY = (latestSample.clientY - lastSample.clientY) / deltaMs;
+      currentLeft = latestSample.clientX - grabOffsetX;
+      currentTop = latestSample.clientY - grabOffsetY;
+
+      setMotionProperty(motion, "x", currentLeft);
+      setMotionProperty(motion, "y", currentTop);
+      setMotionProperty(
+        motion,
+        "rotate",
+        clamp(velocityX * DRAG_ROTATION_MULTIPLIER, -10, 10),
+        110,
+        "out(3)",
+      );
+      setMotionProperty(motion, "scale", 1, 120, "out(3)");
+      lastSample = latestSample;
+      syncDropTarget();
+    };
+
+    const queuePaint = () => {
+      if (animationFrame !== 0) return;
+      animationFrame = requestAnimationFrame(paintDrag);
+    };
+
+    const removeDragListeners = () => {
+      removePointerWindowListeners(handlePointerMove, handlePointerRelease);
+    };
+
+    const finishDrag = () => {
+      if (released) return;
+      released = true;
+      removeDragListeners();
+      if (animationFrame !== 0) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+        paintDrag();
+      }
+      const totalDragDistance = Math.hypot(
+        latestSample.clientX - activeDraggedCard.startClientX,
+        latestSample.clientY - activeDraggedCard.startClientY,
+      );
+      commitRelease(
+        resolveGatheringDropTarget(
+          activeDraggedCard,
+          getGatheringDropTargetAtCardCenter(currentLeft, currentTop),
+          boardStateRef.current.gathering,
+        ),
+        totalDragDistance <= GATHERING_TAP_MAX_DISTANCE_PX,
+      );
+
+      if (reducedMotion) {
+        clearDragState();
+        return;
+      }
+
+      const throwLeft = currentLeft + clamp(velocityX * RELEASE_THROW_MS, -48, 48);
+      const throwTop = currentTop + clamp(velocityY * RELEASE_THROW_MS + 10, -32, 64);
+      const throwRotation = clamp(velocityX * 36, -18, 18);
+
+      releaseAnimation = animate(cardElement, {
+        duration: RELEASE_DURATION_MS,
+        ease: "out(2)",
+        opacity: 0,
+        rotate: `${throwRotation}deg`,
+        scale: 0.86,
+        x: throwLeft,
+        y: throwTop,
+        onComplete: () => {
+          releaseComplete = true;
+          clearDragState();
+        },
+      });
+    };
+
+    function handlePointerMove(event: PointerEvent) {
       if (event.pointerId !== pointerId || released) return;
       event.preventDefault();
       latestSample = {
@@ -3970,7 +5259,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setMotionProperty(motion, "y", currentTop);
     setMotionProperty(motion, "rotate", 0);
     setMotionProperty(motion, "scale", 1);
-    syncDropIntent();
+    syncDropTarget();
 
     addPointerWindowListeners(handlePointerMove, handlePointerRelease);
 
@@ -3980,7 +5269,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       if (!releaseComplete) releaseAnimation?.cancel();
       if (!released) motion.revert();
     };
-  }, [draggedCard]);
+  }, [draggedGatheringCard]);
+
+  const draggedGatheringMove =
+    draggedGatheringCard?.kind === "move" ? draggedGatheringCard.move : null;
 
   return (
     <main
@@ -4002,6 +5294,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       >
         Alchemist Guild Pixi canvas
       </canvas>
+      {draggedGatheringMove ? (
+        <GatheringAttackArcCanvas
+          cardRef={draggedGatheringCardElementRef}
+          move={draggedGatheringMove}
+          targetRef={rightPrimaryPanelRef}
+        />
+      ) : null}
       <div className={getBoardChromeClass(isExpeditionMode)}>
         {isExpeditionMode ? null : (
           <section
@@ -4098,6 +5397,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                   required: selectedQuestDelivery.required,
                 }}
                 developerNotesVisible={showBoardDebugBadges}
+                gathering={boardState.gathering}
+                gatheringDropTarget={gatheringDropTarget}
                 hasQuestNotifications={pendingQuestNotificationIds.length > 0}
                 isClaimDragging={selectedQuestClaimSwipeState.dragging}
                 isGatheringMode={isGatheringMode}
@@ -4116,13 +5417,25 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             <CenterBoardPanels
               boardState={boardState}
               canTransmutePreview={canTransmutePreview}
+              gatheringConfirmKnobTravelPx={gatheringConfirmKnobTravelPx}
+              gatheringConfirmPadTrackRef={gatheringConfirmPadTrackRef}
+              gatheringConfirmSwipeProgress={gatheringConfirmSwipeProgress}
               draggedCard={draggedCard}
+              draggedGatheringCard={draggedGatheringCard}
               dropIntent={dropIntent}
+              gatheringDropTarget={gatheringDropTarget}
+              isGatheringConfirmDragging={isGatheringConfirmDragging}
               isOutputAlreadyMade={isOutputAlreadyMade}
               isGatheringMode={isGatheringMode}
               isTransmuteDragging={isTransmuteDragging}
+              onGatheringAnswerPointerDown={beginGatheringAnswerDrag}
+              onGatheringConfirmPointerDown={handleGatheringConfirmSwipePointerDown}
+              onGatheringMovePointerDown={beginGatheringMoveDrag}
+              onGatheringRewardPointerDown={beginGatheringRewardDrag}
+              onGatheringRewardPointerUp={handleGatheringRewardPointerUp}
               periodicTableViewportRef={periodicTableViewportRef}
               recipePreview={transmutationPreview}
+              selectedGatheringRewardCardId={selectedGatheringRewardCardId}
               showBoardDebugBadges={showBoardDebugBadges}
               swapAnimation={swapAnimation}
               transmuteKnobTravelPx={transmuteKnobTravelPx}
@@ -4136,6 +5449,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               activeTab={infoPanelTab}
               discoveredExtendedRecipeIds={boardState.discoveredExtendedRecipeIds}
               discoveredRecipeIds={boardState.discoveredRecipeIds}
+              gathering={boardState.gathering}
+              gatheringDropTarget={gatheringDropTarget}
               gatheringInfoPanelRef={gatheringInfoPanelRef}
               hasExtendedRecipeNotifications={pendingExtendedRecipeNotificationIds.length > 0}
               hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
@@ -4180,6 +5495,32 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 x{draggedCard.source.stackCount}
               </span>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+      {draggedGatheringCard ? (
+        <div
+          data-board-section="floating-gathering-card-layer"
+          data-board-name="Floating gathering card layer"
+          className="pointer-events-none fixed inset-0 z-50"
+        >
+          <div
+            ref={draggedGatheringCardElementRef}
+            data-board-section="floating-gathering-card"
+            data-board-name="Floating gathering card"
+            className={getGatheringFloatingCardClass(
+              draggedGatheringCard.kind,
+              gatheringDropFeedback,
+            )}
+            style={{
+              contain: "layout style paint",
+              fontFamily: "var(--font-sans)",
+              height: `${FLOATING_ELEMENT_CARD_HEIGHT}px`,
+              touchAction: "none",
+              width: `${FLOATING_ELEMENT_CARD_WIDTH}px`,
+            }}
+          >
+            <FloatingGatheringCard card={draggedGatheringCard} />
           </div>
         </div>
       ) : null}
@@ -4268,6 +5609,26 @@ function addPointerWindowListeners(
   window.addEventListener("pointermove", onMove, WINDOW_POINTER_LISTENER_OPTIONS);
   window.addEventListener("pointerup", onRelease, WINDOW_POINTER_LISTENER_OPTIONS);
   window.addEventListener("pointercancel", onRelease, WINDOW_POINTER_LISTENER_OPTIONS);
+}
+
+function getPointerSample(event: PointerEvent): PointerSample {
+  return {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    time: performance.now(),
+  };
+}
+
+function isActiveDragPointerEvent(
+  event: PointerEvent,
+  pointerId: number,
+  released: boolean,
+): boolean {
+  return event.pointerId === pointerId && !released;
+}
+
+function isMatchingDragPointerEvent(event: PointerEvent, pointerId: number): boolean {
+  return event.pointerId === pointerId;
 }
 
 function handleHorizontalSwipeMove(
@@ -4801,6 +6162,81 @@ function formatExtendedRecipeLedgerFormula(recipe: StaticExtendedMoleculeRecipe)
     .join(" + ");
 }
 
+function getGatheringGamePanelStatus(gathering: AlchemistGuildGatheringState): string {
+  if (gathering.phase === "reward") return "Monster cleared. Pick one element card.";
+  if (gathering.phase === "move") return "Answer locked. Pick a move card to spend the math.";
+  if (gathering.lastAnswerCorrect === false)
+    return "That card missed. Drag it back or swap another sum.";
+  if (gathering.equation.selectedValue !== null) return "Answer staged. Swipe to confirm it.";
+  return "Choose the card that matches the addition equation.";
+}
+
+function getGatheringConfirmPadStateClass(active: boolean, confirmed: boolean): string {
+  if (confirmed) return "border-emerald-700/70 bg-emerald-50/65";
+  if (active) return "cursor-ew-resize border-emerald-800/70 bg-emerald-50/45";
+
+  return "border-neutral-600/50 bg-white/20";
+}
+
+function getGatheringConfirmHandleStateClass(active: boolean, confirmed: boolean): string {
+  if (confirmed) return "cursor-default bg-emerald-700";
+  if (active) return "cursor-grab bg-neutral-800";
+
+  return "cursor-not-allowed bg-neutral-700/55 opacity-70";
+}
+
+function getGatheringConfirmPadStatus(active: boolean, confirmed: boolean): string {
+  if (confirmed) return "confirmed";
+  if (active) return "ready";
+
+  return "idle";
+}
+
+function getGatheringConfirmPadPrompt(active: boolean, confirmed: boolean): string {
+  if (confirmed) return "Answer confirmed";
+  if (active) return "Swipe to confirm answer";
+
+  return "Drop an answer card first";
+}
+
+function getGatheringConfirmPadAriaLabel(active: boolean, confirmed: boolean): string {
+  if (confirmed) return "Answer confirmed";
+  if (active) return "Swipe to confirm answer";
+
+  return "Drop an answer card before confirming";
+}
+
+function getGatheringAnswerStateClass(lastAnswerCorrect: boolean | null): string {
+  if (lastAnswerCorrect === false) return "border-rose-500 bg-rose-50 text-rose-950";
+  if (lastAnswerCorrect === true) return "border-emerald-500 bg-emerald-50 text-emerald-950";
+  return "border-neutral-800/55 bg-white/70 text-neutral-950";
+}
+
+function getGatheringInfoTitle(gathering: AlchemistGuildGatheringState): string {
+  switch (gathering.phase) {
+    case "move":
+      return "Move Ready";
+    case "reward":
+      return "Reward Pull";
+    default:
+      return "Addition Check";
+  }
+}
+
+function getGatheringInfoText(gathering: AlchemistGuildGatheringState): string {
+  switch (gathering.phase) {
+    case "move":
+      return "The three move cards are the left addend, right addend, and full sum.";
+    case "reward":
+      return "Choose one of the three element cards. The pick is added to the gather log.";
+    default:
+      if (gathering.equation.selectedValue !== null) {
+        return "The answer card is staged. Swipe the confirm pad to check it.";
+      }
+      return `${gathering.equation.left} plus ${gathering.equation.right} sets up this turn.`;
+  }
+}
+
 function getWorkbenchCardIds(boardState: AlchemistGuildBoardState): (string | null)[] {
   return reagentSlots.map((slot) => boardState.reagentSlots[slot.id]);
 }
@@ -4877,6 +6313,51 @@ function getSlotRect(slotId: AlchemistGuildReagentSlotId): SlotRect | null {
 
 function getInventorySlotRect(slotId: AlchemistGuildInventorySlotId): SlotRect | null {
   return getElementRect(`[data-inventory-slot-id="${slotId}"]`);
+}
+
+function getGatheringDropTargetAtCardCenter(
+  cardLeft: number,
+  cardTop: number,
+): GatheringDropTarget {
+  const clientX = cardLeft + FLOATING_ELEMENT_CARD_WIDTH / 2;
+  const clientY = cardTop + FLOATING_ELEMENT_CARD_HEIGHT / 2;
+  const elements = document.elementsFromPoint(clientX, clientY);
+
+  for (const element of elements) {
+    const targetElement = element.closest("[data-gathering-drop-target]");
+    if (!(targetElement instanceof HTMLElement)) continue;
+    const target = targetElement.dataset.gatheringDropTarget;
+    if (isGatheringDropTarget(target)) return target;
+  }
+
+  return "none";
+}
+
+function resolveGatheringDropTarget(
+  draggedCard: DraggedGatheringCard,
+  target: GatheringDropTarget,
+  gathering: AlchemistGuildGatheringState,
+): GatheringDropTarget {
+  if (draggedCard.kind === "answer") {
+    if (target === "answer-slot" && gathering.phase === "solving") return target;
+    if (draggedCard.source.kind === "answer-slot" && target === "cards-panel") return target;
+    return "none";
+  }
+
+  if (draggedCard.kind === "move") {
+    if (gathering.phase !== "move") return "none";
+    return target === "action-zone" || target === "monster-panel" ? target : "none";
+  }
+
+  return gathering.phase === "reward" && target === "log-panel" ? target : "none";
+}
+
+function getGatheringDropFeedback(
+  rawTarget: GatheringDropTarget,
+  resolvedTarget: GatheringDropTarget,
+): GatheringDropFeedback {
+  if (rawTarget === "none") return "none";
+  return resolvedTarget === "none" ? "blocked" : "drop";
 }
 
 function getElementRect(selector: string): SlotRect | null {
@@ -5180,6 +6661,17 @@ function removeId(ids: string[], id: string): string[] {
   return ids.filter((existingId) => existingId !== id);
 }
 
+function isGatheringDropTarget(value: string | undefined): value is GatheringDropTarget {
+  return (
+    value === "none" ||
+    value === "answer-slot" ||
+    value === "cards-panel" ||
+    value === "action-zone" ||
+    value === "monster-panel" ||
+    value === "log-panel"
+  );
+}
+
 function getSlotHitRects(): SlotHitRect[] {
   const slotHitRects: SlotHitRect[] = [];
 
@@ -5375,6 +6867,250 @@ function getCardShellClass(feedback: DropFeedback, placement: "floating" | "slot
     default:
       return `${base} border-[#888888] bg-[#eeeeee] shadow-[0_8px_18px_rgba(0,0,0,0.18)]`;
   }
+}
+
+function getGatheringFloatingCardClass(
+  kind: DraggedGatheringCard["kind"],
+  feedback: GatheringDropFeedback,
+): string {
+  const base =
+    "absolute left-0 top-0 select-none rounded-[3px] border-2 shadow-[0_14px_28px_rgba(0,0,0,0.26)] transition-[border-color,box-shadow] duration-100";
+  const overflowClass = kind === "move" ? "overflow-visible" : "overflow-hidden";
+
+  if (feedback === "drop") {
+    return `${base} ${overflowClass} border-emerald-500 bg-emerald-50 shadow-[inset_0_0_0_3px_rgba(16,185,129,0.24),0_14px_28px_rgba(0,0,0,0.26)]`;
+  }
+  if (feedback === "blocked") {
+    return `${base} ${overflowClass} border-rose-500 bg-rose-50 shadow-[inset_0_0_0_3px_rgba(244,63,94,0.24),0_14px_28px_rgba(0,0,0,0.26)]`;
+  }
+  if (kind === "answer") return `${base} ${overflowClass} border-[#888888] bg-white`;
+  if (kind === "move") return `${base} ${overflowClass} border-[#888888] bg-[#eeeeee]`;
+  return `${base} ${overflowClass} border-[#888888] bg-[#eeeeee]`;
+}
+
+function getGatheringMoveVisual(moveId: GatheringMoveId): GatheringMoveVisual {
+  return gatheringMoveVisuals[moveId];
+}
+
+function setupGatheringAttackArcOverlay(
+  app: Application,
+  options: GatheringAttackArcOverlayOptions,
+): () => void {
+  const arc = new Graphics();
+  const sparks = new Graphics();
+  app.stage.addChild(arc, sparks);
+
+  const draw = () => {
+    drawGatheringAttackArc(app, arc, sparks, options);
+  };
+  const drawAndRender = () => {
+    draw();
+    app.render();
+  };
+
+  if (options.reducedMotion) {
+    app.stop();
+  } else {
+    app.ticker.add(draw);
+  }
+
+  window.addEventListener("pointermove", drawAndRender, { passive: true });
+  window.addEventListener("resize", drawAndRender);
+  window.addEventListener("scroll", drawAndRender, true);
+  drawAndRender();
+
+  return () => {
+    if (!options.reducedMotion) app.ticker.remove(draw);
+    window.removeEventListener("pointermove", drawAndRender);
+    window.removeEventListener("resize", drawAndRender);
+    window.removeEventListener("scroll", drawAndRender, true);
+    arc.destroy();
+    sparks.destroy();
+  };
+}
+
+function drawGatheringAttackArc(
+  app: Application,
+  arc: Graphics,
+  sparks: Graphics,
+  options: GatheringAttackArcOverlayOptions,
+): void {
+  const move = options.moveRef.current;
+  const cardElement = options.cardRef.current;
+  const targetElement = getGatheringAttackTargetElement(options.targetRef.current);
+
+  if (!move || !cardElement || !targetElement) {
+    clearGatheringAttackArcGraphics(arc, sparks);
+    return;
+  }
+
+  const canvasRect = app.canvas.getBoundingClientRect();
+  const cardRect = cardElement.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  if (canvasRect.width <= 0 || canvasRect.height <= 0) {
+    clearGatheringAttackArcGraphics(arc, sparks);
+    return;
+  }
+
+  const scaleX = app.screen.width / canvasRect.width;
+  const scaleY = app.screen.height / canvasRect.height;
+  const start = toPixiOverlayPoint(
+    cardRect.left + cardRect.width * 0.82,
+    cardRect.top + cardRect.height * 0.5,
+    canvasRect,
+    scaleX,
+    scaleY,
+  );
+  const end = toPixiOverlayPoint(
+    targetRect.left + targetRect.width * 0.42,
+    targetRect.top + targetRect.height * 0.48,
+    canvasRect,
+    scaleX,
+    scaleY,
+  );
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  if (Math.hypot(deltaX, deltaY) < 12) {
+    clearGatheringAttackArcGraphics(arc, sparks);
+    return;
+  }
+
+  const visual = getGatheringMoveVisual(move.id);
+  const lift = clamp(Math.abs(deltaX) * 0.18 + Math.abs(deltaY) * 0.08, 32, 140);
+  const controlOne = {
+    x: start.x + deltaX * 0.34,
+    y: start.y - lift,
+  };
+  const controlTwo = {
+    x: start.x + deltaX * 0.72,
+    y: end.y - lift * 0.38,
+  };
+  const pulse = 0.86 + Math.sin(performance.now() / 90) * 0.1;
+
+  arc
+    .clear()
+    .moveTo(start.x, start.y)
+    .bezierCurveTo(controlOne.x, controlOne.y, controlTwo.x, controlTwo.y, end.x, end.y)
+    .stroke({
+      alpha: visual.arcGlowAlpha * pulse,
+      cap: "round",
+      color: visual.arcColor,
+      width: 24,
+    })
+    .moveTo(start.x, start.y)
+    .bezierCurveTo(controlOne.x, controlOne.y, controlTwo.x, controlTwo.y, end.x, end.y)
+    .stroke({
+      alpha: 0.9,
+      cap: "round",
+      color: visual.arcColor,
+      width: 7,
+    });
+
+  drawGatheringAttackArrowhead(arc, controlTwo, end, visual.arcColor);
+  drawGatheringAttackSparks(sparks, start, controlOne, controlTwo, end, visual.arcColor, pulse);
+}
+
+function clearGatheringAttackArcGraphics(arc: Graphics, sparks: Graphics): void {
+  arc.clear();
+  sparks.clear();
+}
+
+function getGatheringAttackTargetElement(panelElement: HTMLElement | null): HTMLElement | null {
+  const monsterCard =
+    panelElement?.querySelector('[data-board-section="gathering-monster-card"]') ?? null;
+  if (isHTMLElement(monsterCard)) return monsterCard;
+  return panelElement;
+}
+
+function toPixiOverlayPoint(
+  clientX: number,
+  clientY: number,
+  canvasRect: DOMRect,
+  scaleX: number,
+  scaleY: number,
+): { x: number; y: number } {
+  return {
+    x: (clientX - canvasRect.left) * scaleX,
+    y: (clientY - canvasRect.top) * scaleY,
+  };
+}
+
+function drawGatheringAttackArrowhead(
+  arc: Graphics,
+  controlPoint: { x: number; y: number },
+  end: { x: number; y: number },
+  color: number,
+): void {
+  const directionX = end.x - controlPoint.x;
+  const directionY = end.y - controlPoint.y;
+  const length = Math.max(Math.hypot(directionX, directionY), 1);
+  const unitX = directionX / length;
+  const unitY = directionY / length;
+  const perpendicularX = -unitY;
+  const perpendicularY = unitX;
+  const baseX = end.x - unitX * 26;
+  const baseY = end.y - unitY * 26;
+
+  arc
+    .moveTo(baseX + perpendicularX * 10, baseY + perpendicularY * 10)
+    .lineTo(end.x, end.y)
+    .lineTo(baseX - perpendicularX * 10, baseY - perpendicularY * 10)
+    .stroke({
+      alpha: 0.92,
+      cap: "round",
+      color,
+      join: "round",
+      width: 7,
+    });
+}
+
+function drawGatheringAttackSparks(
+  sparks: Graphics,
+  start: { x: number; y: number },
+  controlOne: { x: number; y: number },
+  controlTwo: { x: number; y: number },
+  end: { x: number; y: number },
+  color: number,
+  pulse: number,
+): void {
+  sparks.clear();
+  const sparkPoints = [
+    { point: getCubicBezierPoint(start, controlOne, controlTwo, end, 0.22), radius: 3.5 },
+    { point: getCubicBezierPoint(start, controlOne, controlTwo, end, 0.48), radius: 2.6 },
+    { point: getCubicBezierPoint(start, controlOne, controlTwo, end, 0.72), radius: 3.1 },
+  ];
+
+  for (const spark of sparkPoints) {
+    sparks.circle(spark.point.x, spark.point.y, spark.radius * pulse).fill({
+      alpha: 0.72,
+      color,
+    });
+  }
+}
+
+function getCubicBezierPoint(
+  start: { x: number; y: number },
+  controlOne: { x: number; y: number },
+  controlTwo: { x: number; y: number },
+  end: { x: number; y: number },
+  time: number,
+): { x: number; y: number } {
+  const inverse = 1 - time;
+  const inverseSquared = inverse * inverse;
+  const timeSquared = time * time;
+
+  return {
+    x:
+      inverseSquared * inverse * start.x +
+      3 * inverseSquared * time * controlOne.x +
+      3 * inverse * timeSquared * controlTwo.x +
+      timeSquared * time * end.x,
+    y:
+      inverseSquared * inverse * start.y +
+      3 * inverseSquared * time * controlOne.y +
+      3 * inverse * timeSquared * controlTwo.y +
+      timeSquared * time * end.y,
+  };
 }
 
 function getDropGhostClass(feedback: DropFeedback): string {
