@@ -1,12 +1,19 @@
 import { ALCHEMIST_GUILD_PROFILE_DEFAULT, getAlchemyCharacterById } from "@dean-stack/schemas";
+import { animate, cubicBezier, type JSAnimation } from "animejs";
 import { Brain, CloudFog, Coins, type LucideIcon, Sparkles, Trophy } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import * as z from "zod";
 
 import { defineComponent } from "~/lib/define-component";
 
+const PRM = "(prefers-reduced-motion: reduce)";
 const PUBLIC_PATH_PATTERN = /^[a-z0-9-/]+\.webp$/;
 const PROFILE_NAME_MAX_LENGTH = 24;
+const PROFILE_REWARD_COUNT_BASE_DELAY_MS = 520;
+const PROFILE_REWARD_COUNT_STAGGER_MS = 180;
+const PROFILE_REWARD_COUNT_DURATION_MS = 1450;
+const PROFILE_STAT_VALUE_PATTERN = /^(\d+)(%)?$/;
+const PROFILE_REWARD_COUNT_EASE = cubicBezier(0.3, 0, 0.16, 1);
 const noop = (): void => undefined;
 
 const ProfileStatKindSchema = z.enum(["level", "gold", "knowledge", "discovery", "muddlefog"]);
@@ -25,6 +32,21 @@ const ProfileStatSchema = z.object({
   label: z.string().min(1),
   value: z.string().min(1),
 });
+type ProfileStat = z.infer<typeof ProfileStatSchema>;
+
+type ParsedProfileStatValue = {
+  amount: number;
+  suffix: string;
+};
+
+type ProfileStatCountState = {
+  displayedValue: string;
+};
+
+type ProfileStatCountAction = {
+  type: "set-value";
+  value: string;
+};
 
 export const ProfileCardPropsSchema = z.object({
   avatarPath: z.string().regex(PUBLIC_PATH_PATTERN),
@@ -129,31 +151,133 @@ export const ProfileCard = defineComponent(
         </p>
 
         <dl className="grid grid-cols-5 overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65">
-          {stats.map((stat, index) => {
-            const StatIcon = PROFILE_STAT_ICONS[stat.kind];
-            return (
-              <div
-                key={stat.kind}
-                data-profile-stat={stat.kind}
-                className={`grid min-w-0 place-items-center gap-1 px-1 py-1.5 ${
-                  index === 0 ? "" : "border-l border-amber-500/40"
-                }`}
-              >
-                <dt className="sr-only">{stat.label}</dt>
-                <dd className="grid place-items-center gap-0.5">
-                  <StatIcon aria-hidden="true" className="size-4 stroke-[2.5] text-amber-950" />
-                  <span className="text-xs font-black leading-none text-amber-950">
-                    {stat.value}
-                  </span>
-                </dd>
-              </div>
-            );
-          })}
+          {stats.map((stat, index) => (
+            <ProfileStatCell key={stat.kind} index={index} stat={stat} />
+          ))}
         </dl>
       </article>
     );
   },
 );
+
+const ProfileStatCellPropsSchema = z.object({
+  index: z.int().min(0),
+  stat: ProfileStatSchema,
+});
+
+const ProfileStatCell = defineComponent(ProfileStatCellPropsSchema, ({ index, stat }) => {
+  const StatIcon = PROFILE_STAT_ICONS[stat.kind];
+  const initialParsedValue = parseProfileStatValue(stat.value);
+  const animationRef = useRef<JSAnimation | null>(null);
+  const mountedRef = useRef(false);
+  const parsedValueRef = useRef<ParsedProfileStatValue | null>(initialParsedValue);
+  const renderedAmountRef = useRef(initialParsedValue?.amount ?? 0);
+  const [countState, dispatchCountState] = useReducer(
+    profileStatCountReducer,
+    stat.value,
+    createProfileStatCountState,
+  );
+  const countDelayIndex = getProfileStatCountDelayIndex(stat.kind, index);
+
+  useEffect(() => {
+    const nextParsedValue = parseProfileStatValue(stat.value);
+    animationRef.current?.cancel();
+    animationRef.current = null;
+
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      parsedValueRef.current = nextParsedValue;
+      renderedAmountRef.current = nextParsedValue?.amount ?? 0;
+      dispatchCountState({ type: "set-value", value: stat.value });
+      return;
+    }
+
+    const previousParsedValue = parsedValueRef.current;
+    parsedValueRef.current = nextParsedValue;
+
+    if (
+      !nextParsedValue ||
+      !previousParsedValue ||
+      nextParsedValue.suffix !== previousParsedValue.suffix
+    ) {
+      renderedAmountRef.current = nextParsedValue?.amount ?? 0;
+      dispatchCountState({ type: "set-value", value: stat.value });
+      return;
+    }
+
+    const fromAmount = renderedAmountRef.current;
+    const toAmount = nextParsedValue.amount;
+    if (fromAmount === toAmount) {
+      dispatchCountState({
+        type: "set-value",
+        value: formatProfileStatValue(toAmount, nextParsedValue.suffix),
+      });
+      return;
+    }
+
+    if (typeof window !== "undefined" && window.matchMedia(PRM).matches) {
+      renderedAmountRef.current = toAmount;
+      dispatchCountState({
+        type: "set-value",
+        value: formatProfileStatValue(toAmount, nextParsedValue.suffix),
+      });
+      return;
+    }
+
+    const counter = { amount: fromAmount };
+    dispatchCountState({
+      type: "set-value",
+      value: formatProfileStatValue(fromAmount, nextParsedValue.suffix),
+    });
+    const animation = animate(counter, {
+      amount: toAmount,
+      delay: PROFILE_REWARD_COUNT_BASE_DELAY_MS + countDelayIndex * PROFILE_REWARD_COUNT_STAGGER_MS,
+      duration: PROFILE_REWARD_COUNT_DURATION_MS,
+      ease: PROFILE_REWARD_COUNT_EASE,
+      onUpdate: () => {
+        const nextAmount = Math.round(counter.amount);
+        renderedAmountRef.current = nextAmount;
+        dispatchCountState({
+          type: "set-value",
+          value: formatProfileStatValue(nextAmount, nextParsedValue.suffix),
+        });
+      },
+      onComplete: () => {
+        renderedAmountRef.current = toAmount;
+        dispatchCountState({
+          type: "set-value",
+          value: formatProfileStatValue(toAmount, nextParsedValue.suffix),
+        });
+        animationRef.current = null;
+      },
+    });
+    animationRef.current = animation;
+
+    return () => {
+      animation.cancel();
+    };
+  }, [countDelayIndex, stat.value]);
+
+  return (
+    <div
+      data-profile-stat={stat.kind}
+      className={`grid min-w-0 place-items-center gap-1 px-1 py-1.5 ${
+        index === 0 ? "" : "border-l border-amber-500/40"
+      }`}
+    >
+      <dt className="sr-only">{stat.label}</dt>
+      <dd className="grid place-items-center gap-0.5">
+        <StatIcon aria-hidden="true" className="size-4 stroke-[2.5] text-amber-950" />
+        <span
+          data-profile-stat-value={stat.kind}
+          className="text-xs font-black leading-none text-amber-950"
+        >
+          {countState.displayedValue}
+        </span>
+      </dd>
+    </div>
+  );
+});
 
 function createFirstProfileCardProps(): ProfileCardProps {
   const apprentice = getAlchemyCharacterById("apprentice");
@@ -188,6 +312,37 @@ function createFirstProfileCardProps(): ProfileCardProps {
     ],
     title: "Junior Alchemist",
   });
+}
+
+function parseProfileStatValue(value: string): ParsedProfileStatValue | null {
+  const match = PROFILE_STAT_VALUE_PATTERN.exec(value);
+  const amountText = match?.[1];
+  if (!amountText) return null;
+
+  return {
+    amount: Number.parseInt(amountText, 10),
+    suffix: match[2] ?? "",
+  };
+}
+
+function formatProfileStatValue(amount: number, suffix: string): string {
+  return `${Math.round(amount)}${suffix}`;
+}
+
+function createProfileStatCountState(value: string): ProfileStatCountState {
+  return { displayedValue: value };
+}
+
+function profileStatCountReducer(
+  _state: ProfileStatCountState,
+  action: ProfileStatCountAction,
+): ProfileStatCountState {
+  return { displayedValue: action.value };
+}
+
+function getProfileStatCountDelayIndex(kind: ProfileStat["kind"], index: number): number {
+  if (kind === "level") return 0;
+  return Math.max(0, index - 1);
 }
 
 function resolvePublicAssetPath(path: string): string {

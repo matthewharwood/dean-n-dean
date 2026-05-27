@@ -131,10 +131,10 @@ export const QuestBriefingCard = defineComponent(
       data-board-section="quest-briefing-card"
       data-board-name={title}
       data-quest-card-id={id}
-      className="relative grid min-h-0 content-start gap-2 overflow-hidden rounded-[6px] border border-amber-500/70 bg-white/60 p-3 text-neutral-950 shadow-[0_2px_0_rgba(72,45,16,0.14)] backdrop-blur-sm"
+      className="relative grid min-h-0 content-start gap-1.5 overflow-hidden rounded-[6px] border border-amber-500/70 bg-white/60 p-2.5 text-neutral-950 shadow-[0_2px_0_rgba(72,45,16,0.14)] backdrop-blur-sm"
       aria-labelledby={`${id}-title`}
     >
-      <header className="grid grid-cols-[2.75rem_1fr] gap-2.5">
+      <header className="grid grid-cols-[2.5rem_1fr] gap-2">
         <QuestRequesterAvatar
           redacted={redacted}
           requesterAvatarPath={requesterAvatarPath}
@@ -156,13 +156,13 @@ export const QuestBriefingCard = defineComponent(
           <p className="truncate text-[11px] font-semibold uppercase leading-tight tracking-normal text-amber-950/75">
             {actLabel}
           </p>
-          <h2 id={`${id}-title`} className="font-serif text-lg leading-none text-amber-950">
+          <h2 id={`${id}-title`} className="font-serif text-base leading-none text-amber-950">
             {redacted ? "Redacted Quest" : title}
           </h2>
         </div>
       </header>
 
-      <p className="text-xs font-semibold leading-snug text-neutral-900">
+      <p className="text-[11px] font-semibold leading-snug text-neutral-900">
         {redacted ? "Complete earlier guild work to reveal this request." : summary}
       </p>
 
@@ -182,7 +182,7 @@ export const QuestBriefingCard = defineComponent(
         />
       )}
 
-      <footer className="grid h-10 min-h-0 grid-cols-4 overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65">
+      <footer className="grid h-8 min-h-0 grid-cols-4 overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65">
         {rewards.map((reward, index) => {
           const RewardIcon = REWARD_ICONS[reward.icon];
           return (
@@ -196,8 +196,8 @@ export const QuestBriefingCard = defineComponent(
               <span className="sr-only">
                 {reward.value} {reward.label}
               </span>
-              <RewardIcon aria-hidden="true" className="size-3.5 stroke-[2.5] text-amber-950" />
-              <span aria-hidden="true" className="text-[11px] font-black leading-none">
+              <RewardIcon aria-hidden="true" className="size-3 stroke-[2.5] text-amber-950" />
+              <span aria-hidden="true" className="text-[10px] font-black leading-none">
                 {redacted ? "?" : reward.value}
               </span>
             </div>
@@ -243,7 +243,7 @@ const QuestRequesterAvatar = defineComponent(
     }
 
     return (
-      <div className="relative size-11 overflow-hidden rounded-[4px] border border-amber-500/55 bg-white/70">
+      <div className="relative size-10 overflow-hidden rounded-[4px] border border-amber-500/55 bg-white/70">
         {content}
       </div>
     );
@@ -459,7 +459,7 @@ const QuestBriefingCarousel = defineComponent(
     return (
       <section
         data-quest-briefing-carousel=""
-        className="grid grid-rows-[7.75rem_1.25rem] overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65"
+        className="grid grid-rows-[6.75rem_1rem] overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65"
         aria-label="Quest details"
       >
         <div
@@ -499,7 +499,7 @@ const QuestBriefingCarousel = defineComponent(
           </div>
         </div>
 
-        <div className="grid h-5 place-items-center border-t border-amber-500/30 bg-white/45">
+        <div className="grid h-4 place-items-center border-t border-amber-500/30 bg-white/45">
           <div className="flex items-center justify-center gap-1.5">
             {QUEST_CAROUSEL_DOTS.map((dot, index) => (
               <button
@@ -630,11 +630,11 @@ const QuestBriefingInfoSlidePropsSchema = z.object({
 const QuestBriefingInfoSlide = defineComponent(
   QuestBriefingInfoSlidePropsSchema,
   ({ children, eyebrow, title }) => (
-    <article className="grid h-31 content-start gap-1.5 p-2.5">
+    <article className="grid h-27 content-start gap-1 p-2">
       <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
         {eyebrow}
       </p>
-      <h3 className="font-serif text-lg leading-none text-amber-950">{title}</h3>
+      <h3 className="font-serif text-base leading-none text-amber-950">{title}</h3>
       {children}
     </article>
   ),
@@ -649,26 +649,26 @@ const QuestBriefingRecipeSlide = defineComponent(
   ({ recipe }) => (
     <article
       data-quest-recipe-target={recipe.name}
-      className="grid h-31 grid-rows-[auto_minmax(0,1fr)] gap-2 p-2.5"
+      className="grid h-27 grid-rows-[auto_minmax(0,1fr)] gap-1.5 p-2"
       aria-label={`${recipe.name}: ${formatIngredientList(recipe.ingredients)}`}
     >
-      <div className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-2">
+      <div className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-2">
         <img
           src={resolvePublicAssetPath(recipe.imagePath)}
           alt=""
           aria-hidden="true"
-          className="size-9 rounded-[3px] border border-sky-900/30 bg-white object-contain p-0.5"
+          className="size-8 rounded-[3px] border border-sky-900/30 bg-white object-contain p-0.5"
           draggable={false}
         />
         <div className="min-w-0">
           <p className="text-[9px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
             Make
           </p>
-          <p className="truncate font-serif text-lg leading-none text-sky-950">{recipe.name}</p>
+          <p className="truncate font-serif text-base leading-none text-sky-950">{recipe.name}</p>
         </div>
       </div>
 
-      <div className="grid min-h-0 place-items-center overflow-hidden rounded-[4px] border border-sky-950/20 bg-sky-50/90 px-2">
+      <div className="grid min-h-0 place-items-center overflow-hidden rounded-[4px] border border-sky-950/20 bg-sky-50/90 px-1.5">
         <span className="sr-only">{recipe.formula}</span>
         <QuestBriefingFormula ingredients={recipe.ingredients} />
       </div>
@@ -686,7 +686,7 @@ const QuestBriefingFormula = defineComponent(QuestBriefingFormulaPropsSchema, ({
   return (
     <span
       className={`flex max-w-full items-baseline justify-center overflow-hidden whitespace-nowrap font-serif font-bold leading-none tracking-normal text-sky-950 ${
-        hasWordLabels ? "text-2xl" : "text-5xl"
+        hasWordLabels ? "text-xl" : "text-4xl"
       }`}
       aria-hidden="true"
     >

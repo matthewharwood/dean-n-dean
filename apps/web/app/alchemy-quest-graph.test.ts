@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ALCHEMIST_GUILD_BOARD_DEFAULT,
+  ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS,
+  ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES,
   ALCHEMY_MAX_TABLE_SLOT_COUNT,
   ALCHEMY_QUESTS,
   ALCHEMY_RECIPE_KID_INFO,
   ALCHEMY_RECIPES,
   ALCHEMY_STARTING_TABLE_SLOT_COUNT,
   ALCHEMY_TABLE_SLOT_UPGRADES,
+  EXTENDED_MOLECULE_KID_INFO,
+  EXTENDED_MOLECULE_RECIPES,
   getAlchemyQuestBoard,
   getAlchemyQuestById,
   getAlchemyQuestMasteryScore,
@@ -16,11 +21,21 @@ import {
   getAvailableAlchemyTableSlotUpgrades,
   validateAlchemyQuestGraph,
   validateAlchemyRecipeKidInfo,
+  validateExtendedMoleculeKidInfo,
 } from "@dean-stack/schemas";
 
 describe("alchemy quest graph", () => {
   test("validates the full deterministic quest DAG", () => {
     expect(validateAlchemyQuestGraph()).toHaveLength(ALCHEMY_QUESTS.length);
+  });
+
+  test("starts crafting behind fog with only Water recipe elements stocked", () => {
+    expect(ALCHEMIST_GUILD_BOARD_DEFAULT.discoveredElementIds).toEqual([
+      ...ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS,
+    ]);
+    expect(ALCHEMIST_GUILD_BOARD_DEFAULT.elementQuantities).toEqual({
+      ...ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES,
+    });
   });
 
   test("assigns every alchemy recipe to exactly one quest", () => {
@@ -43,6 +58,18 @@ describe("alchemy quest graph", () => {
       expect(kidInfo?.sentences.length).toBeGreaterThanOrEqual(3);
       expect(kidInfo?.sentences.length).toBeLessThanOrEqual(4);
       expect(kidInfo?.sourceIds.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("gives every extended molecule kid-readable info and a PubChem image", () => {
+    expect(validateExtendedMoleculeKidInfo()).toHaveLength(EXTENDED_MOLECULE_RECIPES.length);
+    expect(EXTENDED_MOLECULE_KID_INFO).toHaveLength(EXTENDED_MOLECULE_RECIPES.length);
+
+    for (const kidInfo of EXTENDED_MOLECULE_KID_INFO) {
+      expect(kidInfo.sentences.length).toBeGreaterThanOrEqual(3);
+      expect(kidInfo.funFacts.length).toBeGreaterThanOrEqual(3);
+      expect(kidInfo.imageUrl).toContain("pubchem.ncbi.nlm.nih.gov");
+      expect(kidInfo.sourceLinks.length).toBeGreaterThanOrEqual(2);
     }
   });
 

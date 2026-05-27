@@ -64,6 +64,10 @@ export default defineConfig(async ({ mode }) => {
   return {
     base: resolveBase(),
     build: {
+      // TanStack Start + Router form one intentionally shared vendor bucket.
+      // Keep Vite warning-free for the current baseline while still catching
+      // meaningful growth above that bucket's normal ~543 kB minified size.
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         onwarn: onRollupWarn,
         output: { manualChunks },

@@ -182,4 +182,45 @@ describe("alchemy workbench recipe preview", () => {
     expect(preview?.formula).toBe("2 Water");
     expect(preview?.ingredientRows.map((row) => [row.label, row.quantity])).toEqual([["Water", 2]]);
   });
+
+  test("requires two ingots for metal-shaping component recipes", () => {
+    const metalShapeRecipeExpectations = [
+      ["alchemy:copper-wire", "material:copper-ingot"],
+      ["alchemy:iron-nail", "material:iron-ingot"],
+      ["alchemy:bronze-buckle", "material:bronze-ingot"],
+      ["alchemy:steel-needle", "material:steel-ingot"],
+      ["alchemy:copper-rivet", "material:copper-ingot"],
+      ["alchemy:ranger-arrowhead", "material:steel-ingot"],
+      ["alchemy:silver-wire", "material:silver-ingot"],
+      ["alchemy:gold-leaf", "material:gold-ingot"],
+    ] as const;
+
+    for (const [recipeId, ingredientCardId] of metalShapeRecipeExpectations) {
+      const recipe = getAlchemyRecipeById(recipeId);
+      if (!recipe) throw new Error(`Missing ${recipeId} recipe`);
+
+      expect(getAlchemyRecipeSlotCardIds(recipe)).toEqual([ingredientCardId, ingredientCardId]);
+    }
+  });
+
+  test("previews Gold Leaf from two Gold Ingots", () => {
+    const goldLeafRecipe = getAlchemyRecipeById("alchemy:gold-leaf");
+    if (!goldLeafRecipe) throw new Error("Missing Gold Leaf recipe");
+
+    expect(getAlchemyRecipeSlotCardIds(goldLeafRecipe)).toEqual([
+      "material:gold-ingot",
+      "material:gold-ingot",
+    ]);
+
+    const preview = getAlchemyWorkbenchRecipePreview([
+      "material:gold-ingot",
+      "material:gold-ingot",
+      null,
+      null,
+      null,
+    ]);
+
+    expect(preview?.recipe.id).toBe("alchemy:gold-leaf");
+    expect(preview?.formula).toBe("2 Gold Ingot");
+  });
 });
