@@ -537,7 +537,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "Copper Wire is copper stretched into a long thin shape.",
       "Copper can carry electricity well, so the wire is like a road for energy.",
-      "It matters because this tiny part unlocks charms, circuits, threads, and artificer tools.",
+      "In the guild it takes two Copper Ingots, so conductor parts need a little workshop planning.",
     ],
     ["source:copper", "source:conductor"],
   ),
@@ -657,7 +657,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "An Iron Nail is iron shaped into a fastener.",
       "A nail is a tiny metal tooth that helps pieces stay together.",
-      "It matters because strong objects often depend on small, boring-looking parts doing important jobs.",
+      "In the guild it takes two Iron Ingots, so even small fasteners feel worth making.",
     ],
     ["source:iron"],
   ),
@@ -727,7 +727,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "A Bronze Buckle is an alloy bar shaped into useful hardware.",
       "Hardware is the small stuff that lets straps, kits, and gear actually work.",
-      "It matters because the forge path starts turning materials into parts the player recognizes.",
+      "In the guild it takes two Bronze Ingots, so gear hardware costs more than a quick tap.",
     ],
     ["source:bronze-brass"],
   ),
@@ -737,7 +737,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "A Steel Needle is steel shaped into a thin point.",
       "Steel can hold a sharper, tougher shape than soft iron, like a pencil point that does not crumble.",
-      "It matters because precise tools are needed for sewing, writing tools, and repair kits.",
+      "In the guild it takes two Steel Ingots, so precision tools feel like careful forge work.",
     ],
     ["source:steel"],
   ),
@@ -747,7 +747,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "A Copper Rivet is a small fastener made from copper.",
       "Rivets hold pieces together like tiny metal buttons.",
-      "It matters because soft, shapeable metals are excellent for fastening gear without needing glue.",
+      "In the guild it takes two Copper Ingots, so the fastener path asks for extra metal.",
     ],
     ["source:copper"],
   ),
@@ -787,7 +787,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "A Ranger Arrowhead is a hard wedge-shaped point.",
       "A wedge focuses force into a small area, like the tip of a pencil pressing into paper.",
-      "It matters because shape can be as important as material in making a tool work.",
+      "In the guild it takes two Steel Ingots, so ranger gear feels like a real upgrade.",
     ],
     ["source:steel"],
   ),
@@ -1087,7 +1087,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     [
       "Silver Wire is silver shaped into a long conductor.",
       "Because silver conducts so well, it is like a very smooth road for electric charge.",
-      "It matters because late magical tools need both shiny fantasy and real material logic.",
+      "In the guild it takes two Silver Ingots, so late conductor parts stay valuable.",
     ],
     ["source:silver", "source:conductor"],
   ),
@@ -1096,8 +1096,8 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     "Gold Leaf",
     [
       "Gold Leaf is gold hammered into a very thin sheet.",
-      "It is so thin that it feels almost like metal sunlight.",
-      "It matters because a tiny amount of gold can decorate scrolls, inks, and stage items in a big way.",
+      "In the guild, shaping it takes two Gold Ingots so the precious-metal path feels like a real late-game craft.",
+      "It is so thin that it feels almost like metal sunlight on scrolls, inks, and stage items.",
     ],
     ["source:gold"],
   ),
@@ -1415,10 +1415,22 @@ export const ALCHEMY_RECIPE_KID_INFO_BY_ID = Object.freeze(
   Object.fromEntries(ALCHEMY_RECIPE_KID_INFO.map((info) => [info.recipeId, info])),
 ) as Readonly<Record<StaticAlchemyRecipeKidInfoId, StaticAlchemyRecipeKidInfo>>;
 
+export const ALCHEMY_RECIPE_KID_INFO_SOURCE_BY_ID = Object.freeze(
+  Object.fromEntries(
+    ALCHEMY_RECIPE_KID_INFO_SOURCES.map((sourceInfo) => [sourceInfo.id, sourceInfo]),
+  ),
+) as Readonly<Record<AlchemyRecipeKidInfoSourceId, AlchemyRecipeKidInfoSource>>;
+
 export function getAlchemyRecipeKidInfoById(
   recipeId: string,
 ): StaticAlchemyRecipeKidInfo | undefined {
   return ALCHEMY_RECIPE_KID_INFO_BY_ID[recipeId as StaticAlchemyRecipeKidInfoId];
+}
+
+export function getAlchemyRecipeKidInfoSourceById(
+  sourceId: string,
+): AlchemyRecipeKidInfoSource | undefined {
+  return ALCHEMY_RECIPE_KID_INFO_SOURCE_BY_ID[sourceId as AlchemyRecipeKidInfoSourceId];
 }
 
 export function validateAlchemyRecipeKidInfo(

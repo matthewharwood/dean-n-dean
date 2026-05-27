@@ -8,14 +8,21 @@ import {
   ELEMENT_CARDS,
 } from "@dean-stack/schemas";
 
+import type { SoundId } from "~/sound/schema";
+
 export const gatheringMoveIds = ["left-spark", "right-spark", "sum-strike"] as const;
 export type GatheringMoveId = (typeof gatheringMoveIds)[number];
+type GatheringAttackSoundId = Extract<
+  SoundId,
+  "gathering.attack.leftSpark" | "gathering.attack.rightSpark" | "gathering.attack.sumStrike"
+>;
 
 export type GatheringMove = {
   damage: number;
   detail: string;
   id: GatheringMoveId;
   name: string;
+  soundId: GatheringAttackSoundId;
 };
 
 const GATHERING_LOG_LIMIT = 24;
@@ -58,18 +65,21 @@ export function getGatheringMoves(equation: AlchemistGuildGatheringEquation): Ga
       detail: `${equation.left}`,
       id: "left-spark",
       name: "Left Spark",
+      soundId: "gathering.attack.leftSpark",
     },
     {
       damage: equation.right,
       detail: `${equation.right}`,
       id: "right-spark",
       name: "Right Spark",
+      soundId: "gathering.attack.rightSpark",
     },
     {
       damage: equation.answer,
       detail: `${equation.left} + ${equation.right}`,
       id: "sum-strike",
       name: "Sum Strike",
+      soundId: "gathering.attack.sumStrike",
     },
   ];
 }
@@ -116,6 +126,60 @@ export function clearGatheringAnswer(
       selectedValue: null,
     },
     lastAnswerCorrect: null,
+    phase: "solving",
+  });
+}
+
+export function swapGatheringAnswerWithChoice(
+  state: AlchemistGuildGatheringState,
+  targetChoiceIndex: number,
+): AlchemistGuildGatheringState {
+  if (state.phase !== "solving" || state.equation.selectedValue === null) return state;
+
+  const selectedChoiceIndex = state.equation.choiceValues.indexOf(state.equation.selectedValue);
+  const targetChoiceValue = state.equation.choiceValues[targetChoiceIndex];
+  if (selectedChoiceIndex === -1 || targetChoiceValue === undefined)
+    return clearGatheringAnswer(state);
+  if (selectedChoiceIndex === targetChoiceIndex) return clearGatheringAnswer(state);
+
+  const nextChoiceValues = [...state.equation.choiceValues];
+  nextChoiceValues[selectedChoiceIndex] = targetChoiceValue;
+  nextChoiceValues[targetChoiceIndex] = state.equation.selectedValue;
+
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...state,
+    equation: {
+      ...state.equation,
+      choiceValues: nextChoiceValues,
+      selectedValue: targetChoiceValue,
+    },
+    lastAnswerCorrect: null,
+    phase: "solving",
+  });
+}
+
+export function swapGatheringChoices(
+  state: AlchemistGuildGatheringState,
+  sourceChoiceIndex: number,
+  targetChoiceIndex: number,
+): AlchemistGuildGatheringState {
+  if (state.phase !== "solving") return state;
+  if (sourceChoiceIndex === targetChoiceIndex) return state;
+
+  const sourceChoiceValue = state.equation.choiceValues[sourceChoiceIndex];
+  const targetChoiceValue = state.equation.choiceValues[targetChoiceIndex];
+  if (sourceChoiceValue === undefined || targetChoiceValue === undefined) return state;
+
+  const nextChoiceValues = [...state.equation.choiceValues];
+  nextChoiceValues[sourceChoiceIndex] = targetChoiceValue;
+  nextChoiceValues[targetChoiceIndex] = sourceChoiceValue;
+
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...state,
+    equation: {
+      ...state.equation,
+      choiceValues: nextChoiceValues,
+    },
     phase: "solving",
   });
 }

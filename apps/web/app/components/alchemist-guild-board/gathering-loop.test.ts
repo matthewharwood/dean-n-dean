@@ -9,6 +9,8 @@ import {
   getGatheringMoves,
   selectGatheringAnswer,
   selectGatheringMove,
+  swapGatheringAnswerWithChoice,
+  swapGatheringChoices,
 } from "./gathering-loop";
 
 describe("gathering loop", () => {
@@ -61,6 +63,18 @@ describe("gathering loop", () => {
     expect(solved.lastAnswerCorrect).toBe(true);
   });
 
+  test("each attack move declares its own sound effect", () => {
+    const round = createGatheringRound(1);
+    const soundIds = getGatheringMoves(round.equation).map((move) => move.soundId);
+
+    expect(soundIds).toEqual([
+      "gathering.attack.leftSpark",
+      "gathering.attack.rightSpark",
+      "gathering.attack.sumStrike",
+    ]);
+    expect(new Set(soundIds).size).toBe(soundIds.length);
+  });
+
   test("moves damage the monster until a reward choice appears", () => {
     const round = createGatheringRound(1);
     const almostDefeated = {
@@ -82,6 +96,37 @@ describe("gathering loop", () => {
     expect(cleared.phase).toBe("solving");
     expect(cleared.equation.selectedValue).toBeNull();
     expect(cleared.lastAnswerCorrect).toBeNull();
+  });
+
+  test("swapping a slotted answer with a choice moves the old card back to that index", () => {
+    const round = createGatheringRound(1);
+    const selectedValue = round.equation.choiceValues[0];
+    const targetValue = round.equation.choiceValues[1];
+    if (selectedValue === undefined || targetValue === undefined) {
+      throw new Error("expected answer choices");
+    }
+
+    const staged = confirmGatheringAnswer(selectGatheringAnswer(round, selectedValue));
+    expect(staged.lastAnswerCorrect).toBe(selectedValue === round.equation.answer);
+
+    const swapped = swapGatheringAnswerWithChoice(staged, 1);
+    expect(swapped.phase).toBe("solving");
+    expect(swapped.lastAnswerCorrect).toBeNull();
+    expect(swapped.equation.selectedValue).toBe(targetValue);
+    expect(swapped.equation.choiceValues[0]).toBe(targetValue);
+    expect(swapped.equation.choiceValues[1]).toBe(selectedValue);
+  });
+
+  test("swapping two panel choices reorders the cards without changing staged answer", () => {
+    const round = createGatheringRound(1);
+    const selectedValue = round.equation.choiceValues[4];
+    if (selectedValue === undefined) throw new Error("expected a fifth answer choice");
+
+    const staged = selectGatheringAnswer(round, selectedValue);
+    const swapped = swapGatheringChoices(staged, 0, 2);
+    expect(swapped.equation.selectedValue).toBe(selectedValue);
+    expect(swapped.equation.choiceValues[0]).toBe(round.equation.choiceValues[2]);
+    expect(swapped.equation.choiceValues[2]).toBe(round.equation.choiceValues[0]);
   });
 
   test("claiming a reward logs the element and starts the next round", () => {

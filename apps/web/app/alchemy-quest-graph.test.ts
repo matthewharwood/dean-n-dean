@@ -7,6 +7,8 @@ import {
   ALCHEMY_RECIPES,
   ALCHEMY_STARTING_TABLE_SLOT_COUNT,
   ALCHEMY_TABLE_SLOT_UPGRADES,
+  EXTENDED_MOLECULE_KID_INFO,
+  EXTENDED_MOLECULE_RECIPES,
   getAlchemyQuestBoard,
   getAlchemyQuestById,
   getAlchemyQuestMasteryScore,
@@ -16,6 +18,7 @@ import {
   getAvailableAlchemyTableSlotUpgrades,
   validateAlchemyQuestGraph,
   validateAlchemyRecipeKidInfo,
+  validateExtendedMoleculeKidInfo,
 } from "@dean-stack/schemas";
 
 describe("alchemy quest graph", () => {
@@ -43,6 +46,18 @@ describe("alchemy quest graph", () => {
       expect(kidInfo?.sentences.length).toBeGreaterThanOrEqual(3);
       expect(kidInfo?.sentences.length).toBeLessThanOrEqual(4);
       expect(kidInfo?.sourceIds.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("gives every extended molecule kid-readable info and a PubChem image", () => {
+    expect(validateExtendedMoleculeKidInfo()).toHaveLength(EXTENDED_MOLECULE_RECIPES.length);
+    expect(EXTENDED_MOLECULE_KID_INFO).toHaveLength(EXTENDED_MOLECULE_RECIPES.length);
+
+    for (const kidInfo of EXTENDED_MOLECULE_KID_INFO) {
+      expect(kidInfo.sentences.length).toBeGreaterThanOrEqual(3);
+      expect(kidInfo.funFacts.length).toBeGreaterThanOrEqual(3);
+      expect(kidInfo.imageUrl).toContain("pubchem.ncbi.nlm.nih.gov");
+      expect(kidInfo.sourceLinks.length).toBeGreaterThanOrEqual(2);
     }
   });
 

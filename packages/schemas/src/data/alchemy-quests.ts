@@ -619,8 +619,8 @@ export const ALCHEMY_QUESTS = [
       requester: "artificer",
       summary:
         "Salt, potassium, copper, and glass become the bridge to later electricity and charms.",
-      need: "Craft Brine, Sea Salt Crystals, Potassium Salt, Copper Wire, and a Glass Bead.",
-      hint: "Look for recipes that reuse Salt, Glass, and Copper from earlier branches.",
+      need: "Craft Brine, Sea Salt Crystals, Potassium Salt, two-ingot Copper Wire, and a Glass Bead.",
+      hint: "Copper Wire now spends two Copper Ingots, so build a small metal buffer before shaping it.",
       completion: "The guild sees that one known card can unlock many future needs.",
     },
     progression: {
@@ -705,8 +705,8 @@ export const ALCHEMY_QUESTS = [
       title: "Field Orders Arrive",
       requester: "ranger",
       summary: "Class requests begin, each using a different earlier material idea.",
-      need: "Prepare a Ranger Field Flask, Cleansing Salt, Smoke Puff, and Iron Nail.",
-      hint: "Class orders are small stories about why a material matters.",
+      need: "Prepare a Ranger Field Flask, Cleansing Salt, Smoke Puff, and a two-ingot Iron Nail.",
+      hint: "Class orders are small stories about why a material matters; metal parts may need two ingots.",
       completion: "The Quest Briefing now feels like Vellum Vale is depending on the player.",
     },
     progression: {
@@ -855,8 +855,8 @@ export const ALCHEMY_QUESTS = [
       title: "A Tray of Useful Parts",
       requester: "artificer",
       summary: "Ingot cards become small physical parts for gear.",
-      need: "Craft a Bronze Buckle, Steel Needle, Copper Rivet, Chain Link, and Wood Shaft.",
-      hint: "Parts are not the final story, but they make final objects possible.",
+      need: "Craft two-ingot Bronze Buckle, two-ingot Steel Needle, two-ingot Copper Rivet, Chain Link, and Wood Shaft parts.",
+      hint: "Metal shaping now asks for two ingots, while wood and chain work still tell their own parts story.",
       completion: "The inventory starts to look like a maker bench.",
     },
     progression: {
@@ -896,8 +896,8 @@ export const ALCHEMY_QUESTS = [
       title: "Shield and Arrow Day",
       requester: "knight",
       summary: "The forge and ranger branches converge into recognizable equipment.",
-      need: "Make a Shield Boss, Ranger Arrowhead, and complete Ranger Arrow.",
-      hint: "A finished object may hide several materials, parts, and element choices.",
+      need: "Make a Shield Boss, a two-ingot Ranger Arrowhead, and a complete Ranger Arrow.",
+      hint: "A finished object may hide several materials, parts, and extra ingot choices.",
       completion: "The Knight and Ranger test the gear together, then sign the Museum ledger.",
     },
     progression: {
@@ -1237,8 +1237,8 @@ export const ALCHEMY_QUESTS = [
       title: "Silver, Gold, and Circuits",
       requester: "artificer",
       summary: "Precious metals and threads prepare the circuit-rune path.",
-      need: "Make Silver, Gold, Silver Wire, Gold Leaf, Conductive Thread, and a Circuit Rune.",
-      hint: "Conductors are materials that help energy move in the game model.",
+      need: "Make Silver, Gold, two-ingot Silver Wire, two-ingot Gold Leaf, Conductive Thread, and a Circuit Rune.",
+      hint: "Precious metal shapes now take two ingots, so build up the shiny metals before shaping them.",
       completion: "Tinker Volt can finally read the circuit marks under the Muddlefog.",
     },
     progression: {

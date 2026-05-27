@@ -201,6 +201,66 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
   {
     bus: "sfx",
     ducking: [
+      { attackMs: 10, bus: "music", gain: 0.78, holdMs: 90, releaseMs: 160 },
+      { attackMs: 8, bus: "ambience", gain: 0.88, holdMs: 70, releaseMs: 140 },
+    ],
+    generatorPrompt:
+      "Left Spark attack, small amber electrical spark leaping from a card, crisp static snap with warm ember crackle and polished brass ping, dry centered mobile game combat UI, 0.7 second one-shot with tiny fizz tail, bright and focused.",
+    id: "gathering.attack.leftSpark",
+    interruptFadeMs: 10,
+    maxVoices: 8,
+    replay: "overlap",
+    url: "/sfx/combat/gathering-left-spark.mp3",
+    volume: 0.76,
+  },
+  {
+    bus: "sfx",
+    ducking: [
+      { attackMs: 10, bus: "music", gain: 0.78, holdMs: 90, releaseMs: 160 },
+      { attackMs: 8, bus: "ambience", gain: 0.88, holdMs: 70, releaseMs: 140 },
+    ],
+    generatorPrompt:
+      "Right Spark attack, cool cyan electrical arc snapping sideways, glassy static zap with watery shimmer and thin crystal tick, dry centered mobile game combat UI, 0.7 second one-shot with quick fading tail, clean and agile.",
+    id: "gathering.attack.rightSpark",
+    interruptFadeMs: 10,
+    maxVoices: 8,
+    replay: "overlap",
+    url: "/sfx/combat/gathering-right-spark.mp3",
+    volume: 0.76,
+  },
+  {
+    bus: "sfx",
+    ducking: [
+      { attackMs: 12, bus: "music", gain: 0.72, holdMs: 130, releaseMs: 220 },
+      { attackMs: 10, bus: "ambience", gain: 0.84, holdMs: 110, releaseMs: 190 },
+    ],
+    generatorPrompt:
+      "Sum Strike attack, amber and cyan magic arcs converge into one bright impact, soft card whoosh with electric crackle and warm bell hit, dry centered mobile game combat UI, 0.9 second one-shot with shimmering tail, triumphant.",
+    id: "gathering.attack.sumStrike",
+    interruptFadeMs: 12,
+    maxVoices: 6,
+    replay: "overlap",
+    url: "/sfx/combat/gathering-sum-strike.mp3",
+    volume: 0.82,
+  },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.84, holdMs: 70, releaseMs: 150 },
+      { attackMs: 8, bus: "ambience", gain: 0.92, holdMs: 60, releaseMs: 140 },
+    ],
+    generatorPrompt:
+      "Bright reward-claim chime, polished brass coin sparkle blended with a warm tuning fork tone, tiny ascending crystal glint, dry centered mobile game UI, 0.8 second one-shot with smooth fading tail, happy and rewarding.",
+    id: "gathering.rewardClaim",
+    interruptFadeMs: 8,
+    maxVoices: 5,
+    replay: "overlap",
+    url: "/sfx/ui/gathering-reward-claim.mp3",
+    volume: 0.7,
+  },
+  {
+    bus: "sfx",
+    ducking: [
       { attackMs: 18, bus: "music", gain: 0.72, holdMs: 160, releaseMs: 260 },
       { attackMs: 14, bus: "ambience", gain: 0.82, holdMs: 140, releaseMs: 220 },
     ],
