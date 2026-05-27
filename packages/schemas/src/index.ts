@@ -51,6 +51,18 @@ export type AlchemistGuildReagentSlotId = z.infer<typeof AlchemistGuildReagentSl
 export const AlchemistGuildCardIdSchema = AlchemyCardIdSchema;
 export type AlchemistGuildCardId = z.infer<typeof AlchemistGuildCardIdSchema>;
 
+export const ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES = {
+  "element:h": 2,
+  "element:o": 1,
+} as const satisfies Readonly<Record<string, number>>;
+
+export const ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS = ["element:h", "element:o"] as const;
+
+export const AlchemistGuildElementQuantitiesSchema = z
+  .record(AlchemistGuildCardIdSchema, z.int().min(0))
+  .default(ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES);
+export type AlchemistGuildElementQuantities = z.infer<typeof AlchemistGuildElementQuantitiesSchema>;
+
 export const AlchemistGuildBoardSlotsSchema = z.object({
   "reagent-slot-1": AlchemistGuildCardIdSchema.nullable().default(null),
   "reagent-slot-2": AlchemistGuildCardIdSchema.nullable().default(null),
@@ -196,9 +208,13 @@ export const ALCHEMIST_GUILD_GATHERING_DEFAULT: AlchemistGuildGatheringState =
 export const AlchemistGuildBoardStateSchema = z.object({
   activeBoardMode: AlchemistGuildBoardModeSchema.default("crafting"),
   completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
+  discoveredElementIds: z
+    .array(AlchemistGuildCardIdSchema)
+    .default([...ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS]),
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
   discoveredExtendedRecipeIds: z.array(ExtendedMoleculeRecipeIdSchema).default([]),
   discoveredRecipeIds: z.array(AlchemyRecipeIdSchema).default([]),
+  elementQuantities: AlchemistGuildElementQuantitiesSchema,
   gathering: AlchemistGuildGatheringStateSchema.default(ALCHEMIST_GUILD_GATHERING_DEFAULT),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(

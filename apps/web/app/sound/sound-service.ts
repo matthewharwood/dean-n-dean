@@ -11,6 +11,7 @@ type BusNodes = {
   input: GainNode;
   baseGain: GainNode;
   duckGain: GainNode;
+  pan: StereoPannerNode;
 };
 
 type Voice = {
@@ -32,6 +33,7 @@ type DuckToken = {
 
 type TransmuteRampNodes = {
   body: OscillatorNode;
+  duckTokens: DuckToken[];
   gain: GainNode;
   grit: OscillatorNode;
   gritGain: GainNode;
@@ -54,6 +56,7 @@ export type SoundService = {
   setBusVolume: (bus: SoundBus, volume: number) => void;
   setEnabled: (enabled: boolean) => void;
   setMasterVolume: (volume: number) => void;
+  startBackgroundMusic: () => Promise<SoundHandle>;
   startTransmuteRamp: () => void;
   stopTransmuteRamp: (fadeMs?: number) => void;
   updateTransmuteRamp: (progress: number) => void;
@@ -66,10 +69,36 @@ const DEFAULT_BUS_GAIN: Record<SoundBus, number> = {
   ui: 1,
   voice: 1,
 };
+const DEFAULT_BUS_PAN: Record<SoundBus, number> = {
+  ambience: -0.03,
+  music: -0.08,
+  sfx: 0.08,
+  ui: 0.04,
+  voice: 0,
+};
 const MIN_GAIN = 0.0001;
 const PUBLIC_URL_PROTOCOL_PATTERN = /^(blob:|data:|https?:)/;
+const BACKGROUND_MUSIC_SOUND_ID = "music.crownIn8Bit" satisfies SoundId;
+const BACKGROUND_MUSIC_UNLOCK_EVENTS = ["pointerdown", "keydown"] as const;
+const DEFAULT_MUSIC_DUCKING = {
+  attackMs: 8,
+  bus: "music",
+  gain: 0.92,
+  holdMs: 22,
+  releaseMs: 75,
+} satisfies SoundDucking;
+const MAX_MUSIC_DUCK_ATTACK_MS = 10;
+const MAX_MUSIC_DUCK_HOLD_MS = 32;
+const MAX_MUSIC_DUCK_RELEASE_MS = 90;
+const MIN_MUSIC_DUCK_GAIN = 0.9;
 const TRANSMUTE_RAMP_BUS: SoundBus = "sfx";
-const SOUND_OCTAVE_DOWN_CENTS = -1200;
+const TRANSMUTE_RAMP_MUSIC_DUCKING = {
+  attackMs: 10,
+  bus: "music",
+  gain: 0.88,
+  holdMs: 0,
+  releaseMs: 90,
+} satisfies SoundDucking;
 const SOUND_OCTAVE_DOWN_FREQUENCY_RATIO = 0.5;
 const TRANSMUTE_RAMP_BASE_GAIN = 0.1;
 const TRANSMUTE_RAMP_MAX_GAIN = 0.46;
@@ -92,6 +121,10 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
   let masterGain: GainNode | null = null;
   let compressor: DynamicsCompressorNode | null = null;
   let transmuteRampNodes: TransmuteRampNodes | null = null;
+  let backgroundMusicHandle: SoundHandle | null = null;
+  let backgroundMusicPromise: Promise<SoundHandle> | null = null;
+  let backgroundMusicRequested = false;
+  let cleanupBackgroundMusicUnlockListeners: (() => void) | null = null;
   let voiceSequence = 0;
   let enabled = true;
 
@@ -113,6 +146,47 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     return context;
   };
 
+  const installBackgroundMusicUnlockListeners = (): void => {
+    if (typeof window === "undefined" || cleanupBackgroundMusicUnlockListeners) return;
+
+    const unlockAudio = () => {
+      void unlockAudioAndStartRequestedMusic();
+    };
+    const listenerOptions = {
+      capture: true,
+      once: true,
+      passive: true,
+    } satisfies AddEventListenerOptions;
+    for (const eventName of BACKGROUND_MUSIC_UNLOCK_EVENTS) {
+      window.addEventListener(eventName, unlockAudio, listenerOptions);
+    }
+
+    cleanupBackgroundMusicUnlockListeners = () => {
+      for (const eventName of BACKGROUND_MUSIC_UNLOCK_EVENTS) {
+        window.removeEventListener(eventName, unlockAudio, listenerOptions);
+      }
+      cleanupBackgroundMusicUnlockListeners = null;
+    };
+  };
+
+  const unlockAudioAndStartRequestedMusic = async (): Promise<void> => {
+    const audioContext = getContext();
+    if (!audioContext) return;
+
+    if (audioContext.state !== "running") {
+      try {
+        await audioContext.resume();
+      } catch {
+        return;
+      }
+    }
+
+    if (audioContext.state !== "running") return;
+
+    cleanupBackgroundMusicUnlockListeners?.();
+    if (backgroundMusicRequested && enabled) void startBackgroundMusicNow();
+  };
+
   const getBus = (bus: SoundBus): BusNodes | null => {
     const audioContext = getContext();
     if (!audioContext || !masterGain) return null;
@@ -123,13 +197,16 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     const input = audioContext.createGain();
     const baseGain = audioContext.createGain();
     const duckGain = audioContext.createGain();
+    const pan = audioContext.createStereoPanner();
     baseGain.gain.value = DEFAULT_BUS_GAIN[bus];
     duckGain.gain.value = 1;
+    pan.pan.value = DEFAULT_BUS_PAN[bus];
     input.connect(baseGain);
     baseGain.connect(duckGain);
-    duckGain.connect(masterGain);
+    duckGain.connect(pan);
+    pan.connect(masterGain);
 
-    const nodes: BusNodes = { baseGain, duckGain, input };
+    const nodes: BusNodes = { baseGain, duckGain, input, pan };
     busNodes.set(bus, nodes);
     return nodes;
   };
@@ -185,6 +262,15 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     }
 
     return true;
+  };
+
+  const getDuckingForDefinition = (definition: SoundDefinition): readonly SoundDucking[] => {
+    if (definition.bus === "music") return definition.ducking;
+    if (definition.ducking.some((duck) => duck.bus === "music")) {
+      return definition.ducking.map(softenMusicDucking);
+    }
+
+    return [...definition.ducking, DEFAULT_MUSIC_DUCKING];
   };
 
   const startDucking = (voiceId: string, ducking: readonly SoundDucking[]): DuckToken[] => {
@@ -274,6 +360,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     stopTransmuteRamp(0);
 
     const now = audioContext.currentTime;
+    const duckTokens = startDucking("transmute-ramp", [TRANSMUTE_RAMP_MUSIC_DUCKING]);
     const gain = audioContext.createGain();
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(TRANSMUTE_RAMP_BASE_GAIN, now + 0.04);
@@ -301,7 +388,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     grit.connect(gritGain);
     grit.start(now);
 
-    transmuteRampNodes = { body, gain, grit, gritGain };
+    transmuteRampNodes = { body, duckTokens, gain, grit, gritGain };
   };
 
   const updateTransmuteRamp = (progress: number): void => {
@@ -337,6 +424,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     if (!audioContext) return;
 
     transmuteRampNodes = null;
+    releaseDucking(nodes.duckTokens);
     const now = audioContext.currentTime;
     const stopTime = now + fadeMs / 1000;
     nodes.gain.gain.cancelScheduledValues(now);
@@ -352,6 +440,39 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     });
   };
 
+  const startBackgroundMusicNow = async (): Promise<SoundHandle> => {
+    if (backgroundMusicHandle) return backgroundMusicHandle;
+    if (backgroundMusicPromise) return backgroundMusicPromise;
+
+    backgroundMusicPromise = (async () => {
+      const handle = await play(BACKGROUND_MUSIC_SOUND_ID);
+      if (!handle.id.startsWith("noop:")) {
+        backgroundMusicHandle = handle;
+        void handle.finished.then(() => {
+          if (backgroundMusicHandle?.id === handle.id) backgroundMusicHandle = null;
+        });
+      }
+      return handle;
+    })();
+
+    try {
+      return await backgroundMusicPromise;
+    } finally {
+      backgroundMusicPromise = null;
+    }
+  };
+
+  const startBackgroundMusic = async (): Promise<SoundHandle> => {
+    backgroundMusicRequested = true;
+    if (!enabled || typeof window === "undefined")
+      return createNoopHandle(BACKGROUND_MUSIC_SOUND_ID);
+
+    installBackgroundMusicUnlockListeners();
+    if (context?.state !== "running") return createNoopHandle(BACKGROUND_MUSIC_SOUND_ID);
+
+    return startBackgroundMusicNow();
+  };
+
   const play = async (soundId: SoundId, options: SoundPlayOptions = {}): Promise<SoundHandle> => {
     const parsedOptions = SoundPlayOptionsSchema.parse(options);
     const definition = definitions.get(soundId);
@@ -362,7 +483,18 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     if (!audioContext || !bus) return createNoopHandle(soundId);
 
     if (audioContext.state !== "running") {
-      await audioContext.resume();
+      try {
+        await audioContext.resume();
+      } catch {
+        return createNoopHandle(soundId);
+      }
+    }
+
+    if (audioContext.state !== "running") return createNoopHandle(soundId);
+
+    cleanupBackgroundMusicUnlockListeners?.();
+    if (backgroundMusicRequested && soundId !== BACKGROUND_MUSIC_SOUND_ID) {
+      void startBackgroundMusicNow();
     }
 
     const buffer = await loadBuffer(definition);
@@ -374,7 +506,8 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     const voiceId = `${soundId}:${voiceSequence}`;
     voiceSequence += 1;
     source.buffer = buffer;
-    source.detune.value = SOUND_OCTAVE_DOWN_CENTS + (parsedOptions.detuneCents ?? 0);
+    source.detune.value = definition.detuneCents + (parsedOptions.detuneCents ?? 0);
+    source.loop = definition.loop;
     gain.gain.value = definition.volume * (parsedOptions.volume ?? 1);
     source.connect(gain);
     gain.connect(bus.input);
@@ -383,9 +516,10 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     const finished = new Promise<void>((resolve) => {
       resolveFinished = resolve;
     });
+    const duckTokens = startDucking(voiceId, getDuckingForDefinition(definition));
     const voice: Voice = {
       bus: definition.bus,
-      duckTokens: startDucking(voiceId, definition.ducking),
+      duckTokens,
       gain,
       id: voiceId,
       soundId,
@@ -418,9 +552,13 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     dispose() {
       cancelAll();
       stopTransmuteRamp();
+      cleanupBackgroundMusicUnlockListeners?.();
       busNodes.clear();
       activeDucks.clear();
       bufferCache.clear();
+      backgroundMusicHandle = null;
+      backgroundMusicPromise = null;
+      backgroundMusicRequested = false;
       if (context) void context.close();
       context = null;
       masterGain = null;
@@ -447,6 +585,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
     setEnabled(nextEnabled) {
       enabled = nextEnabled;
       if (!enabled) cancelAll(40);
+      if (enabled && backgroundMusicRequested) void startBackgroundMusic();
     },
     setMasterVolume(volume) {
       const audioContext = getContext();
@@ -456,6 +595,7 @@ export function createSoundService(registry: readonly SoundDefinition[]): SoundS
       masterGain.gain.cancelScheduledValues(now);
       masterGain.gain.setTargetAtTime(clamp(volume, 0, 2), now, 0.016);
     },
+    startBackgroundMusic,
     startTransmuteRamp,
     stopTransmuteRamp,
     updateTransmuteRamp,
@@ -468,6 +608,18 @@ function createNoopHandle(soundId: SoundId): SoundHandle {
     id: `noop:${soundId}`,
     soundId,
     stop: noop,
+  };
+}
+
+function softenMusicDucking(ducking: SoundDucking): SoundDucking {
+  if (ducking.bus !== "music") return ducking;
+
+  return {
+    ...ducking,
+    attackMs: Math.min(ducking.attackMs, MAX_MUSIC_DUCK_ATTACK_MS),
+    gain: Math.max(ducking.gain, MIN_MUSIC_DUCK_GAIN),
+    holdMs: Math.min(ducking.holdMs, MAX_MUSIC_DUCK_HOLD_MS),
+    releaseMs: Math.min(ducking.releaseMs, MAX_MUSIC_DUCK_RELEASE_MS),
   };
 }
 

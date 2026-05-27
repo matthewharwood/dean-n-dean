@@ -1,12 +1,14 @@
 import {
   ALCHEMIST_GUILD_BOARD_MODE_TABS,
   ALCHEMY_CRAFTED_CARDS,
+  ALCHEMY_GATHERABLE_CARDS,
   ALCHEMY_QUESTS,
   ALCHEMY_RECIPES,
   type AlchemistGuildBoardMode,
   AlchemistGuildBoardModeSchema,
   type AlchemistGuildBoardSlots,
   type AlchemistGuildBoardState,
+  type AlchemistGuildElementQuantities,
   type AlchemistGuildGatheringLogEntry,
   type AlchemistGuildGatheringState,
   type AlchemistGuildInventoryCooldown,
@@ -368,7 +370,7 @@ type AlchemyBoardCard = {
   familyColor: string;
   id: string;
   imagePath?: string;
-  kind: "crafted" | "element" | "extended";
+  kind: "crafted" | "element" | "extended" | "raw";
   kindLabel: string;
   name: string;
   symbol: string;
@@ -378,6 +380,11 @@ type AlchemyBoardCard = {
 type AlchemyWorkbenchAnyRecipePreview =
   | AlchemyWorkbenchRecipePreview
   | AlchemyWorkbenchExtendedRecipePreview;
+
+type PeriodicCraftingIngredient = {
+  readonly cardId: string;
+  readonly quantity: number;
+};
 
 const alchemyCardsById = new Map<string, AlchemyBoardCard>();
 for (const card of ELEMENT_CARDS) {
@@ -401,6 +408,17 @@ for (const card of ALCHEMY_CRAFTED_CARDS) {
     imagePath: card.imagePath,
     kind: "crafted",
     kindLabel: formatTokenLabel(card.kind),
+    name: card.name,
+    symbol: createCardSymbol(card.name),
+  });
+}
+for (const card of ALCHEMY_GATHERABLE_CARDS) {
+  alchemyCardsById.set(card.cardId, {
+    detailLabel: formatTokenLabel(card.kind),
+    familyColor: "#f59e0b",
+    id: card.cardId,
+    kind: "raw",
+    kindLabel: "Raw",
     name: card.name,
     symbol: createCardSymbol(card.name),
   });
@@ -1333,7 +1351,7 @@ const GatheringRewardCard = defineComponent(
         }`}
         aria-label={
           selected
-            ? `Confirm ${card.name} and add it to the gather log`
+            ? `Confirm ${card.name} and add it to your gathered supplies`
             : `Select ${card.name} as the gathering reward`
         }
         aria-pressed={selected}
@@ -1405,7 +1423,7 @@ const GatheringLogPanel = defineComponent(
       <div className="grid h-full min-h-0 content-start gap-2 overflow-hidden pt-8">
         {entries.length === 0 ? (
           <p className="rounded-[6px] border border-neutral-900/10 bg-white/55 px-3 py-2 text-sm font-bold leading-snug text-neutral-700">
-            New elements will land here after each reward pick.
+            New drops will land here after each reward pick.
           </p>
         ) : (
           entries.slice(0, 8).map((entry) => <GatheringLogRow key={entry.id} entry={entry} />)
@@ -2051,44 +2069,54 @@ const boardModeTabSoundIds = {
 
 const BoardModeTabsPropsSchema = z.object({
   activeTab: BoardModeTabSchema,
+  gatheringNudgeActive: z.boolean(),
   onTabChange: z.custom<(tab: BoardModeTab) => void>(),
 });
 
-const BoardModeTabs = defineComponent(BoardModeTabsPropsSchema, ({ activeTab, onTabChange }) => (
-  <div
-    data-board-section="board-mode-tabs"
-    data-board-name="Board Mode Tabs"
-    data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
-    className="pointer-events-auto flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
-    role="tablist"
-    aria-label="Board modes"
-  >
-    {boardModeTabs.map((tab) => {
-      const selected = activeTab === tab;
-      const TabIcon = boardModeTabIcons[tab];
+const BoardModeTabs = defineComponent(
+  BoardModeTabsPropsSchema,
+  ({ activeTab, gatheringNudgeActive, onTabChange }) => (
+    <div
+      data-board-section="board-mode-tabs"
+      data-board-name="Board Mode Tabs"
+      data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
+      className="pointer-events-auto flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+      role="tablist"
+      aria-label="Board modes"
+    >
+      {boardModeTabs.map((tab) => {
+        const selected = activeTab === tab;
+        const nudgeActive = tab === "gathering" && gatheringNudgeActive;
+        const TabIcon = boardModeTabIcons[tab];
 
-      return (
-        <button
-          key={tab}
-          type="button"
-          role="tab"
-          aria-selected={selected}
-          className={getBoardModeTabClass(selected)}
-          onClick={() => {
-            onTabChange(tab);
-          }}
-        >
-          <TabIcon className="size-3.5 stroke-[2.5]" aria-hidden="true" />
-          <span>{boardModeTabLabels[tab]}</span>
-        </button>
-      );
-    })}
-  </div>
-));
+        return (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            data-gathering-nudge-active={nudgeActive ? "true" : undefined}
+            className={getBoardModeTabClass(selected, nudgeActive)}
+            onClick={() => {
+              onTabChange(tab);
+            }}
+          >
+            <TabIcon className="size-3.5 stroke-[2.5]" aria-hidden="true" />
+            <span>{boardModeTabLabels[tab]}</span>
+          </button>
+        );
+      })}
+    </div>
+  ),
+);
 
-function getBoardModeTabClass(selected: boolean): string {
+function getBoardModeTabClass(selected: boolean, nudgeActive: boolean): string {
   const baseClass =
-    "flex shrink-0 items-center gap-1.5 rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color]";
+    "relative isolate flex shrink-0 items-center gap-1.5 overflow-visible rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color]";
+
+  if (nudgeActive) {
+    return `${baseClass} gathering-nudge-emission bg-emerald-50 text-emerald-950`;
+  }
 
   if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
 
@@ -2697,13 +2725,22 @@ const InventorySlot = defineComponent(
               event.preventDefault();
             }}
           >
-            <img
-              src={getAlchemyCardArtSrc(card)}
-              alt=""
-              aria-hidden="true"
-              className="size-9 object-contain"
-              draggable={false}
-            />
+            {card.imagePath ? (
+              <img
+                src={getAlchemyCardArtSrc(card)}
+                alt=""
+                aria-hidden="true"
+                className="size-9 object-contain"
+                draggable={false}
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                className="grid size-9 place-items-center rounded-[4px] border border-amber-800/35 bg-amber-100 text-[10px] font-black uppercase leading-none text-amber-950"
+              >
+                {card.symbol}
+              </span>
+            )}
             <span className="min-w-0">
               <span className="block truncate text-[12px] font-black leading-tight text-sky-950">
                 {card.name}
@@ -4463,6 +4500,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const gatheringDropChoiceIndexRef = useRef<number | null>(null);
   const gatheringDropFeedbackRef = useRef<GatheringDropFeedback>("none");
   const animatedGatheringRewardKeyRef = useRef<string | null>(null);
+  const gatheringNudgePlayedKeyRef = useRef<string | null>(null);
   const notifiedCooldownIdsRef = useRef<Set<string> | null>(null);
   const dragSequenceRef = useRef(0);
   const gatheringDragSequenceRef = useRef(0);
@@ -4506,11 +4544,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     string[]
   >([]);
   const [pendingQuestNotificationIds, setPendingQuestNotificationIds] = useState<string[]>([]);
+  const [gatheringNudgeDismissedKey, setGatheringNudgeDismissedKey] = useState<string | null>(null);
   const [recipeRevealIds, setRecipeRevealIds] = useState<string[]>([]);
   const [extendedRecipeRevealIds, setExtendedRecipeRevealIds] = useState<string[]>([]);
   const showBoardDebugBadges = useLocalhostMetaKeyDebugBadges();
   const nowMs = useInventoryClock();
   const workbenchCardIds = getWorkbenchCardIds(boardState);
+  const hasWorkbenchCards = workbenchCardIds.some((cardId) => cardId !== null);
   const recipePreview = getAlchemyWorkbenchRecipePreview(workbenchCardIds);
   const extendedRecipePreview = recipePreview
     ? null
@@ -4546,6 +4586,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const activeBoardMode = boardState.activeBoardMode;
   const isGatheringMode = activeBoardMode === "gathering";
   const isExpeditionMode = activeBoardMode === "expedition";
+  const noAvailablePeriodicElements = !hasAvailablePeriodicElement(boardState);
+  const craftingNeedsGathering =
+    !draggedCard &&
+    ((!hasWorkbenchCards && noAvailablePeriodicElements) ||
+      (!canTransmutePreview && !canCompleteAnyPeriodicRecipe(boardState)));
+  const gatheringNudgeKey = craftingNeedsGathering ? createGatheringNudgeKey(boardState) : null;
+  const gatheringNudgeActive =
+    activeBoardMode === "crafting" &&
+    gatheringNudgeKey !== null &&
+    gatheringNudgeDismissedKey !== gatheringNudgeKey;
   const transmuteKnobTravelPx = getTransmuteKnobTravelPx(transmuteTrackWidth);
   const gatheringConfirmKnobTravelPx = getTransmuteKnobTravelPx(gatheringConfirmTrackWidth);
   const canConfirmGatheringAnswer =
@@ -4556,6 +4606,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const gatheringRewardAnimationKey = isGatheringRewardMode
     ? `${boardState.gathering.round}:${boardState.gathering.rewardOptionCardIds.join("|")}`
     : null;
+  const periodicTableDiscoveredKey = boardState.discoveredElementIds.join("|");
+  const periodicTableQuantityKey = ELEMENT_CARDS.map(
+    (card) => `${card.id}:${boardState.elementQuantities[card.id] ?? 0}`,
+  ).join("|");
   boardStateRef.current = boardState;
   extendedLedgerFilterCardIdsRef.current = extendedLedgerFilterCardIds;
 
@@ -4568,6 +4622,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
     const card = getAlchemyCard(grab.card.id);
     if (!card) return;
+    if (!isElementAvailableForCrafting(boardStateRef.current, card.id)) return;
 
     dragSequenceRef.current += 1;
     const nextDraggedCard: DraggedAlchemyCard = {
@@ -4683,6 +4738,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const handleBoardModeTabChange = (nextTab: BoardModeTab) => {
     if (nextTab === activeBoardMode) return;
 
+    if (nextTab === "gathering" && gatheringNudgeKey) {
+      setGatheringNudgeDismissedKey(gatheringNudgeKey);
+    }
     setBoardState((previous) => ({ ...previous, activeBoardMode: nextTab }));
     void sfx.play(boardModeTabSoundIds[nextTab]);
   };
@@ -4757,11 +4815,47 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   const handleGatheringRewardSelect = (cardId: string) => {
     if (selectedGatheringRewardCardId === cardId) {
+      const collectedAtMs = Date.now();
+      const rewardCard = getAlchemyCard(cardId);
+      const destinationSlotId =
+        rewardCard && rewardCard.kind !== "element"
+          ? getInventoryDestinationSlotId(boardStateRef.current, cardId)
+          : null;
+      if (rewardCard && rewardCard.kind !== "element" && !destinationSlotId) {
+        void sfx.play("card.drop");
+        return;
+      }
+
       setSelectedGatheringRewardCardId(null);
-      setBoardState((previous) => ({
-        ...previous,
-        gathering: claimGatheringReward(previous.gathering, cardId),
-      }));
+      setBoardState((previous) => {
+        const nextGathering = claimGatheringReward(previous.gathering, cardId, collectedAtMs);
+        if (nextGathering === previous.gathering) return previous;
+
+        if (rewardCard && rewardCard.kind !== "element") {
+          if (!destinationSlotId) return previous;
+
+          const cooldownId = createInventoryCooldownId(cardId, collectedAtMs, "gather");
+          notifiedCooldownIdsRef.current?.add(cooldownId);
+          return {
+            ...previous,
+            gathering: nextGathering,
+            inventorySlots: addReadyInventoryCopy(
+              previous.inventorySlots,
+              destinationSlotId,
+              cardId,
+              collectedAtMs,
+              cooldownId,
+            ),
+          };
+        }
+
+        return {
+          ...previous,
+          discoveredElementIds: appendUniqueId(previous.discoveredElementIds, cardId),
+          elementQuantities: addElementQuantity(previous.elementQuantities, cardId, 1),
+          gathering: nextGathering,
+        };
+      });
       void sfx.play("gathering.rewardClaim");
       return;
     }
@@ -5162,22 +5256,40 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   usePixiApp(
     periodicTableCanvasRef,
-    (app) => {
+    (app, { reducedMotion }) => {
       if (activeBoardMode === "expedition") {
         return setupExpeditionCanvasScene(app, {
-          getInteractionRect: () =>
-            periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
+          getFitRect: () => periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
         });
       }
 
       return setupPeriodicTableScene(app, {
-        getInteractionRect: () => periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
+        discoveredElementIds: boardStateRef.current.discoveredElementIds,
+        elementQuantities: boardStateRef.current.elementQuantities,
+        getFitRect: () => periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
         onElementGrab: beginElementDrag,
+        reducedMotion,
       });
     },
-    [activeBoardMode],
-    { autoStart: false, backgroundAlpha: 0, preference: "canvas" },
+    [activeBoardMode, periodicTableDiscoveredKey, periodicTableQuantityKey],
+    {
+      backgroundAlpha: 0,
+      preference: "canvas",
+      ...(activeBoardMode === "expedition" ? { autoStart: false } : {}),
+    },
   );
+
+  useEffect(() => {
+    void sfx.startBackgroundMusic();
+  }, []);
+
+  useEffect(() => {
+    if (!gatheringNudgeActive || !gatheringNudgeKey) return;
+    if (gatheringNudgePlayedKeyRef.current === gatheringNudgeKey) return;
+
+    gatheringNudgePlayedKeyRef.current = gatheringNudgeKey;
+    void sfx.play("crafting.needsGathering");
+  }, [gatheringNudgeActive, gatheringNudgeKey]);
 
   useEffect(() => {
     if (isGatheringMode || isExpeditionMode) return;
@@ -5673,6 +5785,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         return;
       }
 
+      if (releaseDropIntent.kind === "blocked") {
+        queueInventoryRemainderReturn(0);
+        void sfx.play("card.drop");
+        return;
+      }
+
       const dropSlotId = getDropIntentSlotId(releaseDropIntent);
       if (!dropSlotId) {
         if (
@@ -5700,6 +5818,27 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             return;
           }
 
+          if (source.kind === "table") {
+            setBoardState((previous) => {
+              const nextElementQuantities = consumeElementQuantity(
+                previous.elementQuantities,
+                activeDraggedCard.card.id,
+              );
+              if (!nextElementQuantities) return previous;
+
+              return {
+                ...previous,
+                elementQuantities: nextElementQuantities,
+                questDeliveries: addSelectedQuestDelivery(
+                  previous.questDeliveries,
+                  currentBoardState.selectedQuestId,
+                ),
+              };
+            });
+            void sfx.play("card.drop");
+            return;
+          }
+
           if (source.kind === "slot") {
             setBoardState((previous) => ({
               ...previous,
@@ -5715,6 +5854,20 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         }
 
         if (source.kind === "slot") {
+          if (activeDraggedCard.card.kind === "element") {
+            setBoardState((previous) => ({
+              ...previous,
+              elementQuantities: addElementQuantity(
+                previous.elementQuantities,
+                activeDraggedCard.card.id,
+                1,
+              ),
+              reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+            }));
+            void sfx.play("card.drop");
+            return;
+          }
+
           if (shouldReturnToInventory(activeDraggedCard.card)) {
             const destinationSlotId = getInventoryDestinationSlotId(
               currentBoardState,
@@ -5783,6 +5936,28 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             [dropSlotId]: activeDraggedCard.card.id,
           },
         }));
+        void sfx.play("card.drop");
+        return;
+      }
+
+      if (source.kind === "table") {
+        setBoardState((previous) => {
+          if (previous.reagentSlots[dropSlotId]) return previous;
+          const nextElementQuantities = consumeElementQuantity(
+            previous.elementQuantities,
+            activeDraggedCard.card.id,
+          );
+          if (!nextElementQuantities) return previous;
+
+          return {
+            ...previous,
+            elementQuantities: nextElementQuantities,
+            reagentSlots: {
+              ...previous.reagentSlots,
+              [dropSlotId]: activeDraggedCard.card.id,
+            },
+          };
+        });
         void sfx.play("card.drop");
         return;
       }
@@ -6142,7 +6317,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         if (target === "action-zone" || target === "monster-panel") {
           setBoardState((previous) => ({
             ...previous,
-            gathering: selectGatheringMove(previous.gathering, activeDraggedCard.move.id),
+            gathering: selectGatheringMove(previous.gathering, activeDraggedCard.move.id, previous),
           }));
           void sfx.play(activeDraggedCard.move.soundId);
           return;
@@ -6355,7 +6530,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           </section>
         )}
 
-        <BoardModeTabs activeTab={activeBoardMode} onTabChange={handleBoardModeTabChange} />
+        <BoardModeTabs
+          activeTab={activeBoardMode}
+          gatheringNudgeActive={gatheringNudgeActive}
+          onTabChange={handleBoardModeTabChange}
+        />
 
         {isExpeditionMode ? (
           <ExpeditionCanvasPanel
@@ -7167,6 +7346,7 @@ function getAlchemyCard(cardId: string | null): AlchemyBoardCard | null {
 function getAlchemyCardSellPrice(card: AlchemyBoardCard): number {
   if (card.kind === "element") return 2 + Math.ceil((card.atomicNumber ?? 1) / 12);
   if (card.kind === "extended") return 18 + Math.min(24, card.symbol.length * 2);
+  if (card.kind === "raw") return 6 + Math.min(10, card.name.length);
   return 10 + Math.min(18, card.name.length);
 }
 
@@ -7275,7 +7455,7 @@ function formatExtendedRecipeLedgerFormula(recipe: StaticExtendedMoleculeRecipe)
 }
 
 function getGatheringGamePanelStatus(gathering: AlchemistGuildGatheringState): string {
-  if (gathering.phase === "reward") return "Monster cleared. Pick one element card.";
+  if (gathering.phase === "reward") return "Monster cleared. Pick one reward card.";
   if (gathering.phase === "move") return "Answer locked. Pick a move card to spend the math.";
   if (gathering.lastAnswerCorrect === false)
     return "That card missed. Drag it back or swap another sum.";
@@ -7340,7 +7520,7 @@ function getGatheringInfoText(gathering: AlchemistGuildGatheringState): string {
     case "move":
       return "The three move cards are the left addend, right addend, and full sum.";
     case "reward":
-      return "Choose one of the three element cards. The pick is added to the gather log.";
+      return "Choose one of the three reward cards. The pick is logged and added to your supplies.";
     default:
       if (gathering.equation.selectedValue !== null) {
         return "The answer card is staged. Swipe the confirm pad to check it.";
@@ -7351,6 +7531,92 @@ function getGatheringInfoText(gathering: AlchemistGuildGatheringState): string {
 
 function getWorkbenchCardIds(boardState: AlchemistGuildBoardState): (string | null)[] {
   return reagentSlots.map((slot) => boardState.reagentSlots[slot.id]);
+}
+
+function hasAvailablePeriodicElement(boardState: AlchemistGuildBoardState): boolean {
+  return ELEMENT_CARDS.some(
+    (card) =>
+      boardState.discoveredElementIds.includes(card.id) &&
+      getElementQuantity(boardState.elementQuantities, card.id) > 0,
+  );
+}
+
+function canCompleteAnyPeriodicRecipe(boardState: AlchemistGuildBoardState): boolean {
+  const stagedElementCounts = getStagedElementCounts(boardState);
+  if (!stagedElementCounts) return false;
+
+  return (
+    ALCHEMY_RECIPES.some((recipe) =>
+      canCompletePeriodicIngredients(
+        recipe.arguments,
+        stagedElementCounts,
+        boardState.elementQuantities,
+      ),
+    ) ||
+    EXTENDED_MOLECULE_RECIPES.some((recipe) =>
+      canCompletePeriodicIngredients(
+        recipe.ingredients,
+        stagedElementCounts,
+        boardState.elementQuantities,
+      ),
+    )
+  );
+}
+
+function getStagedElementCounts(
+  boardState: AlchemistGuildBoardState,
+): ReadonlyMap<string, number> | null {
+  const stagedElementCounts = new Map<string, number>();
+
+  for (const cardId of getWorkbenchCardIds(boardState)) {
+    if (!cardId) continue;
+    const card = getAlchemyCard(cardId);
+    if (card?.kind !== "element") return null;
+    stagedElementCounts.set(cardId, (stagedElementCounts.get(cardId) ?? 0) + 1);
+  }
+
+  return stagedElementCounts;
+}
+
+function canCompletePeriodicIngredients(
+  ingredients: readonly PeriodicCraftingIngredient[],
+  stagedElementCounts: ReadonlyMap<string, number>,
+  elementQuantities: Readonly<AlchemistGuildElementQuantities>,
+): boolean {
+  const requiredElementCounts = new Map<string, number>();
+
+  for (const ingredient of ingredients) {
+    if (!ingredient.cardId.startsWith("element:")) return false;
+    requiredElementCounts.set(
+      ingredient.cardId,
+      (requiredElementCounts.get(ingredient.cardId) ?? 0) + ingredient.quantity,
+    );
+  }
+
+  for (const [cardId, count] of stagedElementCounts) {
+    if (count > (requiredElementCounts.get(cardId) ?? 0)) return false;
+  }
+
+  for (const [cardId, requiredCount] of requiredElementCounts) {
+    const stagedCount = stagedElementCounts.get(cardId) ?? 0;
+    if (requiredCount - stagedCount > getElementQuantity(elementQuantities, cardId)) return false;
+  }
+
+  return true;
+}
+
+function createGatheringNudgeKey(boardState: AlchemistGuildBoardState): string {
+  const progressKey = [
+    boardState.gathering.round,
+    boardState.gathering.gatherLog.length,
+    boardState.completedQuestIds.length,
+  ].join(":");
+  const quantityKey = ELEMENT_CARDS.map(
+    (card) => `${card.id}:${getElementQuantity(boardState.elementQuantities, card.id)}`,
+  ).join(",");
+  const slotKey = reagentSlots.map((slot) => boardState.reagentSlots[slot.id] ?? "empty").join(",");
+
+  return `${progressKey}|${quantityKey}|${slotKey}`;
 }
 
 function getSourceSwapGhostCard(
@@ -7828,7 +8094,46 @@ function createInventoryCooldownId(cardId: string, timestampMs: number, source: 
 }
 
 function shouldReturnToInventory(card: AlchemyBoardCard): boolean {
-  return card.kind === "crafted";
+  return card.kind === "crafted" || card.kind === "raw";
+}
+
+function isElementAvailableForCrafting(
+  boardState: AlchemistGuildBoardState,
+  cardId: string,
+): boolean {
+  return (
+    boardState.discoveredElementIds.includes(cardId) &&
+    getElementQuantity(boardState.elementQuantities, cardId) > 0
+  );
+}
+
+function getElementQuantity(quantities: Readonly<AlchemistGuildElementQuantities>, cardId: string) {
+  return Math.max(0, quantities[cardId] ?? 0);
+}
+
+function addElementQuantity(
+  quantities: AlchemistGuildElementQuantities,
+  cardId: string,
+  amount: number,
+): AlchemistGuildElementQuantities {
+  return {
+    ...quantities,
+    [cardId]: getElementQuantity(quantities, cardId) + amount,
+  };
+}
+
+function consumeElementQuantity(
+  quantities: AlchemistGuildElementQuantities,
+  cardId: string,
+  amount = 1,
+): AlchemistGuildElementQuantities | null {
+  const currentQuantity = getElementQuantity(quantities, cardId);
+  if (currentQuantity < amount) return null;
+
+  return {
+    ...quantities,
+    [cardId]: currentQuantity - amount,
+  };
 }
 
 function appendUniqueId(ids: string[], id: string): string[] {
@@ -7933,7 +8238,7 @@ function resolveDropIntent(
   const targetCardId = boardState.reagentSlots[slotId];
   if (!targetCardId) return { kind: "drop", slotId };
   if (source.kind === "slot") return { kind: "swap", slotId };
-  return { kind: "replace", slotId };
+  return { kind: "blocked", slotId };
 }
 
 function isSameDropIntent(left: DropIntent, right: DropIntent): boolean {

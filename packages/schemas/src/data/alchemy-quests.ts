@@ -232,7 +232,7 @@ export const ALCHEMY_QUESTS = [
     narrative: {
       title: "Sir Bubbleton Needs Water",
       requester: "knight",
-      summary: "Professor Atomwick opens the vault with Hydrogen, Oxygen, and Carbon glowing.",
+      summary: "Professor Atomwick parts the fog around two Hydrogen cards and one Oxygen card.",
       need: "My training helmet is steaming. Can you make Water before the plume turns into fire?",
       hint: "Water is H2O: two Hydrogen cards and one Oxygen card fill the starter Alchemy Workbench.",
       completion:

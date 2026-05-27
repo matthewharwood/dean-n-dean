@@ -4,6 +4,18 @@ import { type SoundDefinition, SoundDefinitionSchema } from "./schema";
 
 export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).parse([
   {
+    bus: "music",
+    detuneCents: 0,
+    ducking: [],
+    id: "music.crownIn8Bit",
+    interruptFadeMs: 300,
+    loop: true,
+    maxVoices: 1,
+    replay: "ignore",
+    url: "/music/crown-in-8-bit.mp3",
+    volume: 0.46,
+  },
+  {
     bus: "ui",
     ducking: [
       { attackMs: 8, bus: "music", gain: 0.9, holdMs: 40, releaseMs: 110 },
@@ -182,6 +194,21 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     replay: "overlap",
     url: "/sfx/ui/cooldown-ready.mp3",
     volume: 0.64,
+  },
+  {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.86, holdMs: 80, releaseMs: 180 },
+      { attackMs: 8, bus: "ambience", gain: 0.9, holdMs: 70, releaseMs: 160 },
+    ],
+    generatorPrompt:
+      "Small polished steel tuning fork struck once, pure resonant A-note shimmer with soft crystal overtone, dry centered mobile game UI, quick one-shot with warm fading tail, guiding and calm.",
+    id: "crafting.needsGathering",
+    interruptFadeMs: 8,
+    maxVoices: 3,
+    replay: "restart",
+    url: "/sfx/ui/cooldown-ready.mp3",
+    volume: 0.7,
   },
   {
     bus: "ui",

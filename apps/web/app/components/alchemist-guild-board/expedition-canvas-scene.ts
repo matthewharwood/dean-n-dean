@@ -10,6 +10,7 @@ const PRIMARY_POINTER_BUTTON = 0;
 const MIDDLE_POINTER_BUTTON = 1;
 
 type ExpeditionCanvasSceneOptions = {
+  getFitRect?: () => DOMRect | null;
   getInteractionRect?: () => DOMRect | null;
 };
 
@@ -51,9 +52,9 @@ export function setupExpeditionCanvasScene(
     if (!disposed) app.render();
   };
 
-  const getCanvasLocalInteractionRect = (): ViewRect => {
-    const interactionRect = options.getInteractionRect?.();
-    if (!interactionRect || interactionRect.width <= 0 || interactionRect.height <= 0) {
+  const getCanvasLocalFitRect = (): ViewRect => {
+    const fitRect = options.getFitRect?.() ?? options.getInteractionRect?.();
+    if (!fitRect || fitRect.width <= 0 || fitRect.height <= 0) {
       return { height: app.screen.height, left: 0, top: 0, width: app.screen.width };
     }
 
@@ -62,17 +63,17 @@ export function setupExpeditionCanvasScene(
     const scaleY = app.screen.height / Math.max(canvasRect.height, 1);
 
     return {
-      height: interactionRect.height * scaleY,
-      left: (interactionRect.left - canvasRect.left) * scaleX,
-      top: (interactionRect.top - canvasRect.top) * scaleY,
-      width: interactionRect.width * scaleX,
+      height: fitRect.height * scaleY,
+      left: (fitRect.left - canvasRect.left) * scaleX,
+      top: (fitRect.top - canvasRect.top) * scaleY,
+      width: fitRect.width * scaleX,
     };
   };
 
   const centerWorld = () => {
     if (disposed || hasInteracted) return;
 
-    const fitRect = getCanvasLocalInteractionRect();
+    const fitRect = getCanvasLocalFitRect();
     worldLayer.scale.set(1);
     worldLayer.position.set(fitRect.left + fitRect.width / 2, fitRect.top + fitRect.height / 2);
     renderNow();

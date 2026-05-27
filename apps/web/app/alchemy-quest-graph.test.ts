@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ALCHEMIST_GUILD_BOARD_DEFAULT,
+  ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS,
+  ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES,
   ALCHEMY_MAX_TABLE_SLOT_COUNT,
   ALCHEMY_QUESTS,
   ALCHEMY_RECIPE_KID_INFO,
@@ -24,6 +27,15 @@ import {
 describe("alchemy quest graph", () => {
   test("validates the full deterministic quest DAG", () => {
     expect(validateAlchemyQuestGraph()).toHaveLength(ALCHEMY_QUESTS.length);
+  });
+
+  test("starts crafting behind fog with only Water recipe elements stocked", () => {
+    expect(ALCHEMIST_GUILD_BOARD_DEFAULT.discoveredElementIds).toEqual([
+      ...ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS,
+    ]);
+    expect(ALCHEMIST_GUILD_BOARD_DEFAULT.elementQuantities).toEqual({
+      ...ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES,
+    });
   });
 
   test("assigns every alchemy recipe to exactly one quest", () => {

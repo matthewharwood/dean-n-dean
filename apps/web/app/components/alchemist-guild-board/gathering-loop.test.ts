@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { ALCHEMIST_GUILD_BOARD_DEFAULT } from "@dean-stack/schemas";
 
 import {
   claimGatheringReward,
   clearGatheringAnswer,
   confirmGatheringAnswer,
   createGatheringEquation,
+  createGatheringRewardOptions,
   createGatheringRound,
   getGatheringMoves,
   selectGatheringAnswer,
@@ -86,6 +88,19 @@ describe("gathering loop", () => {
     expect(rewarded.phase).toBe("reward");
     expect(rewarded.monster.hp).toBe(0);
     expect(rewarded.rewardOptionCardIds).toHaveLength(3);
+  });
+
+  test("weights post-water gathering rewards toward the next quest window", () => {
+    const options = createGatheringRewardOptions(2, {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      completedQuestIds: ["quest:first-water"],
+    });
+    const kitchenNeeds = new Set(["element:na", "element:cl", "raw:wood"]);
+    const focusedNeedCount = options.filter((cardId) => kitchenNeeds.has(cardId)).length;
+
+    expect(options).toHaveLength(3);
+    expect(new Set(options).size).toBe(3);
+    expect(focusedNeedCount).toBeGreaterThanOrEqual(2);
   });
 
   test("dragging the equation answer back out clears the slot", () => {
