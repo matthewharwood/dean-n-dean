@@ -26,6 +26,7 @@ export const SoundIdSchema = z.enum([
   "gathering.rewardClaim",
   "music.crownIn8Bit",
   "transmute.complete",
+  "transmute.failed",
 ]);
 export type SoundId = z.infer<typeof SoundIdSchema>;
 

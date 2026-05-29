@@ -9,6 +9,8 @@ import {
   type AlchemistGuildBoardSlots,
   type AlchemistGuildBoardState,
   type AlchemistGuildElementQuantities,
+  type AlchemistGuildEmergentRecipe,
+  type AlchemistGuildEmergentRecipeRarity,
   type AlchemistGuildGatheringLogEntry,
   type AlchemistGuildGatheringState,
   type AlchemistGuildInventoryCooldown,
@@ -32,6 +34,7 @@ import {
   getAvailableAlchemyQuests,
   getExtendedMoleculeKidInfoById,
   type StaticAlchemyQuest,
+  type StaticAlchemyRecipe,
   type StaticExtendedMoleculeRecipe,
 } from "@dean-stack/schemas";
 import {
@@ -83,6 +86,13 @@ import { usePixiApp } from "~/canvas/use-pixi-app";
 import { defineComponent } from "~/lib/define-component";
 import { sfx } from "~/sound/sfx";
 import { alchemistGuildBoardAtom } from "~/state/atoms";
+import {
+  type AlchemyWorkbenchEmergentPreview,
+  createEmergentTransmutationResult,
+  formatEmergentRecipeIngredients,
+  getAlchemyWorkbenchEmergentPreview,
+  recordEmergentDiscovery,
+} from "./emergent-recipes";
 import { setupExpeditionCanvasScene } from "./expedition-canvas-scene";
 import {
   claimGatheringReward,
@@ -91,6 +101,7 @@ import {
   type GatheringMove,
   type GatheringMoveId,
   getGatheringMoves,
+  resetGatheringEquationAfterWrongStreak,
   selectGatheringAnswer,
   selectGatheringMove,
   swapGatheringAnswerWithChoice,
@@ -131,6 +142,10 @@ const GATHERING_MONSTER_DEATH_DURATION_MS = 1080;
 const GATHERING_MONSTER_DEATH_PARTICLE_COUNT = 84;
 const GATHERING_REWARD_CARD_FLY_DURATION_MS = 560;
 const GATHERING_REWARD_CARD_FLY_STAGGER_MS = 110;
+const GATHERING_SESSION_DEPOSIT_DURATION_MS = 620;
+const GATHERING_SESSION_DEPOSIT_STAGGER_MS = 58;
+const GATHERING_WRONG_RESET_DURATION_MS = 680;
+const GATHERING_WRONG_RESET_STAGGER_MS = 46;
 const EXTENDED_LEDGER_FILTER_SLOT_COUNT = 5;
 const INVENTORY_SELL_COIN_FLY_DURATION_MS = 620;
 const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
@@ -312,7 +327,7 @@ const gatheringMoveVisuals = {
   },
 } satisfies Record<GatheringMoveId, GatheringMoveVisual>;
 
-const infoPanelTabs = ["element", "recipe", "extended"] as const;
+const infoPanelTabs = ["element", "recipe", "extended", "emergent"] as const;
 const InfoPanelTabSchema = z.enum(infoPanelTabs);
 type InfoPanelTab = z.infer<typeof InfoPanelTabSchema>;
 
@@ -325,7 +340,7 @@ const BoardModeTabSchema = AlchemistGuildBoardModeSchema;
 type BoardModeTab = AlchemistGuildBoardMode;
 
 type RewardKind = "discovery" | "gold" | "knowledge" | "muddlefog";
-type WorkbenchDiscoveryDetailKind = "extended" | "recipe";
+type WorkbenchDiscoveryDetailKind = "emergent" | "extended" | "recipe";
 type WorkbenchDiscoverySourceLink = {
   label: string;
   url: string;
@@ -370,16 +385,42 @@ type AlchemyBoardCard = {
   familyColor: string;
   id: string;
   imagePath?: string;
-  kind: "crafted" | "element" | "extended" | "raw";
+  kind: "crafted" | "element" | "emergent" | "extended" | "raw";
   kindLabel: string;
   name: string;
   symbol: string;
   atomicNumber?: number;
 };
 
-type AlchemyWorkbenchAnyRecipePreview =
+type AlchemyWorkbenchStaticRecipePreview =
   | AlchemyWorkbenchRecipePreview
   | AlchemyWorkbenchExtendedRecipePreview;
+
+type AlchemyWorkbenchAnyRecipePreview =
+  | AlchemyWorkbenchStaticRecipePreview
+  | AlchemyWorkbenchEmergentPreview;
+
+type EmergentTransmutationNotice = {
+  id: string;
+  message: string;
+  status: "failure" | "success";
+  name?: string;
+  rarity?: AlchemistGuildEmergentRecipeRarity;
+};
+
+type GatheringSessionReviewState = {
+  depositing: boolean;
+  entries: readonly AlchemistGuildGatheringLogEntry[];
+  id: string;
+  targetTab: BoardModeTab;
+};
+
+type GatheringSessionRewardSummary = {
+  card: AlchemyBoardCard;
+  cardId: string;
+  count: number;
+  latestRound: number;
+};
 
 type PeriodicCraftingIngredient = {
   readonly cardId: string;
@@ -1467,6 +1508,134 @@ const GatheringLogRow = defineComponent(GatheringLogRowPropsSchema, ({ entry }) 
     </div>
   );
 });
+
+const GatheringSessionReviewModalPropsSchema = z.object({
+  depositing: z.boolean(),
+  entries: z.array(z.custom<AlchemistGuildGatheringLogEntry>()),
+  onConfirm: z.custom<() => void>(),
+  onStay: z.custom<() => void>(),
+});
+
+const GatheringSessionReviewModal = defineComponent(
+  GatheringSessionReviewModalPropsSchema,
+  ({ depositing, entries, onConfirm, onStay }) => {
+    const dialogRef = useRef<HTMLDialogElement>(null);
+    const rewardSummaries = createGatheringSessionRewardSummaries(entries);
+    const totalCount = rewardSummaries.reduce((total, summary) => total + summary.count, 0);
+    const totalCountLabel = `${totalCount} reward${totalCount === 1 ? "" : "s"} will be logged into your workshop.`;
+    const footerCopy = depositing ? "Sending rewards to the workshop..." : totalCountLabel;
+
+    useBrowserLayoutEffect(() => {
+      const dialogElement = dialogRef.current;
+      if (!dialogElement) return;
+      if (!dialogElement.open) dialogElement.showModal();
+
+      return () => {
+        if (dialogElement.open) dialogElement.close();
+      };
+    }, []);
+
+    useBrowserLayoutEffect(() => {
+      const dialogElement = dialogRef.current;
+      if (!dialogElement || depositing || prefersReducedMotion()) return;
+
+      const animation = animate(dialogElement, {
+        duration: 260,
+        ease: "out(3)",
+        opacity: [0, 1],
+        scale: [0.96, 1],
+        y: [18, 0],
+      });
+
+      return () => {
+        animation.cancel();
+      };
+    }, [depositing]);
+
+    return (
+      <dialog
+        ref={dialogRef}
+        aria-labelledby="gathering-session-review-title"
+        data-board-section="gathering-session-review-modal"
+        data-gathering-session-depositing={depositing ? "true" : "false"}
+        className="m-auto max-h-[min(42rem,calc(100vh_-_2rem))] w-[min(36rem,calc(100vw_-_2rem))] overflow-hidden rounded-[8px] border border-emerald-900/25 bg-[#f7f7f7] p-0 text-neutral-950 shadow-[0_24px_60px_rgba(15,23,42,0.36)] backdrop:bg-neutral-950/42 backdrop:backdrop-blur-sm"
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!depositing) onStay();
+        }}
+      >
+        <div className="grid max-h-[min(42rem,calc(100vh_-_2rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-4 p-4">
+          <div className="grid gap-1">
+            <p className="text-xs font-black uppercase leading-none text-emerald-900">
+              Gathering Session
+            </p>
+            <h2
+              id="gathering-session-review-title"
+              className="font-serif text-2xl font-black leading-tight"
+            >
+              Rewards Ready
+            </h2>
+            <p className="text-sm font-semibold leading-snug text-neutral-700">
+              Here are your rewards for this gathering session.
+            </p>
+          </div>
+
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {rewardSummaries.map((summary) => (
+                <div
+                  key={summary.cardId}
+                  data-gathering-session-reward-card={summary.cardId}
+                  className="relative grid min-h-[9.25rem] grid-rows-[1fr_auto] overflow-hidden rounded-[6px] border-2 border-emerald-700/40 bg-white shadow-[0_10px_22px_rgba(15,23,42,0.12)]"
+                >
+                  <span
+                    className="grid min-h-20 place-items-center border-b border-neutral-900/10 px-2 text-center text-3xl font-black leading-none text-neutral-950"
+                    style={{ backgroundColor: summary.card.familyColor }}
+                  >
+                    {summary.card.symbol}
+                  </span>
+                  <span className="grid gap-1 p-2 text-center">
+                    <span className="truncate text-sm font-black leading-tight">
+                      {summary.card.name}
+                    </span>
+                    <span className="text-[10px] font-black uppercase leading-none text-neutral-600">
+                      Round {summary.latestRound}
+                    </span>
+                  </span>
+                  <span className="absolute right-2 top-2 rounded-full border border-emerald-900/25 bg-emerald-50 px-2 py-1 text-xs font-black leading-none text-emerald-950 shadow-[0_4px_10px_rgba(15,23,42,0.16)]">
+                    x{summary.count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 border-t border-neutral-900/10 pt-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+            <p className="text-sm font-bold leading-snug text-neutral-700">{footerCopy}</p>
+            <button
+              type="button"
+              disabled={depositing}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[6px] border border-neutral-900/15 bg-white px-4 py-2 text-sm font-black text-neutral-800 shadow-[0_2px_0_rgba(15,23,42,0.14)] transition-[background-color,opacity,transform] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={onStay}
+            >
+              <Pickaxe className="size-4" strokeWidth={2.5} aria-hidden="true" />
+              Stay Gathering
+            </button>
+            <button
+              type="button"
+              disabled={depositing}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[6px] border border-emerald-950/20 bg-emerald-500 px-4 py-2 text-sm font-black text-emerald-950 shadow-[0_2px_0_rgba(15,23,42,0.2)] transition-[background-color,opacity,transform] hover:bg-emerald-400 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={onConfirm}
+            >
+              <CheckCircle2 className="size-4" strokeWidth={2.8} aria-hidden="true" />
+              Confirm to Crafting
+            </button>
+          </div>
+        </div>
+      </dialog>
+    );
+  },
+);
 
 const GatheringMonsterPanelPropsSchema = z.object({
   deathAnimation: z.custom<GatheringMonsterDeathAnimation | null>(),
@@ -2868,7 +3037,9 @@ const OutputSlotPreview = defineComponent(
     );
 
     if (preview) {
-      content = (
+      content = isEmergentRecipePreview(preview) ? (
+        <OutputEmergentCard key={preview.formula} preview={preview} />
+      ) : (
         <OutputRecipeCard key={preview.recipe.id} alreadyMade={alreadyMade} preview={preview} />
       );
     }
@@ -2893,7 +3064,7 @@ const OutputSlotPreview = defineComponent(
 
 const OutputRecipeCardPropsSchema = z.object({
   alreadyMade: z.boolean(),
-  preview: z.custom<AlchemyWorkbenchAnyRecipePreview>(),
+  preview: z.custom<AlchemyWorkbenchStaticRecipePreview>(),
 });
 
 const OutputRecipeCard = defineComponent(
@@ -2947,6 +3118,107 @@ const OutputRecipeCard = defineComponent(
         </span>
         {alreadyMade ? <AlreadyMadeStamp /> : null}
       </article>
+    );
+  },
+);
+
+const OutputEmergentCardPropsSchema = z.object({
+  preview: z.custom<AlchemyWorkbenchEmergentPreview>(),
+});
+
+const OutputEmergentCard = defineComponent(OutputEmergentCardPropsSchema, ({ preview }) => {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setVisible(true);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  return (
+    <article
+      data-output-emergent-card=""
+      data-output-formula={preview.formula}
+      className={`absolute -inset-px grid select-none grid-rows-[auto_1fr_auto] overflow-hidden rounded-[6px] border-2 border-amber-800/55 bg-amber-50/95 p-1.5 text-center shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+      aria-label="Emergent mystery output preview"
+    >
+      <span className="justify-self-end rounded-[3px] bg-amber-950 px-1.5 py-0.5 font-mono text-[10px] font-black leading-none text-white">
+        {preview.formula}
+      </span>
+      <span className="mx-auto grid size-16 place-items-center self-center rounded-full border border-amber-900/25 bg-amber-100/80 font-serif text-5xl font-black leading-none text-amber-950 shadow-[inset_0_1px_8px_rgba(255,255,255,0.72)]">
+        ?
+      </span>
+      <span className="grid gap-0.5">
+        <span className="truncate font-serif text-lg font-bold leading-none text-amber-950">
+          Unknown
+        </span>
+        <span className="truncate text-[9px] font-bold uppercase leading-none tracking-normal text-amber-950/65">
+          Emergent
+        </span>
+      </span>
+    </article>
+  );
+});
+
+const EmergentTransmutationToastPropsSchema = z.object({
+  notice: z.custom<EmergentTransmutationNotice>(),
+});
+
+const EmergentTransmutationToast = defineComponent(
+  EmergentTransmutationToastPropsSchema,
+  ({ notice }) => {
+    const toastRef = useRef<HTMLOutputElement>(null);
+    const success = notice.status === "success";
+    const Icon = success ? Sparkles : X;
+    const rarityText = notice.rarity ? formatEmergentRecipeRarity(notice.rarity) : "Emergent";
+    const detailText = notice.name ? `${notice.name} · ${rarityText}` : "Unstable reaction";
+
+    useBrowserLayoutEffect(() => {
+      const toastElement = toastRef.current;
+      if (!toastElement || prefersReducedMotion()) return;
+
+      const animation = animate(toastElement, {
+        duration: success ? 380 : 280,
+        ease: success ? "out(3)" : "inOut(2)",
+        opacity: [0, 1],
+        scale: success ? [0.92, 1.04, 1] : [0.98, 1],
+        x: success ? [0, 0] : [-8, 8, -4, 4, 0],
+        y: [10, 0],
+      });
+
+      return () => {
+        animation.cancel();
+      };
+    }, [notice.id, success]);
+
+    return (
+      <output
+        ref={toastRef}
+        aria-live="polite"
+        data-board-section="emergent-transmutation-toast"
+        data-emergent-status={notice.status}
+        className={`pointer-events-none fixed left-1/2 top-20 z-[90] grid min-w-56 -translate-x-1/2 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-[7px] border px-3 py-2 shadow-[0_18px_36px_rgba(15,23,42,0.24)] ${
+          success
+            ? "border-amber-800/30 bg-amber-50/95 text-amber-950"
+            : "border-rose-800/25 bg-rose-50/95 text-rose-950"
+        }`}
+      >
+        <span className="grid size-8 place-items-center rounded-full border border-current/25 bg-white/65">
+          <Icon className="size-4 stroke-[2.8]" aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-black leading-tight">{notice.message}</span>
+          <span className="block truncate text-[10px] font-bold uppercase leading-tight tracking-normal opacity-75">
+            {detailText}
+          </span>
+        </span>
+      </output>
     );
   },
 );
@@ -3017,17 +3289,21 @@ const AlreadyMadeStamp = defineComponent(z.object({}), () => {
 
 const AlchemyWorkbenchInfoPanelPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
+  discoveredEmergentRecipes: z.array(z.custom<AlchemistGuildEmergentRecipe>()),
   discoveredExtendedRecipeIds: z.array(z.string().min(1)),
   discoveredRecipeIds: z.array(z.string().min(1)),
   extendedLedgerFilterCardIds: z.array(z.string().min(1)),
   extendedLedgerFilterDropFeedback: z.custom<DropFeedback>(),
+  hasEmergentRecipeNotifications: z.boolean(),
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
+  onEmergentRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onExtendedLedgerFilterRemove: z.custom<(cardId: string) => void>(),
   onExtendedRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
   preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  revealEmergentRecipeIds: z.array(z.string().min(1)),
   revealExtendedRecipeIds: z.array(z.string().min(1)),
   revealRecipeIds: z.array(z.string().min(1)),
 });
@@ -3036,17 +3312,21 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
   AlchemyWorkbenchInfoPanelPropsSchema,
   ({
     activeTab,
+    discoveredEmergentRecipes,
     discoveredExtendedRecipeIds,
     discoveredRecipeIds,
     extendedLedgerFilterCardIds,
     extendedLedgerFilterDropFeedback,
+    hasEmergentRecipeNotifications,
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
+    onEmergentRecipeRevealSeen,
     onExtendedLedgerFilterRemove,
     onExtendedRecipeRevealSeen,
     onRecipeRevealSeen,
     onTabChange,
     preview,
+    revealEmergentRecipeIds,
     revealExtendedRecipeIds,
     revealRecipeIds,
   }) => {
@@ -3070,6 +3350,10 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
 
     const handleExtendedRecipeInspect = (recipe: ExtendedRecipeLedgerRecipe) => {
       setSelectedDiscoveryDetail(createExtendedMoleculeDiscoveryDetail(recipe));
+    };
+
+    const handleEmergentRecipeInspect = (recipe: AlchemistGuildEmergentRecipe) => {
+      setSelectedDiscoveryDetail(createEmergentRecipeDiscoveryDetail(recipe));
     };
 
     useBrowserLayoutEffect(() => {
@@ -3114,6 +3398,16 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
         />
       );
     }
+    if (activeTab === "emergent") {
+      content = (
+        <EmergentRecipeLedger
+          recipes={discoveredEmergentRecipes}
+          onRecipeInspect={handleEmergentRecipeInspect}
+          onRevealSeen={onEmergentRecipeRevealSeen}
+          revealRecipeIds={revealEmergentRecipeIds}
+        />
+      );
+    }
 
     if (selectedDiscoveryDetail?.kind === activeTab) {
       content = <DiscoveryInfoPanel detail={selectedDiscoveryDetail} onBack={handleBackToLedger} />;
@@ -3123,6 +3417,7 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
       <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] text-neutral-950 [perspective:900px]">
         <InfoPanelTabs
           activeTab={activeTab}
+          hasEmergentRecipeNotifications={hasEmergentRecipeNotifications}
           hasExtendedRecipeNotifications={hasExtendedRecipeNotifications}
           hasRecipeNotifications={hasRecipeNotifications}
           onTabChange={handleTabChange}
@@ -3137,6 +3432,7 @@ const AlchemyWorkbenchInfoPanel = defineComponent(
 
 const InfoPanelTabsPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
+  hasEmergentRecipeNotifications: z.boolean(),
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
@@ -3144,13 +3440,20 @@ const InfoPanelTabsPropsSchema = z.object({
 
 const infoPanelTabLabels = {
   element: "Element",
+  emergent: "Emergent",
   extended: "Extended",
   recipe: "Recipe",
 } satisfies Record<InfoPanelTab, string>;
 
 const InfoPanelTabs = defineComponent(
   InfoPanelTabsPropsSchema,
-  ({ activeTab, hasExtendedRecipeNotifications, hasRecipeNotifications, onTabChange }) => (
+  ({
+    activeTab,
+    hasEmergentRecipeNotifications,
+    hasExtendedRecipeNotifications,
+    hasRecipeNotifications,
+    onTabChange,
+  }) => (
     <div
       data-board-section="alchemy-workbench-info-tabs"
       className="flex items-center gap-1 border-b border-white/45 p-2 pb-1.5"
@@ -3161,7 +3464,8 @@ const InfoPanelTabs = defineComponent(
         const selected = activeTab === tab;
         const showBadge =
           (tab === "recipe" && hasRecipeNotifications) ||
-          (tab === "extended" && hasExtendedRecipeNotifications);
+          (tab === "extended" && hasExtendedRecipeNotifications) ||
+          (tab === "emergent" && hasEmergentRecipeNotifications);
 
         return (
           <button
@@ -3216,12 +3520,24 @@ const DiscoveryInfoPanel = defineComponent(DiscoveryInfoPanelPropsSchema, ({ det
       </button>
       <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-3">
         <div className="grid size-16 place-items-center overflow-hidden rounded-[6px] border border-sky-900/25 bg-white/80">
-          <img
-            src={detail.imageUrl}
-            alt={detail.imageAlt}
-            className="size-14 object-contain"
-            draggable={false}
-          />
+          {detail.kind === "emergent" ? (
+            <>
+              <span
+                className="grid size-14 place-items-center rounded-full border border-amber-900/25 bg-amber-100/80 font-serif text-4xl font-black leading-none text-amber-950"
+                aria-hidden="true"
+              >
+                ?
+              </span>
+              <span className="sr-only">{detail.imageAlt}</span>
+            </>
+          ) : (
+            <img
+              src={detail.imageUrl}
+              alt={detail.imageAlt}
+              className="size-14 object-contain"
+              draggable={false}
+            />
+          )}
         </div>
         <div className="min-w-0 self-center">
           <p className="truncate text-[10px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
@@ -3314,6 +3630,68 @@ const AlchemyWorkbenchElementPanel = defineComponent(
             Match a recipe exactly in the Alchemy Workbench to preview its output here.
           </p>
         </div>
+      );
+    }
+
+    if (isEmergentRecipePreview(preview)) {
+      return (
+        <article
+          data-workbench-info-emergent=""
+          className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 p-3 text-neutral-950"
+        >
+          <header className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3">
+            <div className="grid size-14 place-items-center rounded-[5px] border border-amber-900/30 bg-amber-100/75 font-serif text-4xl font-black leading-none text-amber-950">
+              ?
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase leading-none tracking-normal text-amber-950/65">
+                emergent:pending
+              </p>
+              <h2 className="truncate font-serif text-2xl leading-none text-amber-950">
+                Unknown reaction
+              </h2>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <InfoBadge label="Emergent" />
+                <InfoBadge label="Chance" />
+                <InfoBadge label={`${preview.orderedIngredientCardIds.length} slots`} />
+              </div>
+            </div>
+          </header>
+
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <section className="grid gap-1.5 rounded-[5px] border border-amber-900/20 bg-white/55 p-2">
+              <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-amber-950/65">
+                Ingredients
+              </h3>
+              <p className="font-mono text-sm font-black leading-none text-amber-950">
+                {preview.formula}
+              </p>
+              <dl className="grid gap-1">
+                {preview.ingredientRows.map((ingredient) => (
+                  <div
+                    key={ingredient.slotId}
+                    className="grid grid-cols-[1fr_auto] gap-2 text-xs leading-tight"
+                  >
+                    <dt className="min-w-0 truncate font-bold text-neutral-900">
+                      {ingredient.label}
+                    </dt>
+                    <dd className="font-semibold text-neutral-700">Slot {ingredient.slotNumber}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            <section className="mt-2 grid gap-1.5 rounded-[5px] border border-amber-900/20 bg-white/55 p-2">
+              <h3 className="text-[11px] font-semibold uppercase leading-none tracking-normal text-amber-950/65">
+                Mystery pull
+              </h3>
+              <p className="text-xs font-semibold leading-snug text-neutral-800">
+                This combination missed the known recipe ledgers. Swipe the pad to see whether it
+                stabilizes into a named emergent card.
+              </p>
+            </section>
+          </div>
+        </article>
       );
     }
 
@@ -3916,6 +4294,143 @@ const ExtendedRecipeLedgerItem = defineComponent(
     ),
 );
 
+const EmergentRecipeLedgerPropsSchema = z.object({
+  onRecipeInspect: z.custom<(recipe: AlchemistGuildEmergentRecipe) => void>(),
+  onRevealSeen: z.custom<(recipeId: string) => void>(),
+  recipes: z.array(z.custom<AlchemistGuildEmergentRecipe>()),
+  revealRecipeIds: z.array(z.string().min(1)),
+});
+
+const EmergentRecipeLedger = defineComponent(
+  EmergentRecipeLedgerPropsSchema,
+  ({ onRecipeInspect, onRevealSeen, recipes, revealRecipeIds }) => {
+    const recipeListRef = useRef<HTMLUListElement>(null);
+    const onRevealSeenRef = useRef(onRevealSeen);
+    const revealRecipeIdsKey = revealRecipeIds.join(RECIPE_REVEAL_ID_SEPARATOR);
+
+    useEffect(() => {
+      onRevealSeenRef.current = onRevealSeen;
+    }, [onRevealSeen]);
+
+    useBrowserLayoutEffect(() => {
+      const recipeList = recipeListRef.current;
+      if (!recipeList || revealRecipeIdsKey.length === 0) return;
+
+      const cleanups = revealRecipeIdsKey
+        .split(RECIPE_REVEAL_ID_SEPARATOR)
+        .flatMap((recipeId, index) => {
+          const element = recipeList.querySelector(`[data-recipe-id="${recipeId}"]`);
+          if (!isHTMLElement(element)) return [];
+
+          return [
+            observeRecipeReveal({
+              delayMs: index * RECIPE_REVEAL_STAGGER_MS,
+              element,
+              onSeen: () => {
+                onRevealSeenRef.current(recipeId);
+              },
+              scrollRoot: recipeList,
+            }),
+          ];
+        });
+
+      if (cleanups.length === 0) return;
+
+      return () => {
+        for (const cleanup of cleanups) cleanup();
+      };
+    }, [revealRecipeIdsKey]);
+
+    return (
+      <section
+        data-board-section="emergent-recipe-ledger"
+        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 p-3"
+      >
+        <header className="grid grid-cols-[1fr_auto] items-end gap-2">
+          <div>
+            <h2 className="font-serif text-xl leading-none text-amber-950">Emergent Ledger</h2>
+            <p className="mt-1 text-[11px] font-semibold leading-tight text-neutral-700">
+              Stabilized mystery cards append here.
+            </p>
+          </div>
+          <span className="rounded-full border border-amber-900/20 bg-white/65 px-2 py-1 font-mono text-[10px] font-black leading-none text-amber-950">
+            {recipes.length}
+          </span>
+        </header>
+        <ul
+          ref={recipeListRef}
+          data-board-section="emergent-recipe-ledger-list"
+          className="grid min-h-0 content-start gap-1.5 overflow-y-auto pr-1"
+          aria-label="All emergent discoveries"
+          aria-live="polite"
+        >
+          {recipes.map((recipe) => (
+            <EmergentRecipeLedgerItem
+              key={recipe.id}
+              isReveal={revealRecipeIds.includes(recipe.id)}
+              onInspect={onRecipeInspect}
+              recipe={recipe}
+            />
+          ))}
+          {recipes.length === 0 ? (
+            <li className="grid min-h-20 place-items-center rounded-[6px] border border-neutral-900/10 bg-white/35 p-3 text-center text-xs font-bold leading-snug text-neutral-700">
+              No emergent cards yet.
+            </li>
+          ) : null}
+        </ul>
+      </section>
+    );
+  },
+);
+
+const EmergentRecipeLedgerItemPropsSchema = z.object({
+  isReveal: z.boolean(),
+  onInspect: z.custom<(recipe: AlchemistGuildEmergentRecipe) => void>(),
+  recipe: z.custom<AlchemistGuildEmergentRecipe>(),
+});
+
+const EmergentRecipeLedgerItem = defineComponent(
+  EmergentRecipeLedgerItemPropsSchema,
+  ({ isReveal, onInspect, recipe }) => (
+    <li
+      data-recipe-id={recipe.id}
+      data-emergent-rarity={recipe.rarity}
+      data-recipe-reveal={isReveal ? "true" : undefined}
+      className={`rounded-[6px] border p-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.08)] ${getEmergentRecipeShellClass(
+        recipe.rarity,
+      )}`}
+    >
+      <button
+        type="button"
+        className="grid w-full grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[5px] text-left transition-[background-color,transform] hover:bg-white/35 active:scale-[0.99]"
+        onClick={() => {
+          onInspect(recipe);
+        }}
+      >
+        <span className="grid size-11 place-items-center rounded-[5px] border border-current/25 bg-white/70 px-1 text-center font-serif text-[22px] font-black leading-none">
+          {recipe.syllables[0]?.slice(0, 2).toUpperCase() ?? "?"}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-black leading-tight">{recipe.name}</span>
+          <span className="block truncate font-mono text-[10px] font-black leading-tight opacity-75">
+            {recipe.formula}
+          </span>
+        </span>
+        <span className="grid justify-items-end gap-1">
+          <span className={getEmergentRecipeBadgeClass(recipe.rarity)}>
+            {formatEmergentRecipeRarity(recipe.rarity)}
+          </span>
+          {recipe.count > 1 ? (
+            <span className="rounded-full border border-current/20 bg-white/65 px-1.5 py-0.5 font-mono text-[9px] font-black leading-none">
+              x{recipe.count}
+            </span>
+          ) : null}
+        </span>
+      </button>
+    </li>
+  ),
+);
+
 const InfoBadgePropsSchema = z.object({
   label: z.string().min(1),
 });
@@ -4313,6 +4828,7 @@ const RightModePanelsPropsSchema = z.object({
   activeTab: InfoPanelTabSchema,
   deathAnimation: z.custom<GatheringMonsterDeathAnimation | null>(),
   deathCompletedRound: z.number().nullable(),
+  discoveredEmergentRecipes: z.array(z.custom<AlchemistGuildEmergentRecipe>()),
   discoveredExtendedRecipeIds: z.array(z.string().min(1)),
   discoveredRecipeIds: z.array(z.string().min(1)),
   extendedLedgerFilterCardIds: z.array(z.string().min(1)),
@@ -4320,16 +4836,19 @@ const RightModePanelsPropsSchema = z.object({
   gathering: z.custom<AlchemistGuildGatheringState>(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
   gatheringInfoPanelRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  hasEmergentRecipeNotifications: z.boolean(),
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
   isGatheringMode: z.boolean(),
   isGatheringRewardMode: z.boolean(),
   onDeathAnimationComplete: z.custom<GatheringMonsterDeathCompleteHandler>(),
+  onEmergentRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onExtendedLedgerFilterRemove: z.custom<(cardId: string) => void>(),
   onExtendedRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
   preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  revealEmergentRecipeIds: z.array(z.string().min(1)),
   revealExtendedRecipeIds: z.array(z.string().min(1)),
   revealRecipeIds: z.array(z.string().min(1)),
   rightPrimaryPanelRef: z.custom<RefObject<HTMLDivElement | null>>(),
@@ -4342,6 +4861,7 @@ const RightModePanels = defineComponent(
     activeTab,
     deathAnimation,
     deathCompletedRound,
+    discoveredEmergentRecipes,
     discoveredExtendedRecipeIds,
     discoveredRecipeIds,
     extendedLedgerFilterCardIds,
@@ -4349,16 +4869,19 @@ const RightModePanels = defineComponent(
     gathering,
     gatheringDropTarget,
     gatheringInfoPanelRef,
+    hasEmergentRecipeNotifications,
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
     isGatheringMode,
     isGatheringRewardMode,
     onDeathAnimationComplete,
+    onEmergentRecipeRevealSeen,
     onExtendedLedgerFilterRemove,
     onExtendedRecipeRevealSeen,
     onRecipeRevealSeen,
     onTabChange,
     preview,
+    revealEmergentRecipeIds,
     revealExtendedRecipeIds,
     revealRecipeIds,
     rightPrimaryPanelRef,
@@ -4402,17 +4925,21 @@ const RightModePanels = defineComponent(
             />
             <AlchemyWorkbenchInfoPanel
               activeTab={activeTab}
+              discoveredEmergentRecipes={discoveredEmergentRecipes}
               discoveredExtendedRecipeIds={discoveredExtendedRecipeIds}
               discoveredRecipeIds={discoveredRecipeIds}
               extendedLedgerFilterCardIds={extendedLedgerFilterCardIds}
               extendedLedgerFilterDropFeedback={extendedLedgerFilterDropFeedback}
+              hasEmergentRecipeNotifications={hasEmergentRecipeNotifications}
               hasExtendedRecipeNotifications={hasExtendedRecipeNotifications}
               hasRecipeNotifications={hasRecipeNotifications}
+              onEmergentRecipeRevealSeen={onEmergentRecipeRevealSeen}
               onExtendedLedgerFilterRemove={onExtendedLedgerFilterRemove}
               onExtendedRecipeRevealSeen={onExtendedRecipeRevealSeen}
               onRecipeRevealSeen={onRecipeRevealSeen}
               onTabChange={onTabChange}
               preview={preview}
+              revealEmergentRecipeIds={revealEmergentRecipeIds}
               revealExtendedRecipeIds={revealExtendedRecipeIds}
               revealRecipeIds={revealRecipeIds}
             />
@@ -4508,6 +5035,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const transmuteFlyAnimationSequenceRef = useRef(0);
   const questRewardFlyAnimationSequenceRef = useRef(0);
   const gatheringMonsterDeathAnimationSequenceRef = useRef(0);
+  const gatheringSessionReviewSequenceRef = useRef(0);
+  const depositedGatheringSessionReviewIdRef = useRef<string | null>(null);
+  const gatheringWrongResetKeyRef = useRef<string | null>(null);
   const previousGatheringStateRef = useRef<AlchemistGuildGatheringState | null>(null);
   const [draggedCard, setDraggedCard] = useState<DraggedAlchemyCard | null>(null);
   const [draggedGatheringCard, setDraggedGatheringCard] = useState<DraggedGatheringCard | null>(
@@ -4532,6 +5062,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [selectedGatheringRewardCardId, setSelectedGatheringRewardCardId] = useState<string | null>(
     null,
   );
+  const [gatheringSessionReview, setGatheringSessionReview] =
+    useState<GatheringSessionReviewState | null>(null);
+  const [gatheringWrongResetKey, setGatheringWrongResetKey] = useState<string | null>(null);
   const [extendedLedgerFilterCardIds, setExtendedLedgerFilterCardIds] = useState<string[]>([]);
   const [gatheringMonsterDeathUiState, setGatheringMonsterDeathUiState] =
     useState<GatheringMonsterDeathUiState>(EMPTY_GATHERING_MONSTER_DEATH_UI_STATE);
@@ -4543,10 +5076,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [pendingExtendedRecipeNotificationIds, setPendingExtendedRecipeNotificationIds] = useState<
     string[]
   >([]);
+  const [pendingEmergentRecipeNotificationIds, setPendingEmergentRecipeNotificationIds] = useState<
+    string[]
+  >([]);
   const [pendingQuestNotificationIds, setPendingQuestNotificationIds] = useState<string[]>([]);
   const [gatheringNudgeDismissedKey, setGatheringNudgeDismissedKey] = useState<string | null>(null);
   const [recipeRevealIds, setRecipeRevealIds] = useState<string[]>([]);
   const [extendedRecipeRevealIds, setExtendedRecipeRevealIds] = useState<string[]>([]);
+  const [emergentRecipeRevealIds, setEmergentRecipeRevealIds] = useState<string[]>([]);
+  const [emergentTransmutationNotice, setEmergentTransmutationNotice] =
+    useState<EmergentTransmutationNotice | null>(null);
   const showBoardDebugBadges = useLocalhostMetaKeyDebugBadges();
   const nowMs = useInventoryClock();
   const workbenchCardIds = getWorkbenchCardIds(boardState);
@@ -4555,7 +5094,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const extendedRecipePreview = recipePreview
     ? null
     : getAlchemyWorkbenchExtendedRecipePreview(workbenchCardIds);
-  const transmutationPreview = recipePreview ?? extendedRecipePreview;
+  const emergentRecipePreview =
+    recipePreview || extendedRecipePreview
+      ? null
+      : getAlchemyWorkbenchEmergentPreview(workbenchCardIds);
+  const transmutationPreview = recipePreview ?? extendedRecipePreview ?? emergentRecipePreview;
   const isOutputAlreadyMade = isExtendedPreviewAlreadyDiscovered(
     transmutationPreview,
     boardState.discoveredExtendedRecipeIds,
@@ -4601,7 +5144,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const canConfirmGatheringAnswer =
     isGatheringMode &&
     boardState.gathering.phase === "solving" &&
-    boardState.gathering.equation.selectedValue !== null;
+    boardState.gathering.equation.selectedValue !== null &&
+    boardState.gathering.wrongAnswerStreak < 3 &&
+    gatheringSessionReview === null &&
+    gatheringWrongResetKey === null;
   const isGatheringRewardMode = isGatheringMode && boardState.gathering.phase === "reward";
   const gatheringRewardAnimationKey = isGatheringRewardMode
     ? `${boardState.gathering.round}:${boardState.gathering.rewardOptionCardIds.join("|")}`
@@ -4709,6 +5255,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (nextTab === "extended") {
       setExtendedRecipeRevealIds(pendingExtendedRecipeNotificationIds);
       setPendingExtendedRecipeNotificationIds([]);
+      return;
+    }
+
+    if (nextTab === "emergent") {
+      setEmergentRecipeRevealIds(pendingEmergentRecipeNotificationIds);
+      setPendingEmergentRecipeNotificationIds([]);
     }
   };
 
@@ -4736,13 +5288,50 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   };
 
   const handleBoardModeTabChange = (nextTab: BoardModeTab) => {
+    if (gatheringSessionReview?.depositing === true || gatheringWrongResetKey !== null) return;
     if (nextTab === activeBoardMode) return;
+
+    if (
+      activeBoardMode === "gathering" &&
+      nextTab === "crafting" &&
+      boardStateRef.current.gathering.gatherLog.length > 0
+    ) {
+      gatheringSessionReviewSequenceRef.current += 1;
+      setGatheringSessionReview({
+        depositing: false,
+        entries: boardStateRef.current.gathering.gatherLog.map((entry) => ({ ...entry })),
+        id: `gathering-session:${Date.now()}:${gatheringSessionReviewSequenceRef.current}`,
+        targetTab: nextTab,
+      });
+      setDraggedGatheringCard(null);
+      setGatheringConfirmSwipeProgress(0);
+      void sfx.play("cooldown.ready");
+      return;
+    }
 
     if (nextTab === "gathering" && gatheringNudgeKey) {
       setGatheringNudgeDismissedKey(gatheringNudgeKey);
     }
     setBoardState((previous) => ({ ...previous, activeBoardMode: nextTab }));
     void sfx.play(boardModeTabSoundIds[nextTab]);
+  };
+
+  const handleGatheringSessionStay = () => {
+    if (gatheringSessionReview?.depositing === true) return;
+    setGatheringSessionReview(null);
+    void sfx.play("card.drop");
+  };
+
+  const handleGatheringSessionConfirm = () => {
+    if (!gatheringSessionReview || gatheringSessionReview.depositing) return;
+
+    setGatheringSessionReview((current) => (current ? { ...current, depositing: true } : current));
+    setBoardState((previous) => ({
+      ...previous,
+      activeBoardMode: gatheringSessionReview.targetTab,
+    }));
+    void sfx.play("board-mode.crafting");
+    void sfx.play("transmute.complete", { delayMs: 70 });
   };
 
   const handleExtendedLedgerFilterRemove = (cardId: string) => {
@@ -4755,6 +5344,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     source: GatheringAnswerDragSource,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
+    if (gatheringSessionReview !== null || gatheringWrongResetKey !== null) return;
     if (event.button !== 0) return;
     if (source.kind === "answer-slot" && boardStateRef.current.gathering.phase !== "solving")
       return;
@@ -4787,6 +5377,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     move: GatheringMove,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
+    if (gatheringSessionReview !== null || gatheringWrongResetKey !== null) return;
     if (event.button !== 0) return;
     event.preventDefault();
     capturePointer(event.currentTarget, event.pointerId);
@@ -4814,6 +5405,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   };
 
   const handleGatheringRewardSelect = (cardId: string) => {
+    if (gatheringSessionReview !== null || gatheringWrongResetKey !== null) return;
+
     if (selectedGatheringRewardCardId === cardId) {
       const collectedAtMs = Date.now();
       const rewardCard = getAlchemyCard(cardId);
@@ -4890,12 +5483,22 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setPendingExtendedRecipeNotificationIds((previous) => removeId(previous, recipeId));
   };
 
+  const announceEmergentRecipeDiscovery = (recipeId: string) => {
+    setInfoPanelTab("emergent");
+    setEmergentRecipeRevealIds([recipeId]);
+    setPendingEmergentRecipeNotificationIds((previous) => removeId(previous, recipeId));
+  };
+
   const handleRecipeRevealSeen = (recipeId: string) => {
     setRecipeRevealIds((previous) => removeId(previous, recipeId));
   };
 
   const handleExtendedRecipeRevealSeen = (recipeId: string) => {
     setExtendedRecipeRevealIds((previous) => removeId(previous, recipeId));
+  };
+
+  const handleEmergentRecipeRevealSeen = (recipeId: string) => {
+    setEmergentRecipeRevealIds((previous) => removeId(previous, recipeId));
   };
 
   const announceQuestAvailability = (completedQuestIds: string[]) => {
@@ -4984,6 +5587,83 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("card.massDissolve");
   };
 
+  const commitEmergentTransmutation = (
+    preview: AlchemyWorkbenchEmergentPreview,
+    currentBoardState: AlchemistGuildBoardState,
+  ) => {
+    const attemptedAtMs = Date.now();
+    const result = createEmergentTransmutationResult(preview, attemptedAtMs);
+
+    if (result.kind === "failure") {
+      setBoardState((previous) => ({
+        ...previous,
+        reagentSlots: clearReagentSlots(),
+      }));
+      setEmergentTransmutationNotice({
+        id: `emergent-failure:${attemptedAtMs}`,
+        message: "Try again later",
+        status: "failure",
+      });
+      void sfx.play("transmute.failed");
+      return;
+    }
+
+    const outputCard = getEmergentRecipeOutputBoardCard(result.discovery);
+    const fromRect = getCenteredCardRect(
+      getElementRect("[data-output-emergent-card]") ??
+        getElementRect('[data-board-section="transmutation-output-slot"]'),
+      FLOATING_ELEMENT_CARD_WIDTH,
+      FLOATING_ELEMENT_CARD_HEIGHT,
+    );
+    const toRect = getCenteredCardRect(
+      getElementRect('[data-info-panel-tab="emergent"]'),
+      FLOATING_ELEMENT_CARD_WIDTH,
+      FLOATING_ELEMENT_CARD_HEIGHT,
+    );
+
+    if (fromRect && toRect) {
+      transmuteFlyAnimationSequenceRef.current += 1;
+      setTransmuteFlyAnimation({
+        card: outputCard,
+        fromRect,
+        id: `emergent-award:${transmuteFlyAnimationSequenceRef.current}`,
+        toRect,
+      });
+    }
+
+    const { isNewDiscovery } = recordEmergentDiscovery(
+      currentBoardState.discoveredEmergentRecipes,
+      result.discovery,
+    );
+    setBoardState((previous) => {
+      const next = recordEmergentDiscovery(previous.discoveredEmergentRecipes, result.discovery);
+
+      return {
+        ...previous,
+        discoveredEmergentRecipes: next.discoveredEmergentRecipes,
+        reagentSlots: clearReagentSlots(),
+      };
+    });
+    setEmergentTransmutationNotice({
+      id: `emergent-success:${result.discovery.id}:${attemptedAtMs}`,
+      message: isNewDiscovery ? "New emergent card" : "Emergent count increased",
+      name: result.discovery.name,
+      rarity: result.discovery.rarity,
+      status: "success",
+    });
+    if (isNewDiscovery) {
+      announceEmergentRecipeDiscovery(result.discovery.id);
+    } else {
+      setInfoPanelTab("emergent");
+      setEmergentRecipeRevealIds([result.discovery.id]);
+    }
+    setPendingEmergentRecipeNotificationIds((previous) =>
+      isNewDiscovery ? removeId(previous, result.discovery.id) : previous,
+    );
+    void sfx.play("transmute.complete");
+    void sfx.play("card.massDissolve");
+  };
+
   const handleQuestClaimSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !canClaimSelectedQuest) return;
     event.preventDefault();
@@ -5057,6 +5737,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (!transmutationPreview) return;
 
     const currentBoardState = boardStateRef.current;
+    if (isEmergentRecipePreview(transmutationPreview)) {
+      commitEmergentTransmutation(transmutationPreview, currentBoardState);
+      return;
+    }
+
     const recipeId = transmutationPreview.recipe.id;
     const isExtendedRecipe = isExtendedRecipePreview(transmutationPreview);
     if (
@@ -5170,7 +5855,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
       if (committed) {
         setTransmuteSwipeProgress(1);
-        void sfx.play("transmute.complete");
+        if (transmutationPreview && !isEmergentRecipePreview(transmutationPreview)) {
+          void sfx.play("transmute.complete");
+        }
         window.setTimeout(() => {
           commitTransmutation();
           setTransmuteSwipeProgress(0);
@@ -5187,6 +5874,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   };
 
   const commitGatheringAnswerConfirmation = () => {
+    if (gatheringSessionReview !== null || gatheringWrongResetKey !== null) return;
+
     setBoardState((previous) => ({
       ...previous,
       gathering: confirmGatheringAnswer(previous.gathering),
@@ -5310,10 +5999,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   }, [isExpeditionMode, isGatheringMode]);
 
   useEffect(() => {
-    if (!canConfirmGatheringAnswer) setGatheringConfirmSwipeProgress(0);
-  }, [canConfirmGatheringAnswer]);
-
-  useEffect(() => {
     if (boardState.gathering.phase !== "reward") setSelectedGatheringRewardCardId(null);
   }, [boardState.gathering.phase]);
 
@@ -5379,6 +6064,166 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       }
     };
   }, [gatheringRewardAnimationKey]);
+
+  useBrowserLayoutEffect(() => {
+    if (!gatheringSessionReview?.depositing) return;
+    if (depositedGatheringSessionReviewIdRef.current === gatheringSessionReview.id) return;
+
+    depositedGatheringSessionReviewIdRef.current = gatheringSessionReview.id;
+    const sessionId = gatheringSessionReview.id;
+    const rewardElements = Array.from(
+      document.querySelectorAll("[data-gathering-session-reward-card]"),
+    ).filter((element): element is HTMLElement => element instanceof HTMLElement);
+    const targetElement =
+      document.querySelector('[data-board-section="periodic-table-dock"]') ??
+      periodicTableViewportRef.current;
+
+    const finishDeposit = () => {
+      setBoardState((previous) => ({
+        ...previous,
+        gathering: {
+          ...previous.gathering,
+          gatherLog: [],
+        },
+      }));
+      setGatheringSessionReview((current) => (current?.id === sessionId ? null : current));
+      depositedGatheringSessionReviewIdRef.current = null;
+    };
+
+    if (prefersReducedMotion() || !(targetElement instanceof HTMLElement)) {
+      finishDeposit();
+      return;
+    }
+
+    const targetRect = targetElement.getBoundingClientRect();
+    const targetCenterX = targetRect.left + targetRect.width / 2;
+    const targetCenterY = targetRect.top + targetRect.height * 0.5;
+    const animations: JSAnimation[] = [];
+    let completedAnimations = 0;
+    const completeOne = () => {
+      completedAnimations += 1;
+      if (completedAnimations >= rewardElements.length) finishDeposit();
+    };
+
+    if (rewardElements.length === 0) {
+      finishDeposit();
+      return;
+    }
+
+    window.setTimeout(() => {
+      void sfx.play("card.massDissolve");
+    }, 120);
+
+    for (const [index, rewardElement] of rewardElements.entries()) {
+      const rect = rewardElement.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      rewardElement.style.cssText +=
+        "; transform-origin: center center; will-change: opacity, transform;";
+      animations.push(
+        animate(rewardElement, {
+          delay: index * GATHERING_SESSION_DEPOSIT_STAGGER_MS,
+          duration: GATHERING_SESSION_DEPOSIT_DURATION_MS,
+          ease: "inOut(3)",
+          opacity: [1, 0],
+          rotate: ["0deg", `${(index % 2 === 0 ? -1 : 1) * 12}deg`],
+          scale: [1, 0.28],
+          x: [0, targetCenterX - centerX],
+          y: [0, targetCenterY - centerY],
+          onComplete: completeOne,
+        }),
+      );
+    }
+
+    return () => {
+      for (const animation of animations) animation.cancel();
+      for (const rewardElement of rewardElements) {
+        rewardElement.style.removeProperty("opacity");
+        rewardElement.style.removeProperty("transform");
+        rewardElement.style.removeProperty("transform-origin");
+        rewardElement.style.removeProperty("will-change");
+      }
+    };
+  }, [gatheringSessionReview]);
+
+  useBrowserLayoutEffect(() => {
+    const gathering = boardState.gathering;
+    if (!isGatheringMode || gathering.phase !== "solving" || gathering.wrongAnswerStreak < 3) {
+      return;
+    }
+
+    const resetKey = `${gathering.round}:${gathering.equationIndex}:${gathering.equation.id}`;
+    if (gatheringWrongResetKeyRef.current === resetKey) return;
+
+    gatheringWrongResetKeyRef.current = resetKey;
+    setGatheringWrongResetKey(resetKey);
+    setDraggedGatheringCard(null);
+    setGatheringConfirmSwipeProgress(0);
+
+    const finishReset = () => {
+      setBoardState((previous) => ({
+        ...previous,
+        gathering: resetGatheringEquationAfterWrongStreak(previous.gathering),
+      }));
+      setGatheringWrongResetKey((current) => (current === resetKey ? null : current));
+      gatheringWrongResetKeyRef.current = null;
+    };
+
+    const cardElements = Array.from(
+      document.querySelectorAll(
+        '[data-board-section="gathering-answer-card"], [data-board-section="gathering-answer-slot-card"]',
+      ),
+    ).filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+    if (prefersReducedMotion() || cardElements.length === 0) {
+      window.setTimeout(finishReset, 0);
+      return;
+    }
+
+    window.setTimeout(() => {
+      void sfx.play("card.massDissolve");
+    }, 90);
+
+    const animations: JSAnimation[] = [];
+    const fallbackTimeout = window.setTimeout(finishReset, GATHERING_WRONG_RESET_DURATION_MS + 220);
+    let completedAnimations = 0;
+    const completeOne = () => {
+      completedAnimations += 1;
+      if (completedAnimations >= cardElements.length) {
+        window.clearTimeout(fallbackTimeout);
+        finishReset();
+      }
+    };
+
+    for (const [index, cardElement] of cardElements.entries()) {
+      cardElement.style.cssText +=
+        "; transform-origin: center center; will-change: opacity, transform;";
+      animations.push(
+        animate(cardElement, {
+          delay: index * GATHERING_WRONG_RESET_STAGGER_MS,
+          duration: GATHERING_WRONG_RESET_DURATION_MS,
+          ease: "in(3)",
+          opacity: [1, 0],
+          rotate: ["0deg", `${(index - 2) * 10}deg`],
+          scale: [1, 0.82],
+          x: [0, (index - 2) * 34],
+          y: [0, 220 + index * 18],
+          onComplete: completeOne,
+        }),
+      );
+    }
+
+    return () => {
+      window.clearTimeout(fallbackTimeout);
+      for (const animation of animations) animation.cancel();
+      for (const cardElement of cardElements) {
+        cardElement.style.removeProperty("opacity");
+        cardElement.style.removeProperty("transform");
+        cardElement.style.removeProperty("transform-origin");
+        cardElement.style.removeProperty("will-change");
+      }
+    };
+  }, [boardState.gathering, isGatheringMode]);
 
   useEffect(() => {
     const previousGathering = previousGatheringStateRef.current;
@@ -6447,6 +7292,19 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     };
   }, [draggedGatheringCard]);
 
+  useEffect(() => {
+    const notice = emergentTransmutationNotice;
+    if (!notice) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setEmergentTransmutationNotice((current) => (current?.id === notice.id ? null : current));
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [emergentTransmutationNotice]);
+
   const draggedGatheringMove =
     draggedGatheringCard?.kind === "move" ? draggedGatheringCard.move : null;
 
@@ -6632,6 +7490,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               activeTab={infoPanelTab}
               deathAnimation={gatheringMonsterDeathUiState.animation}
               deathCompletedRound={gatheringMonsterDeathUiState.completedRound}
+              discoveredEmergentRecipes={boardState.discoveredEmergentRecipes}
               discoveredExtendedRecipeIds={boardState.discoveredExtendedRecipeIds}
               discoveredRecipeIds={boardState.discoveredRecipeIds}
               extendedLedgerFilterCardIds={extendedLedgerFilterCardIds}
@@ -6639,16 +7498,19 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               gathering={boardState.gathering}
               gatheringDropTarget={gatheringDropTarget}
               gatheringInfoPanelRef={gatheringInfoPanelRef}
+              hasEmergentRecipeNotifications={pendingEmergentRecipeNotificationIds.length > 0}
               hasExtendedRecipeNotifications={pendingExtendedRecipeNotificationIds.length > 0}
               hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
               isGatheringMode={isGatheringMode}
               isGatheringRewardMode={isGatheringRewardMode}
               preview={transmutationPreview}
+              revealEmergentRecipeIds={emergentRecipeRevealIds}
               revealExtendedRecipeIds={extendedRecipeRevealIds}
               revealRecipeIds={recipeRevealIds}
               rightPrimaryPanelRef={rightPrimaryPanelRef}
               showBoardDebugBadges={showBoardDebugBadges}
               onDeathAnimationComplete={handleGatheringMonsterDeathAnimationComplete}
+              onEmergentRecipeRevealSeen={handleEmergentRecipeRevealSeen}
               onExtendedLedgerFilterRemove={handleExtendedLedgerFilterRemove}
               onExtendedRecipeRevealSeen={handleExtendedRecipeRevealSeen}
               onRecipeRevealSeen={handleRecipeRevealSeen}
@@ -6657,6 +7519,24 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           </section>
         )}
       </div>
+      {emergentTransmutationNotice ? (
+        <EmergentTransmutationToast notice={emergentTransmutationNotice} />
+      ) : null}
+      {gatheringSessionReview ? (
+        <GatheringSessionReviewModal
+          depositing={gatheringSessionReview.depositing}
+          entries={[...gatheringSessionReview.entries]}
+          onConfirm={handleGatheringSessionConfirm}
+          onStay={handleGatheringSessionStay}
+        />
+      ) : null}
+      {gatheringWrongResetKey !== null ? (
+        <div
+          data-board-section="gathering-wrong-reset-blocker"
+          className="fixed inset-0 z-[90] cursor-wait"
+          aria-hidden="true"
+        />
+      ) : null}
       {draggedCard ? (
         <div
           data-board-section="floating-element-card-layer"
@@ -6839,6 +7719,35 @@ function removePointerWindowListeners(
   window.removeEventListener("pointercancel", onRelease, WINDOW_POINTER_LISTENER_CAPTURE);
 }
 
+function createGatheringSessionRewardSummaries(
+  entries: readonly AlchemistGuildGatheringLogEntry[],
+): GatheringSessionRewardSummary[] {
+  const summariesByCardId = new Map<string, GatheringSessionRewardSummary>();
+  for (const entry of entries) {
+    const card = getAlchemyCard(entry.cardId);
+    if (!card) continue;
+
+    const existing = summariesByCardId.get(entry.cardId);
+    if (existing) {
+      existing.count += 1;
+      existing.latestRound = Math.max(existing.latestRound, entry.round);
+      continue;
+    }
+
+    summariesByCardId.set(entry.cardId, {
+      card,
+      cardId: entry.cardId,
+      count: 1,
+      latestRound: entry.round,
+    });
+  }
+
+  return [...summariesByCardId.values()].toSorted(
+    (left, right) =>
+      right.latestRound - left.latestRound || left.card.name.localeCompare(right.card.name),
+  );
+}
+
 function createAlchemyRecipeDiscoveryDetail(recipe: RecipeLedgerRecipe): WorkbenchDiscoveryDetail {
   const kidInfo = getAlchemyRecipeKidInfoById(recipe.id);
   const sourceLinks = (kidInfo?.sourceIds ?? []).flatMap((sourceId) => {
@@ -6894,6 +7803,34 @@ function createExtendedMoleculeDiscoveryDetail(
     subtitle: `${recipe.output.formula} · CID ${recipe.source.pubChemCid}`,
     tags: ["Extended", "Molecule", `CID ${recipe.source.pubChemCid}`],
     title: recipe.output.name,
+  };
+}
+
+function createEmergentRecipeDiscoveryDetail(
+  recipe: AlchemistGuildEmergentRecipe,
+): WorkbenchDiscoveryDetail {
+  const rarityLabel = formatEmergentRecipeRarity(recipe.rarity);
+
+  return {
+    formula: recipe.formula,
+    funFacts: [
+      `Ingredient order: ${formatEmergentRecipeIngredients(recipe)}.`,
+      `This pull has been stabilized ${recipe.count} time${recipe.count === 1 ? "" : "s"}.`,
+      `Rarity came from word slots ${recipe.syllableIndexes.map((index) => index + 1).join(", ")}.`,
+    ],
+    id: recipe.id,
+    imageAlt: `${recipe.name} mystery card`,
+    imageUrl: "",
+    kind: "emergent",
+    sentences: [
+      `${recipe.name} is an emergent card generated from an element order that missed the regular and extended ledgers.`,
+      `Its syllables were ${recipe.syllables.join(" + ")}.`,
+      `Duplicate pulls increase the count instead of creating a second row.`,
+    ],
+    sourceLinks: [],
+    subtitle: `${rarityLabel} · ${recipe.ingredientCardIds.length} slots`,
+    tags: ["Emergent", rarityLabel, `x${recipe.count}`],
+    title: recipe.name,
   };
 }
 
@@ -7345,9 +8282,77 @@ function getAlchemyCard(cardId: string | null): AlchemyBoardCard | null {
 
 function getAlchemyCardSellPrice(card: AlchemyBoardCard): number {
   if (card.kind === "element") return 2 + Math.ceil((card.atomicNumber ?? 1) / 12);
+  if (card.kind === "emergent") return 24 + Math.min(36, card.name.length * 2);
   if (card.kind === "extended") return 18 + Math.min(24, card.symbol.length * 2);
   if (card.kind === "raw") return 6 + Math.min(10, card.name.length);
   return 10 + Math.min(18, card.name.length);
+}
+
+function formatEmergentRecipeRarity(rarity: AlchemistGuildEmergentRecipeRarity): string {
+  return rarity === "mythical" ? "Mythical" : formatTokenLabel(rarity);
+}
+
+function getEmergentRecipeAccentColor(rarity: AlchemistGuildEmergentRecipeRarity): string {
+  switch (rarity) {
+    case "common":
+      return "#64748b";
+    case "uncommon":
+      return "#16a34a";
+    case "rare":
+      return "#0284c7";
+    case "epic":
+      return "#a855f7";
+    case "legendary":
+      return "#f59e0b";
+    case "mythical":
+      return "#e11d48";
+    default:
+      return "#64748b";
+  }
+}
+
+function getEmergentRecipeShellClass(rarity: AlchemistGuildEmergentRecipeRarity): string {
+  switch (rarity) {
+    case "common":
+      return "border-slate-700/20 bg-slate-50/78 text-slate-950";
+    case "uncommon":
+      return "border-emerald-800/22 bg-emerald-50/78 text-emerald-950";
+    case "rare":
+      return "border-sky-800/24 bg-sky-50/78 text-sky-950";
+    case "epic":
+      return "border-fuchsia-800/24 bg-fuchsia-50/78 text-fuchsia-950";
+    case "legendary":
+      return "border-amber-800/28 bg-amber-50/82 text-amber-950";
+    case "mythical":
+      return "border-rose-800/30 bg-rose-50/84 text-rose-950 shadow-[0_8px_24px_rgba(190,18,60,0.16)]";
+    default:
+      return "border-slate-700/20 bg-slate-50/78 text-slate-950";
+  }
+}
+
+function getEmergentRecipeBadgeClass(rarity: AlchemistGuildEmergentRecipeRarity): string {
+  return `rounded-full border border-current/20 bg-white/65 px-1.5 py-0.5 text-[9px] font-black uppercase leading-none ${getEmergentRecipeBadgeTextClass(
+    rarity,
+  )}`;
+}
+
+function getEmergentRecipeBadgeTextClass(rarity: AlchemistGuildEmergentRecipeRarity): string {
+  switch (rarity) {
+    case "common":
+      return "text-slate-800";
+    case "uncommon":
+      return "text-emerald-800";
+    case "rare":
+      return "text-sky-800";
+    case "epic":
+      return "text-fuchsia-800";
+    case "legendary":
+      return "text-amber-800";
+    case "mythical":
+      return "text-rose-800";
+    default:
+      return "text-slate-800";
+  }
 }
 
 function getFilteredExtendedMoleculeRecipes(
@@ -7362,17 +8367,25 @@ function getFilteredExtendedMoleculeRecipes(
   );
 }
 
-function isExtendedRecipePreview(
+function isEmergentRecipePreview(
   preview: AlchemyWorkbenchAnyRecipePreview,
+): preview is AlchemyWorkbenchEmergentPreview {
+  return "orderedIngredientCardIds" in preview;
+}
+
+function isExtendedRecipePreview(
+  preview: AlchemyWorkbenchStaticRecipePreview,
 ): preview is AlchemyWorkbenchExtendedRecipePreview {
   return "source" in preview.recipe;
 }
 
 function getRecipePreviewOutputName(preview: AlchemyWorkbenchAnyRecipePreview): string {
+  if (isEmergentRecipePreview(preview)) return "Unknown";
   return preview.recipe.output.name;
 }
 
 function getRecipePreviewKindLabel(preview: AlchemyWorkbenchAnyRecipePreview): string {
+  if (isEmergentRecipePreview(preview)) return "Emergent";
   return isExtendedRecipePreview(preview)
     ? "Molecule"
     : formatTokenLabel(preview.recipe.output.kind);
@@ -7383,6 +8396,7 @@ function getTransmutationPadPrompt(
   alreadyMade: boolean,
 ): string {
   if (alreadyMade) return "Already made";
+  if (preview && isEmergentRecipePreview(preview)) return "Swipe to stabilize";
   return preview ? "Swipe to transmute" : "Match a recipe first";
 }
 
@@ -7391,6 +8405,7 @@ function getTransmutationPadAriaLabel(
   alreadyMade: boolean,
 ): string {
   if (alreadyMade) return "Extended recipe already made";
+  if (preview && isEmergentRecipePreview(preview)) return "Swipe to stabilize emergent output";
   return preview ? "Swipe to transmute output" : "Match a recipe before transmuting";
 }
 
@@ -7400,13 +8415,14 @@ function isExtendedPreviewAlreadyDiscovered(
 ): boolean {
   return (
     preview !== null &&
+    !isEmergentRecipePreview(preview) &&
     isExtendedRecipePreview(preview) &&
     discoveredExtendedRecipeIds.includes(preview.recipe.id)
   );
 }
 
 function getRecipePreviewOutputBoardCard(
-  preview: AlchemyWorkbenchAnyRecipePreview,
+  preview: AlchemyWorkbenchStaticRecipePreview,
 ): AlchemyBoardCard {
   return isExtendedRecipePreview(preview)
     ? getExtendedRecipeOutputBoardCard(preview.recipe)
@@ -7441,6 +8457,20 @@ function getExtendedRecipeOutputBoardCard(recipe: StaticExtendedMoleculeRecipe):
     kindLabel: "Molecule",
     name: recipe.output.name,
     symbol: recipe.output.formula,
+  };
+}
+
+function getEmergentRecipeOutputBoardCard(recipe: AlchemistGuildEmergentRecipe): AlchemyBoardCard {
+  const accentColor = getEmergentRecipeAccentColor(recipe.rarity);
+
+  return {
+    detailLabel: formatEmergentRecipeRarity(recipe.rarity),
+    familyColor: accentColor,
+    id: recipe.id,
+    kind: "emergent",
+    kindLabel: "Emergent",
+    name: recipe.name,
+    symbol: recipe.syllables[0]?.slice(0, 2).toUpperCase() ?? "?",
   };
 }
 
@@ -7889,7 +8919,8 @@ function ensureQuestDelivery(
   questDeliveries: AlchemistGuildQuestDeliveries,
   quest: StaticAlchemyQuest,
 ): AlchemistGuildQuestDeliveries {
-  if (questDeliveries[quest.id]) return questDeliveries;
+  const currentDelivery = questDeliveries[quest.id];
+  if (currentDelivery?.cardId === getQuestDeliveryCardId(quest)) return questDeliveries;
 
   return { ...questDeliveries, [quest.id]: createQuestDelivery(quest) };
 }
@@ -7898,7 +8929,10 @@ function getQuestDelivery(
   questDeliveries: AlchemistGuildQuestDeliveries,
   quest: StaticAlchemyQuest,
 ): AlchemistGuildQuestDelivery {
-  return questDeliveries[quest.id] ?? createQuestDelivery(quest);
+  const currentDelivery = questDeliveries[quest.id];
+  if (currentDelivery?.cardId === getQuestDeliveryCardId(quest)) return currentDelivery;
+
+  return createQuestDelivery(quest);
 }
 
 function createQuestDelivery(quest: StaticAlchemyQuest): AlchemistGuildQuestDelivery {
@@ -7910,13 +8944,25 @@ function createQuestDelivery(quest: StaticAlchemyQuest): AlchemistGuildQuestDeli
 }
 
 function getQuestDeliveryCardId(quest: StaticAlchemyQuest): string {
-  const recipeId = quest.recipeIds[0];
-  if (!recipeId) throw new Error(`Quest ${quest.id} does not define a delivery recipe`);
+  return getQuestDeliveryRecipe(quest).output.cardId;
+}
 
-  const recipe = getAlchemyRecipeById(recipeId);
-  if (!recipe) throw new Error(`Missing alchemy recipe: ${recipeId}`);
+function getQuestDeliveryRecipe(quest: StaticAlchemyQuest): StaticAlchemyRecipe {
+  const recipes = quest.recipeIds.map((recipeId) => {
+    const recipe = getAlchemyRecipeById(recipeId);
+    if (!recipe) throw new Error(`Missing alchemy recipe: ${recipeId}`);
+    return recipe;
+  });
+  const fallbackRecipe = recipes[0];
+  if (!fallbackRecipe) throw new Error(`Quest ${quest.id} does not define a delivery recipe`);
 
-  return recipe.output.cardId;
+  const consumedCardIds = new Set<string>(
+    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
+  );
+  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
+  const terminalRecipe = terminalRecipes.length === 1 ? terminalRecipes[0] : null;
+
+  return terminalRecipe ?? fallbackRecipe;
 }
 
 function getQuestClaimSwipeState(

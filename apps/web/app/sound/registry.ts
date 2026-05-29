@@ -226,6 +226,21 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     volume: 0.68,
   },
   {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.88, holdMs: 60, releaseMs: 130 },
+      { attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 50, releaseMs: 120 },
+    ],
+    generatorPrompt:
+      "Soft failed alchemy transmute thunk, tiny detuned wooden block tap with muted magic fizz, dry close-miked mobile game UI, half-second one-shot with quick falling tail, gentle and clear.",
+    id: "transmute.failed",
+    interruptFadeMs: 8,
+    maxVoices: 4,
+    replay: "restart",
+    url: "/sfx/ui/gathering-answer-wrong.mp3",
+    volume: 0.68,
+  },
+  {
     bus: "sfx",
     ducking: [
       { attackMs: 10, bus: "music", gain: 0.78, holdMs: 90, releaseMs: 160 },

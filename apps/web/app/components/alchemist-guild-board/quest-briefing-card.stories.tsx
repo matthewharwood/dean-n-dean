@@ -1,6 +1,16 @@
+import { getAlchemyQuestById } from "@dean-stack/schemas";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { FIRST_QUEST_BRIEFING_CARD_PROPS, QuestBriefingCard } from "./quest-briefing-card";
+import {
+  createQuestBriefingCardProps,
+  FIRST_QUEST_BRIEFING_CARD_PROPS,
+  QuestBriefingCard,
+} from "./quest-briefing-card";
+
+const glassMineralsQuest = getAlchemyQuestById("quest:glass-minerals");
+if (!glassMineralsQuest) throw new Error("Missing glass minerals quest");
+
+const GLASS_BATCH_QUEST_PROPS = createQuestBriefingCardProps(glassMineralsQuest);
 
 const meta = {
   title: "Components/AlchemistGuildBoard/QuestBriefingCard",
@@ -28,6 +38,10 @@ export const FirstWaterQuestWithDeveloperNotes: Story = {
     ...FIRST_QUEST_BRIEFING_CARD_PROPS,
     developerNotesVisible: true,
   },
+};
+
+export const GlassBatchQuest: Story = {
+  args: GLASS_BATCH_QUEST_PROPS,
 };
 
 export const RedactedQuest: Story = {
