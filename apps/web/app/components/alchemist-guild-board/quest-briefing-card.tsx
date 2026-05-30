@@ -4,11 +4,21 @@ import {
   getAlchemyCharactersByRequester,
   getAlchemyQuestById,
   getAlchemyRecipeById,
+  getAlchemyRecipeByOutput,
   type StaticAlchemyQuest,
   type StaticAlchemyRecipe,
 } from "@dean-stack/schemas";
 import { type AnimatableObject, animate, createAnimatable, type JSAnimation } from "animejs";
-import { Brain, CloudFog, Coins, LockKeyhole, type LucideIcon, Sparkles } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  CloudFog,
+  Coins,
+  LockKeyhole,
+  type LucideIcon,
+  Sparkles,
+} from "lucide-react";
 import {
   type MutableRefObject,
   type ReactNode,
@@ -175,7 +185,7 @@ export const QuestBriefingCard = defineComponent(
           initialSlideIndex={getQuestBriefingInitialSlideIndex(id)}
           need={need}
           onEdgeSwipe={onCarouselEdgeSwipe}
-          primaryRecipe={getPrimaryRecipe(recipeLabels)}
+          recipes={recipeLabels}
           requesterName={requesterName}
           requesterTitle={requesterTitle}
           teachingFocus={teachingFocus}
@@ -256,7 +266,7 @@ const QuestBriefingCarouselPropsSchema = z.object({
   initialSlideIndex: z.int().min(0).max(QUEST_CAROUSEL_LAST_SLIDE_INDEX),
   need: z.string().min(1),
   onEdgeSwipe: z.custom<(direction: -1 | 1) => void>().optional(),
-  primaryRecipe: QuestBriefingRecipeSchema,
+  recipes: z.array(QuestBriefingRecipeSchema).min(1),
   requesterName: z.string().min(1),
   requesterTitle: z.string().min(1),
   teachingFocus: z.array(z.string().min(1)).min(1),
@@ -289,7 +299,7 @@ const QuestBriefingCarousel = defineComponent(
     initialSlideIndex,
     need,
     onEdgeSwipe,
-    primaryRecipe,
+    recipes,
     requesterName,
     requesterTitle,
     teachingFocus,
@@ -481,7 +491,7 @@ const QuestBriefingCarousel = defineComponent(
               <p className="text-sm font-semibold leading-snug text-neutral-950">{need}</p>
             </QuestBriefingInfoSlide>
 
-            <QuestBriefingRecipeSlide recipe={primaryRecipe} />
+            <QuestBriefingRecipeDeck recipes={recipes} />
 
             <QuestBriefingInfoSlide eyebrow="What it teaches" title="Guild Lesson">
               <p className="text-xs font-bold leading-snug text-neutral-900">
@@ -640,19 +650,95 @@ const QuestBriefingInfoSlide = defineComponent(
   ),
 );
 
-const QuestBriefingRecipeSlidePropsSchema = z.object({
+const QuestBriefingRecipeDeckPropsSchema = z.object({
+  recipes: z.array(QuestBriefingRecipeSchema).min(1),
+});
+
+const QuestBriefingRecipeDeck = defineComponent(
+  QuestBriefingRecipeDeckPropsSchema,
+  ({ recipes }) => {
+    const scrollerRef = useRef<HTMLDivElement>(null);
+    const [activeRecipeIndex, setActiveRecipeIndex] = useState(0);
+    const activeRecipe = getRecipeAtIndex(recipes, activeRecipeIndex);
+    const showRecipeRail = recipes.length > 1;
+
+    const setRecipeIndexFromScroll = () => {
+      const scroller = scrollerRef.current;
+      if (!scroller || scroller.clientHeight <= 0) return;
+
+      const nextIndex = clampRecipeDeckIndex(
+        Math.round(scroller.scrollTop / scroller.clientHeight),
+        recipes.length,
+      );
+      setActiveRecipeIndex((currentIndex) =>
+        currentIndex === nextIndex ? currentIndex : nextIndex,
+      );
+    };
+
+    const scrollToRecipe = (index: number) => {
+      const nextIndex = clampRecipeDeckIndex(index, recipes.length);
+      const scroller = scrollerRef.current;
+      setActiveRecipeIndex(nextIndex);
+      if (!scroller) return;
+
+      scroller.scrollTo({
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+        top: scroller.clientHeight * nextIndex,
+      });
+    };
+
+    return (
+      <article
+        data-quest-recipe-deck=""
+        data-quest-recipe-target={activeRecipe.name}
+        className={`grid h-27 overflow-hidden ${
+          showRecipeRail ? "grid-cols-[minmax(0,1fr)_1.75rem]" : "grid-cols-1"
+        }`}
+        aria-label={`${activeRecipe.name}: ${formatIngredientList(activeRecipe.ingredients)}`}
+      >
+        <div
+          ref={scrollerRef}
+          className="h-27 snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onScroll={setRecipeIndexFromScroll}
+        >
+          {recipes.map((recipe, index) => (
+            <QuestBriefingRecipeCard
+              key={recipe.name}
+              positionLabel={`${index + 1}/${recipes.length}`}
+              recipe={recipe}
+            />
+          ))}
+        </div>
+
+        {showRecipeRail ? (
+          <QuestBriefingRecipeDeckRail
+            activeIndex={activeRecipeIndex}
+            onSelect={scrollToRecipe}
+            recipes={recipes}
+          />
+        ) : null}
+      </article>
+    );
+  },
+);
+
+const QuestBriefingRecipeCardPropsSchema = z.object({
+  positionLabel: z.string().min(1),
   recipe: QuestBriefingRecipeSchema,
 });
 
-const QuestBriefingRecipeSlide = defineComponent(
-  QuestBriefingRecipeSlidePropsSchema,
-  ({ recipe }) => (
-    <article
-      data-quest-recipe-target={recipe.name}
-      className="grid h-27 grid-rows-[auto_minmax(0,1fr)] gap-1.5 p-2"
+const QuestBriefingRecipeCard = defineComponent(
+  QuestBriefingRecipeCardPropsSchema,
+  ({ positionLabel, recipe }) => (
+    <section
+      data-quest-recipe-card={recipe.name}
+      className="grid h-27 snap-start grid-rows-[auto_minmax(0,1fr)] gap-1.5 p-2"
       aria-label={`${recipe.name}: ${formatIngredientList(recipe.ingredients)}`}
     >
-      <div className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-2">
+      <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2">
         <img
           src={resolvePublicAssetPath(recipe.imagePath)}
           alt=""
@@ -666,13 +752,70 @@ const QuestBriefingRecipeSlide = defineComponent(
           </p>
           <p className="truncate font-serif text-base leading-none text-sky-950">{recipe.name}</p>
         </div>
+        <span className="rounded-[3px] border border-sky-950/20 bg-white/75 px-1 py-0.5 font-mono text-[9px] font-black leading-none text-sky-950">
+          {positionLabel}
+        </span>
       </div>
 
       <div className="grid min-h-0 place-items-center overflow-hidden rounded-[4px] border border-sky-950/20 bg-sky-50/90 px-1.5">
         <span className="sr-only">{recipe.formula}</span>
         <QuestBriefingFormula ingredients={recipe.ingredients} />
       </div>
-    </article>
+    </section>
+  ),
+);
+
+const QuestBriefingRecipeDeckRailPropsSchema = z.object({
+  activeIndex: z.int().min(0),
+  onSelect: z.custom<(index: number) => void>(),
+  recipes: z.array(QuestBriefingRecipeSchema).min(1),
+});
+
+const QuestBriefingRecipeDeckRail = defineComponent(
+  QuestBriefingRecipeDeckRailPropsSchema,
+  ({ activeIndex, onSelect, recipes }) => (
+    <div className="grid h-27 grid-rows-[1.5rem_minmax(0,1fr)_1.5rem] place-items-center border-l border-amber-500/30 bg-white/45">
+      <button
+        type="button"
+        className="grid size-5 place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"
+        aria-label="Show previous quest recipe"
+        disabled={activeIndex <= 0}
+        onClick={() => {
+          onSelect(activeIndex - 1);
+        }}
+      >
+        <ChevronUp aria-hidden="true" className="size-3.5" strokeWidth={2.6} />
+      </button>
+
+      <div className="grid content-center gap-1">
+        {recipes.map((recipe, index) => (
+          <button
+            key={recipe.name}
+            type="button"
+            className={`block size-1.5 rounded-full p-0 leading-none transition-[background-color,transform] ${
+              activeIndex === index ? "scale-125 bg-sky-950" : "bg-sky-950/28 hover:bg-sky-950/50"
+            }`}
+            aria-label={`Show ${recipe.name} recipe`}
+            aria-current={activeIndex === index}
+            onClick={() => {
+              onSelect(index);
+            }}
+          />
+        ))}
+      </div>
+
+      <button
+        type="button"
+        className="grid size-5 place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"
+        aria-label="Show next quest recipe"
+        disabled={activeIndex >= recipes.length - 1}
+        onClick={() => {
+          onSelect(activeIndex + 1);
+        }}
+      >
+        <ChevronDown aria-hidden="true" className="size-3.5" strokeWidth={2.6} />
+      </button>
+    </div>
   ),
 );
 
@@ -685,8 +828,8 @@ const QuestBriefingFormula = defineComponent(QuestBriefingFormulaPropsSchema, ({
 
   return (
     <span
-      className={`flex max-w-full items-baseline justify-center overflow-hidden whitespace-nowrap font-serif font-bold leading-none tracking-normal text-sky-950 ${
-        hasWordLabels ? "text-xl" : "text-4xl"
+      className={`flex max-w-full items-baseline justify-center overflow-hidden font-serif font-bold leading-none tracking-normal text-sky-950 ${
+        hasWordLabels ? "flex-wrap gap-x-1 gap-y-0.5 text-[0.82rem]" : "whitespace-nowrap text-4xl"
       }`}
       aria-hidden="true"
     >
@@ -708,13 +851,18 @@ const QuestBriefingFormula = defineComponent(QuestBriefingFormulaPropsSchema, ({
   );
 });
 
-function getPrimaryRecipe(
+function getRecipeAtIndex(
   recipeLabels: readonly z.infer<typeof QuestBriefingRecipeSchema>[],
+  index: number,
 ): z.infer<typeof QuestBriefingRecipeSchema> {
-  const primaryRecipe = recipeLabels[0];
-  if (!primaryRecipe) throw new Error("Quest briefing requires at least one recipe");
+  const recipe = recipeLabels[clampRecipeDeckIndex(index, recipeLabels.length)] ?? recipeLabels[0];
+  if (!recipe) throw new Error("Quest briefing requires at least one recipe");
 
-  return primaryRecipe;
+  return recipe;
+}
+
+function clampRecipeDeckIndex(index: number, recipeCount: number): number {
+  return Math.min(Math.max(index, 0), Math.max(0, recipeCount - 1));
 }
 
 function clampCarouselIndex(index: number): number {
@@ -731,8 +879,7 @@ function createFirstQuestBriefingCardProps(): QuestBriefingCardProps {
 
 export function createQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBriefingCardProps {
   const requesterCharacter = getAlchemyCharactersByRequester(quest.narrative.requester)[0];
-  const recipeLabels = quest.recipeIds.map((recipeId) => {
-    const recipe = getRequiredRecipe(recipeId);
+  const recipeLabels = getQuestBriefingRecipes(quest).map((recipe) => {
     return {
       formula: formatRecipeFormula(recipe),
       imagePath: recipe.output.imagePath,
@@ -772,6 +919,49 @@ export function createQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBr
     teachingFocus: quest.teachingFocus,
     title: quest.narrative.title,
   });
+}
+
+function getQuestBriefingRecipes(quest: StaticAlchemyQuest): StaticAlchemyRecipe[] {
+  const recipes = quest.recipeIds.map(getRequiredRecipe);
+  const roots = getQuestBriefingRecipeRoots(recipes);
+  const orderedRecipes: StaticAlchemyRecipe[] = [];
+  const seenRecipeIds = new Set<string>();
+
+  for (const recipe of roots) {
+    appendRecipeWithDependencies(recipe, orderedRecipes, seenRecipeIds);
+  }
+
+  return orderedRecipes;
+}
+
+function getQuestBriefingRecipeRoots(
+  recipes: readonly StaticAlchemyRecipe[],
+): StaticAlchemyRecipe[] {
+  const consumedCardIds = new Set<string>(
+    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
+  );
+  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
+  const terminalRecipe = terminalRecipes.length === 1 ? terminalRecipes[0] : null;
+  if (!terminalRecipe || recipes.length <= 1) return [...recipes];
+
+  return [terminalRecipe];
+}
+
+function appendRecipeWithDependencies(
+  recipe: StaticAlchemyRecipe,
+  orderedRecipes: StaticAlchemyRecipe[],
+  seenRecipeIds: Set<string>,
+): void {
+  if (seenRecipeIds.has(recipe.id)) return;
+
+  seenRecipeIds.add(recipe.id);
+  orderedRecipes.push(recipe);
+
+  for (const argument of recipe.arguments) {
+    const dependencyRecipe = getAlchemyRecipeByOutput(argument.cardId);
+    if (dependencyRecipe)
+      appendRecipeWithDependencies(dependencyRecipe, orderedRecipes, seenRecipeIds);
+  }
 }
 
 function getRequiredQuest(questId: string): StaticAlchemyQuest {

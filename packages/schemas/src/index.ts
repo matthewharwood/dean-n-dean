@@ -51,6 +51,55 @@ export type AlchemistGuildReagentSlotId = z.infer<typeof AlchemistGuildReagentSl
 export const AlchemistGuildCardIdSchema = AlchemyCardIdSchema;
 export type AlchemistGuildCardId = z.infer<typeof AlchemistGuildCardIdSchema>;
 
+export const ALCHEMIST_GUILD_EMERGENT_RECIPE_RARITIES = [
+  "common",
+  "uncommon",
+  "rare",
+  "epic",
+  "legendary",
+  "mythical",
+] as const;
+export const AlchemistGuildEmergentRecipeRaritySchema = z.enum(
+  ALCHEMIST_GUILD_EMERGENT_RECIPE_RARITIES,
+);
+export type AlchemistGuildEmergentRecipeRarity = z.infer<
+  typeof AlchemistGuildEmergentRecipeRaritySchema
+>;
+
+export const AlchemistGuildEmergentRecipeSchema = z
+  .object({
+    count: z.int().min(1).default(1),
+    firstDiscoveredAtMs: z.number().min(0),
+    formula: z.string().min(1),
+    id: z.string().regex(/^emergent:[a-z0-9-]+$/),
+    ingredientCardIds: z.array(AlchemistGuildCardIdSchema).min(2).max(5),
+    lastDiscoveredAtMs: z.number().min(0),
+    name: z.string().min(1).max(48),
+    rarity: AlchemistGuildEmergentRecipeRaritySchema,
+    syllableIndexes: z.array(z.int().min(0).max(4)).min(2).max(5),
+    syllables: z
+      .array(z.string().regex(/^[a-z]{2,5}$/))
+      .min(2)
+      .max(5),
+  })
+  .superRefine((recipe, ctx) => {
+    if (recipe.syllables.length !== recipe.ingredientCardIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Emergent recipe syllables must line up with ingredient cards.",
+        path: ["syllables"],
+      });
+    }
+    if (recipe.syllableIndexes.length !== recipe.ingredientCardIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Emergent recipe syllable indexes must line up with ingredient cards.",
+        path: ["syllableIndexes"],
+      });
+    }
+  });
+export type AlchemistGuildEmergentRecipe = z.infer<typeof AlchemistGuildEmergentRecipeSchema>;
+
 export const ALCHEMIST_GUILD_STARTING_ELEMENT_QUANTITIES = {
   "element:h": 2,
   "element:o": 1,
@@ -189,6 +238,13 @@ export const AlchemistGuildGatheringLogEntrySchema = z.object({
 });
 export type AlchemistGuildGatheringLogEntry = z.infer<typeof AlchemistGuildGatheringLogEntrySchema>;
 
+export const AlchemistGuildGatheringTargetDropChancesSchema = z
+  .record(AlchemistGuildCardIdSchema, z.int().min(0).max(10_000))
+  .default({});
+export type AlchemistGuildGatheringTargetDropChances = z.infer<
+  typeof AlchemistGuildGatheringTargetDropChancesSchema
+>;
+
 export const AlchemistGuildGatheringStateSchema = z.object({
   equation: AlchemistGuildGatheringEquationSchema.default(
     ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT,
@@ -200,10 +256,24 @@ export const AlchemistGuildGatheringStateSchema = z.object({
   phase: AlchemistGuildGatheringPhaseSchema.default("solving"),
   rewardOptionCardIds: z.array(AlchemistGuildCardIdSchema).max(3).default([]),
   round: z.int().min(1).default(1),
+  targetDropChances: AlchemistGuildGatheringTargetDropChancesSchema,
+  wrongAnswerStreak: z.int().min(0).max(3).default(0),
 });
 export type AlchemistGuildGatheringState = z.infer<typeof AlchemistGuildGatheringStateSchema>;
 export const ALCHEMIST_GUILD_GATHERING_DEFAULT: AlchemistGuildGatheringState =
   AlchemistGuildGatheringStateSchema.parse({});
+
+export const AlchemistGuildExpeditionStateSchema = z.object({
+  readyAtMs: z.number().min(0).nullable().default(null),
+  readyNotified: z.boolean().default(false),
+  startedAtMs: z.number().min(0).nullable().default(null),
+  targetCardId: AlchemistGuildCardIdSchema.nullable().default(null),
+  unlockAnnounced: z.boolean().default(false),
+  unlockSeen: z.boolean().default(false),
+});
+export type AlchemistGuildExpeditionState = z.infer<typeof AlchemistGuildExpeditionStateSchema>;
+export const ALCHEMIST_GUILD_EXPEDITION_DEFAULT: AlchemistGuildExpeditionState =
+  AlchemistGuildExpeditionStateSchema.parse({});
 
 export const AlchemistGuildBoardStateSchema = z.object({
   activeBoardMode: AlchemistGuildBoardModeSchema.default("crafting"),
@@ -212,10 +282,12 @@ export const AlchemistGuildBoardStateSchema = z.object({
     .array(AlchemistGuildCardIdSchema)
     .default([...ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS]),
   id: z.literal(ALCHEMIST_GUILD_BOARD_ID).default(ALCHEMIST_GUILD_BOARD_ID),
+  discoveredEmergentRecipes: z.array(AlchemistGuildEmergentRecipeSchema).default([]),
   discoveredExtendedRecipeIds: z.array(ExtendedMoleculeRecipeIdSchema).default([]),
   discoveredRecipeIds: z.array(AlchemyRecipeIdSchema).default([]),
   elementQuantities: AlchemistGuildElementQuantitiesSchema,
   gathering: AlchemistGuildGatheringStateSchema.default(ALCHEMIST_GUILD_GATHERING_DEFAULT),
+  expedition: AlchemistGuildExpeditionStateSchema.default(ALCHEMIST_GUILD_EXPEDITION_DEFAULT),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(
     ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,

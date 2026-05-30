@@ -5,11 +5,14 @@ import {
   ALCHEMY_QUESTS,
   type AlchemistGuildBoardState,
   type AlchemistGuildCardId,
+  AlchemistGuildCardIdSchema,
   type AlchemistGuildGatheringEquation,
   AlchemistGuildGatheringEquationSchema,
   type AlchemistGuildGatheringState,
   AlchemistGuildGatheringStateSchema,
+  type AlchemistGuildGatheringTargetDropChances,
   ELEMENT_CARDS,
+  getAlchemyQuestById,
   getAlchemyRecipeById,
   getAlchemyRecipeByOutput,
   type StaticAlchemyQuest,
@@ -40,11 +43,24 @@ const GATHERING_REWARD_QUANTITY_WEIGHT_CAP = 3;
 const GATHERING_REWARD_BASE_WEIGHT = 1;
 const GATHERING_REWARD_DEMAND_WEIGHT = 18;
 const GATHERING_REWARD_WILDCARD_DEMAND_WEIGHT = 4;
+const GATHERING_TARGET_DROP_BASE_BPS = 100;
+const GATHERING_TARGET_DROP_STEP_BPS = 500;
+const GATHERING_TARGET_DROP_MAX_BPS = 10_000;
+const GATHERING_WRONG_ANSWER_RESET_COUNT = 3;
 
 export type GatheringRewardContext = Pick<
   AlchemistGuildBoardState,
-  "completedQuestIds" | "elementQuantities" | "inventorySlots" | "questDeliveries"
+  | "completedQuestIds"
+  | "elementQuantities"
+  | "inventorySlots"
+  | "questDeliveries"
+  | "selectedQuestId"
 >;
+
+export type GatheringRewardPlan = {
+  cardIds: AlchemistGuildCardId[];
+  targetDropChances: AlchemistGuildGatheringTargetDropChances;
+};
 
 const rewardPool = [
   ...ELEMENT_CARDS.filter((card) => card.unlockLevel <= 12).map((card) => card.id),
@@ -128,10 +144,32 @@ export function confirmGatheringAnswer(
   if (state.phase !== "solving" || state.equation.selectedValue === null) return state;
 
   const correct = state.equation.selectedValue === state.equation.answer;
+  const wrongAnswerStreak = correct
+    ? 0
+    : Math.min(GATHERING_WRONG_ANSWER_RESET_COUNT, state.wrongAnswerStreak + 1);
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
     lastAnswerCorrect: correct,
     phase: correct ? "move" : "solving",
+    wrongAnswerStreak,
+  });
+}
+
+export function resetGatheringEquationAfterWrongStreak(
+  state: AlchemistGuildGatheringState,
+): AlchemistGuildGatheringState {
+  if (state.phase !== "solving" || state.wrongAnswerStreak < GATHERING_WRONG_ANSWER_RESET_COUNT) {
+    return state;
+  }
+
+  const nextEquationIndex = state.equationIndex + 1;
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...state,
+    equation: createGatheringEquation(state.round, nextEquationIndex),
+    equationIndex: nextEquationIndex,
+    lastAnswerCorrect: null,
+    phase: "solving",
+    wrongAnswerStreak: 0,
   });
 }
 
@@ -217,11 +255,17 @@ export function selectGatheringMove(
 
   const nextHp = Math.max(0, state.monster.hp - move.damage);
   if (nextHp <= 0) {
+    const rewardPlan = createGatheringRewardPlan(
+      state.round,
+      rewardContext,
+      state.targetDropChances,
+    );
     return AlchemistGuildGatheringStateSchema.parse({
       ...state,
       monster: { ...state.monster, hp: 0 },
       phase: "reward",
-      rewardOptionCardIds: createGatheringRewardOptions(state.round, rewardContext),
+      rewardOptionCardIds: rewardPlan.cardIds,
+      targetDropChances: rewardPlan.targetDropChances,
     });
   }
 
@@ -255,25 +299,62 @@ export function claimGatheringReward(
       },
       ...state.gatherLog,
     ].slice(0, GATHERING_LOG_LIMIT),
+    targetDropChances: state.targetDropChances,
   });
 }
 
 export function createGatheringRewardOptions(
   round: number,
   context?: GatheringRewardContext,
+  targetDropChances: Readonly<AlchemistGuildGatheringTargetDropChances> = {},
 ): AlchemistGuildCardId[] {
+  return createGatheringRewardPlan(round, context, targetDropChances).cardIds;
+}
+
+export function createGatheringRewardPlan(
+  round: number,
+  context?: GatheringRewardContext,
+  targetDropChances: Readonly<AlchemistGuildGatheringTargetDropChances> = {},
+): GatheringRewardPlan {
+  const selectedQuestDemandScores = createSelectedQuestPrimitiveDemandScores(context);
+  const selectedTargetCardIds = getOrderedDemandCardIds(selectedQuestDemandScores);
+  const nextTargetDropChances = advanceTargetDropChances(targetDropChances, selectedTargetCardIds);
+  const targetHitCardIds = selectTargetDropHits(
+    round,
+    selectedTargetCardIds,
+    nextTargetDropChances,
+  );
   const demandScores = createPrimitiveDemandScores(context);
   const firstQuestDemandScores = createPrimitiveDemandScores(context, 1);
   const firstQuestDemandCardIds = new Set(firstQuestDemandScores.keys());
-  const focusedDemandCardIds =
-    firstQuestDemandCardIds.size > 0 ? firstQuestDemandCardIds : new Set(demandScores.keys());
+  const selectedTargetCardIdSet = new Set(selectedTargetCardIds);
+  const targetHitCardIdSet = new Set(targetHitCardIds);
+  let focusedDemandCardIds: ReadonlySet<string>;
+  if (selectedTargetCardIdSet.size > 0) {
+    focusedDemandCardIds = selectedTargetCardIdSet;
+  } else if (firstQuestDemandCardIds.size > 0) {
+    focusedDemandCardIds = firstQuestDemandCardIds;
+  } else {
+    focusedDemandCardIds = new Set(demandScores.keys());
+  }
   const focusedSlotCount = Math.min(GATHERING_REWARD_FOCUS_OPTION_COUNT, focusedDemandCardIds.size);
-  const selectedCardIds: AlchemistGuildCardId[] = [];
+  const selectedCardIds: AlchemistGuildCardId[] = targetHitCardIds.slice(
+    0,
+    GATHERING_REWARD_OPTION_COUNT,
+  );
+  const excludedCardIds = new Set(
+    selectedTargetCardIds.filter((cardId) => !targetHitCardIdSet.has(cardId)),
+  );
 
-  for (let slotIndex = 0; slotIndex < GATHERING_REWARD_OPTION_COUNT; slotIndex += 1) {
+  for (
+    let slotIndex = selectedCardIds.length;
+    slotIndex < GATHERING_REWARD_OPTION_COUNT;
+    slotIndex += 1
+  ) {
     selectedCardIds.push(
       pickWeightedRewardCard({
         demandScores,
+        excludedCardIds,
         focusedCardIds: focusedDemandCardIds,
         focused: slotIndex < focusedSlotCount,
         round,
@@ -283,7 +364,10 @@ export function createGatheringRewardOptions(
     );
   }
 
-  return selectedCardIds;
+  return {
+    cardIds: selectedCardIds,
+    targetDropChances: nextTargetDropChances,
+  };
 }
 
 function buildAnswerChoices(answer: number, seed: number): number[] {
@@ -313,6 +397,7 @@ function uniqueNumbers(values: readonly number[]): number[] {
 
 type WeightedRewardPickInput = {
   demandScores: ReadonlyMap<string, number>;
+  excludedCardIds: ReadonlySet<string>;
   focused: boolean;
   focusedCardIds: ReadonlySet<string>;
   round: number;
@@ -349,6 +434,7 @@ function createWeightedRewardCandidates(
   const candidates: WeightedRewardCandidate[] = [];
   for (const cardId of rewardPool) {
     if (selectedCardIdSet.has(cardId)) continue;
+    if (input.excludedCardIds.has(cardId)) continue;
 
     const demandScore = input.demandScores.get(cardId) ?? 0;
     if (input.focused && demandScore <= 0) continue;
@@ -370,6 +456,76 @@ function createWeightedRewardCandidates(
   return createWeightedRewardCandidates({ ...input, focused: false }, selectedCardIdSet);
 }
 
+function createSelectedQuestPrimitiveDemandScores(
+  context?: GatheringRewardContext,
+): Map<string, number> {
+  if (!context) return new Map();
+
+  const quest = getAlchemyQuestById(context.selectedQuestId);
+  if (!quest) return new Map();
+
+  const completedQuestIds = getEffectivelyCompletedQuestIds(context);
+  if (completedQuestIds.has(quest.id)) return new Map();
+  if (!areQuestPrerequisitesMet(quest, completedQuestIds)) return new Map();
+
+  const demandScores = new Map<string, number>();
+  const resourceCounts = createBoardResourceCounts(context);
+  for (const outputCardId of getQuestPrimitiveDemandRootCardIds(quest)) {
+    addPrimitiveDemandForCard({
+      cardId: outputCardId,
+      demandScores,
+      quantity: 1,
+      resourceCounts,
+      stack: new Set(),
+      weight: 1,
+    });
+  }
+
+  return demandScores;
+}
+
+function getOrderedDemandCardIds(
+  demandScores: ReadonlyMap<string, number>,
+): AlchemistGuildCardId[] {
+  return [...demandScores.entries()]
+    .toSorted((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([cardId]) => AlchemistGuildCardIdSchema.parse(cardId));
+}
+
+function advanceTargetDropChances(
+  previous: Readonly<AlchemistGuildGatheringTargetDropChances>,
+  targetCardIds: readonly AlchemistGuildCardId[],
+): AlchemistGuildGatheringTargetDropChances {
+  if (targetCardIds.length === 0) return { ...previous };
+
+  const next: AlchemistGuildGatheringTargetDropChances = { ...previous };
+  for (const cardId of targetCardIds) {
+    const currentChance = previous[cardId] ?? GATHERING_TARGET_DROP_BASE_BPS;
+    next[cardId] = Math.min(
+      GATHERING_TARGET_DROP_MAX_BPS,
+      currentChance + GATHERING_TARGET_DROP_STEP_BPS,
+    );
+  }
+  return next;
+}
+
+function selectTargetDropHits(
+  round: number,
+  targetCardIds: readonly AlchemistGuildCardId[],
+  targetDropChances: Readonly<AlchemistGuildGatheringTargetDropChances>,
+): AlchemistGuildCardId[] {
+  const hits: AlchemistGuildCardId[] = [];
+  for (const [targetIndex, cardId] of targetCardIds.entries()) {
+    if (hits.length >= GATHERING_REWARD_OPTION_COUNT) break;
+
+    const chanceBps = targetDropChances[cardId] ?? GATHERING_TARGET_DROP_BASE_BPS;
+    if (getDeterministicCardUnit(round, targetIndex, cardId) * 10_000 < chanceBps) {
+      hits.push(cardId);
+    }
+  }
+  return hits;
+}
+
 function createPrimitiveDemandScores(
   context?: GatheringRewardContext,
   questWindow = GATHERING_REWARD_QUEST_WINDOW,
@@ -382,11 +538,9 @@ function createPrimitiveDemandScores(
 
   for (const [questIndex, quest] of upcomingQuests.entries()) {
     const questPriority = (GATHERING_REWARD_QUEST_WINDOW - questIndex) ** 2;
-    for (const recipeId of quest.recipeIds) {
-      const recipe = getAlchemyRecipeById(recipeId);
-      if (!recipe) continue;
+    for (const outputCardId of getQuestPrimitiveDemandRootCardIds(quest)) {
       addPrimitiveDemandForCard({
-        cardId: recipe.output.cardId,
+        cardId: outputCardId,
         demandScores,
         quantity: 1,
         resourceCounts,
@@ -397,6 +551,22 @@ function createPrimitiveDemandScores(
   }
 
   return demandScores;
+}
+
+function getQuestPrimitiveDemandRootCardIds(quest: StaticAlchemyQuest): string[] {
+  const recipes = quest.recipeIds.flatMap((recipeId) => {
+    const recipe = getAlchemyRecipeById(recipeId);
+    return recipe ? [recipe] : [];
+  });
+  if (recipes.length === 0) return [];
+
+  const consumedCardIds = new Set<string>(
+    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
+  );
+  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
+  const roots = terminalRecipes.length === 1 ? terminalRecipes : recipes;
+
+  return roots.map((recipe) => recipe.output.cardId);
 }
 
 type PrimitiveDemandInput = {
@@ -516,5 +686,17 @@ function getRewardCardId(index: number): AlchemistGuildCardId {
 
 function getDeterministicUnit(round: number, slotIndex: number): number {
   const value = Math.sin(round * 12.9898 + slotIndex * 78.233 + 37.719) * 43_758.5453;
+  return value - Math.floor(value);
+}
+
+function getDeterministicCardUnit(round: number, targetIndex: number, cardId: string): number {
+  let hash = 2_166_136_261;
+  for (const character of cardId) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16_777_619);
+  }
+
+  const value =
+    Math.sin(round * 12.9898 + targetIndex * 78.233 + (hash >>> 0) * 0.000_001 + 91.317) *
+    43_758.5453;
   return value - Math.floor(value);
 }

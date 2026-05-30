@@ -55,6 +55,27 @@ describe("QuestBriefingCard data projection", () => {
       name: "Herbal Mash",
     });
   });
+
+  test("projects the Glass Batch capstone before its component recipes", () => {
+    const quest = getAlchemyQuestById("quest:glass-minerals");
+    if (!quest) throw new Error("Missing glass minerals quest");
+
+    const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
+
+    expect(cardProps.need).toContain("Glass Batch");
+    expect(cardProps.recipeLabels.map((recipe) => recipe.name)).toEqual([
+      "Glass Batch",
+      "Silica",
+      "Soda Ash",
+      "Calcium Carbonate",
+    ]);
+    expect(cardProps.recipeLabels.map((recipe) => recipe.formula)).toEqual([
+      "Silica + Soda Ash + Calcium Carbonate",
+      "Si + 2O",
+      "Na + C + 3O",
+      "Ca + C + 3O",
+    ]);
+  });
 });
 
 describe("QuestBriefingCard carousel behavior", () => {

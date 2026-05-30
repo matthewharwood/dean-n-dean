@@ -7,8 +7,10 @@ import {
   confirmGatheringAnswer,
   createGatheringEquation,
   createGatheringRewardOptions,
+  createGatheringRewardPlan,
   createGatheringRound,
   getGatheringMoves,
+  resetGatheringEquationAfterWrongStreak,
   selectGatheringAnswer,
   selectGatheringMove,
   swapGatheringAnswerWithChoice,
@@ -40,6 +42,7 @@ describe("gathering loop", () => {
     const confirmedMiss = confirmGatheringAnswer(missed);
     expect(confirmedMiss.phase).toBe("solving");
     expect(confirmedMiss.lastAnswerCorrect).toBe(false);
+    expect(confirmedMiss.wrongAnswerStreak).toBe(1);
 
     const staged = selectGatheringAnswer(confirmedMiss, round.equation.answer);
     expect(staged.phase).toBe("solving");
@@ -48,6 +51,7 @@ describe("gathering loop", () => {
     const solved = confirmGatheringAnswer(staged);
     expect(solved.phase).toBe("move");
     expect(solved.lastAnswerCorrect).toBe(true);
+    expect(solved.wrongAnswerStreak).toBe(0);
 
     const sumStrike = getGatheringMoves(solved.equation).find((move) => move.id === "sum-strike");
     expect(sumStrike?.damage).toBe(round.equation.answer);
@@ -90,6 +94,28 @@ describe("gathering loop", () => {
     expect(rewarded.rewardOptionCardIds).toHaveLength(3);
   });
 
+  test("three wrong gathering answers reset the equation and hand", () => {
+    let state = createGatheringRound(1);
+    const firstEquationId = state.equation.id;
+
+    for (let missCount = 1; missCount <= 3; missCount += 1) {
+      const wrongAnswer = state.equation.choiceValues.find(
+        (value) => value !== state.equation.answer,
+      );
+      if (wrongAnswer === undefined) throw new Error("expected a distractor answer");
+
+      state = confirmGatheringAnswer(selectGatheringAnswer(state, wrongAnswer));
+      expect(state.wrongAnswerStreak).toBe(missCount);
+    }
+
+    const reset = resetGatheringEquationAfterWrongStreak(state);
+    expect(reset.wrongAnswerStreak).toBe(0);
+    expect(reset.equationIndex).toBe(2);
+    expect(reset.equation.id).not.toBe(firstEquationId);
+    expect(reset.equation.selectedValue).toBeNull();
+    expect(reset.lastAnswerCorrect).toBeNull();
+  });
+
   test("weights post-water gathering rewards toward the next quest window", () => {
     const options = createGatheringRewardOptions(2, {
       ...ALCHEMIST_GUILD_BOARD_DEFAULT,
@@ -101,6 +127,93 @@ describe("gathering loop", () => {
     expect(options).toHaveLength(3);
     expect(new Set(options).size).toBe(3);
     expect(focusedNeedCount).toBeGreaterThanOrEqual(2);
+  });
+
+  test("raises selected quest target drop chance by five points per defeated enemy", () => {
+    const metalQuestContext = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      completedQuestIds: ["quest:first-water"],
+      elementQuantities: {
+        ...ALCHEMIST_GUILD_BOARD_DEFAULT.elementQuantities,
+        "element:cu": 1,
+      },
+      selectedQuestId: "quest:metal-samples",
+    };
+
+    const firstDefeat = createGatheringRewardPlan(2, metalQuestContext);
+    const secondDefeat = createGatheringRewardPlan(
+      3,
+      metalQuestContext,
+      firstDefeat.targetDropChances,
+    );
+    const thirdDefeat = createGatheringRewardPlan(
+      4,
+      metalQuestContext,
+      secondDefeat.targetDropChances,
+    );
+
+    expect(firstDefeat.targetDropChances["element:fe"]).toBe(600);
+    expect(firstDefeat.targetDropChances["element:cu"]).toBeUndefined();
+    expect(secondDefeat.targetDropChances["element:fe"]).toBe(1100);
+    expect(thirdDefeat.targetDropChances["element:fe"]).toBe(1600);
+  });
+
+  test("targets Glass Batch primitive dependencies through its component recipes", () => {
+    const glassQuestContext = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      completedQuestIds: [
+        "quest:first-water",
+        "quest:kitchen-salt-and-fuel",
+        "quest:field-kit-basics",
+      ],
+      selectedQuestId: "quest:glass-minerals",
+    };
+
+    const firstDefeat = createGatheringRewardPlan(6, glassQuestContext);
+
+    expect(Object.keys(firstDefeat.targetDropChances).toSorted()).toEqual([
+      "element:c",
+      "element:ca",
+      "element:na",
+      "element:o",
+      "element:si",
+    ]);
+    expect(firstDefeat.targetDropChances["element:si"]).toBe(600);
+    expect(firstDefeat.targetDropChances["element:ca"]).toBe(600);
+
+    const coveredSilicon = createGatheringRewardPlan(
+      7,
+      {
+        ...glassQuestContext,
+        elementQuantities: {
+          ...glassQuestContext.elementQuantities,
+          "element:si": 1,
+        },
+      },
+      firstDefeat.targetDropChances,
+    );
+
+    expect(coveredSilicon.targetDropChances["element:si"]).toBe(600);
+    expect(coveredSilicon.targetDropChances["element:ca"]).toBe(1100);
+  });
+
+  test("keeps the selected quest target when its persisted drop chance hits the jackpot", () => {
+    const metalQuestContext = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      completedQuestIds: ["quest:first-water"],
+      elementQuantities: {
+        ...ALCHEMIST_GUILD_BOARD_DEFAULT.elementQuantities,
+        "element:cu": 1,
+      },
+      selectedQuestId: "quest:metal-samples",
+    };
+
+    const rewardPlan = createGatheringRewardPlan(5, metalQuestContext, {
+      "element:fe": 9500,
+    });
+
+    expect(rewardPlan.targetDropChances["element:fe"]).toBe(10_000);
+    expect(rewardPlan.cardIds).toContain("element:fe");
   });
 
   test("dragging the equation answer back out clears the slot", () => {
@@ -160,5 +273,18 @@ describe("gathering loop", () => {
     expect(next.round).toBe(2);
     expect(next.phase).toBe("solving");
     expect(next.gatherLog[0]).toMatchObject({ cardId, collectedAtMs: 123, round: 1 });
+  });
+
+  test("claiming a reward preserves unlocked target drop chances", () => {
+    const rewarded = {
+      ...createGatheringRound(1),
+      phase: "reward" as const,
+      rewardOptionCardIds: ["element:fe"],
+      targetDropChances: { "element:fe": 1600 },
+    };
+
+    const next = claimGatheringReward(rewarded, "element:fe", 123);
+    expect(next.round).toBe(2);
+    expect(next.targetDropChances["element:fe"]).toBe(1600);
   });
 });

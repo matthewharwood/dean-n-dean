@@ -399,8 +399,8 @@ export const ALCHEMY_QUESTS = [
       title: "Glassblower Luma's Mineral Riddle",
       requester: "artificer",
       summary: "The player builds the mineral foundation for glass from element recipes.",
-      need: "Luma needs Silica, Soda Ash, Calcium Carbonate, and a measured Glass Batch.",
-      hint: "Buy the fifth Alchemy Workbench slot, then compress carbonate formulas into reusable cards.",
+      need: "Luma needs one Glass Batch made from Silica, Soda Ash, and Calcium Carbonate.",
+      hint: "Buy the fifth Alchemy Workbench slot. Make Silica, Soda Ash, and Calcium Carbonate first, then combine those three materials into Glass Batch.",
       completion: "The glassworks furnace wakes up with a soft blue glow.",
     },
     progression: {

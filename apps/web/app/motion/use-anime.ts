@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-file
 // oxlint-disable react-doctor/exhaustive-deps -- API-design escape: `deps` is
 // a public DependencyList parameter the caller owns. Biome's exhaustive-deps
 // check honors `biome-ignore` (see inline comment below); react-doctor runs

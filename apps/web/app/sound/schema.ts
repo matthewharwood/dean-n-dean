@@ -18,6 +18,7 @@ export const SoundIdSchema = z.enum([
   "card.slot.pickup",
   "cooldown.ready",
   "crafting.needsGathering",
+  "expedition.unlocked",
   "gathering.attack.leftSpark",
   "gathering.attack.rightSpark",
   "gathering.attack.sumStrike",
@@ -26,6 +27,7 @@ export const SoundIdSchema = z.enum([
   "gathering.rewardClaim",
   "music.crownIn8Bit",
   "transmute.complete",
+  "transmute.failed",
 ]);
 export type SoundId = z.infer<typeof SoundIdSchema>;
 
