@@ -61,6 +61,21 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     volume: 0.6,
   },
   {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.86, holdMs: 90, releaseMs: 180 },
+      { attackMs: 8, bus: "ambience", gain: 0.92, holdMs: 70, releaseMs: 150 },
+    ],
+    generatorPrompt:
+      "Small brass compass charm opens and catches a magical signal, polished brass click with glass shimmer and soft bell overtone, dry close-miked mobile UI, bright one-shot, wondrous and clean.",
+    id: "expedition.unlocked",
+    interruptFadeMs: 12,
+    maxVoices: 2,
+    replay: "ignore",
+    url: "/sfx/ui/expedition-unlocked.mp3",
+    volume: 0.72,
+  },
+  {
     bus: "sfx",
     ducking: [
       { attackMs: 12, bus: "music", gain: 0.82, holdMs: 40, releaseMs: 120 },

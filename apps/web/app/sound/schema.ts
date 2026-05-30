@@ -18,6 +18,7 @@ export const SoundIdSchema = z.enum([
   "card.slot.pickup",
   "cooldown.ready",
   "crafting.needsGathering",
+  "expedition.unlocked",
   "gathering.attack.leftSpark",
   "gathering.attack.rightSpark",
   "gathering.attack.sumStrike",

@@ -11,6 +11,7 @@ import {
   type AlchemistGuildElementQuantities,
   type AlchemistGuildEmergentRecipe,
   type AlchemistGuildEmergentRecipeRarity,
+  type AlchemistGuildExpeditionState,
   type AlchemistGuildGatheringLogEntry,
   type AlchemistGuildGatheringState,
   type AlchemistGuildInventoryCooldown,
@@ -29,6 +30,7 @@ import {
   getAlchemyQuestBoard,
   getAlchemyQuestById,
   getAlchemyRecipeById,
+  getAlchemyRecipeByOutput,
   getAlchemyRecipeKidInfoById,
   getAlchemyRecipeKidInfoSourceById,
   getAvailableAlchemyQuests,
@@ -84,6 +86,7 @@ import * as z from "zod";
 
 import { usePixiApp } from "~/canvas/use-pixi-app";
 import { defineComponent } from "~/lib/define-component";
+import { useAnime } from "~/motion/use-anime";
 import { sfx } from "~/sound/sfx";
 import { alchemistGuildBoardAtom } from "~/state/atoms";
 import {
@@ -114,6 +117,12 @@ import {
   setupPeriodicTableScene,
 } from "./periodic-table-scene";
 import { FIRST_PROFILE_CARD_PROPS, ProfileCard } from "./profile-card";
+import {
+  createQuestAssemblyGuide,
+  formatQuestAssemblyIngredientStatus,
+  type QuestAssemblyGuide,
+  type QuestAssemblyIngredient,
+} from "./quest-assembly-guide";
 import { createQuestBriefingCardProps, QuestBriefingCard } from "./quest-briefing-card";
 import {
   type AlchemyWorkbenchExtendedRecipePreview,
@@ -146,6 +155,8 @@ const GATHERING_SESSION_DEPOSIT_DURATION_MS = 620;
 const GATHERING_SESSION_DEPOSIT_STAGGER_MS = 58;
 const GATHERING_WRONG_RESET_DURATION_MS = 680;
 const GATHERING_WRONG_RESET_STAGGER_MS = 46;
+const EXPEDITION_UNLOCK_RECIPE_ID = "alchemy:glass";
+const EXPEDITION_DURATION_MS = 3 * 60 * 1000;
 const EXTENDED_LEDGER_FILTER_SLOT_COUNT = 5;
 const INVENTORY_SELL_COIN_FLY_DURATION_MS = 620;
 const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
@@ -399,6 +410,16 @@ type AlchemyWorkbenchStaticRecipePreview =
 type AlchemyWorkbenchAnyRecipePreview =
   | AlchemyWorkbenchStaticRecipePreview
   | AlchemyWorkbenchEmergentPreview;
+
+type QuestInventoryMarker = {
+  label: string;
+  tone: "delivery" | "prep";
+};
+
+type ExpeditionTargetOption = {
+  card: AlchemyBoardCard;
+  source: "quest" | "vault" | "both";
+};
 
 type EmergentTransmutationNotice = {
   id: string;
@@ -2083,6 +2104,7 @@ const QuestPanelPropsSchema = z.object({
   onQuestOpenFromLog: z.custom<(questId: string) => void>(),
   onQuestSelect: z.custom<(questId: string) => void>(),
   onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  questAssemblyGuide: z.custom<QuestAssemblyGuide | null>(),
   questLogScrollTop: z.number().min(0),
   selectedQuestId: z.string().min(1),
   unlockedQuestIds: z.array(z.string().min(1)),
@@ -2107,6 +2129,7 @@ const QuestPanel = defineComponent(
     onQuestOpenFromLog,
     onQuestSelect,
     onTabChange,
+    questAssemblyGuide,
     questLogScrollTop,
     selectedQuestId,
     unlockedQuestIds,
@@ -2129,6 +2152,7 @@ const QuestPanel = defineComponent(
               unlockedQuestIds={unlockedQuestIds}
               onQuestSelect={onQuestSelect}
             />
+            {questAssemblyGuide ? <QuestAssemblyGuidePanel guide={questAssemblyGuide} /> : null}
             {deliveryCard ? (
               <QuestDeliverySlot
                 key={selectedQuestId}
@@ -2168,6 +2192,94 @@ const QuestPanelTabsPropsSchema = z.object({
   hasQuestNotifications: z.boolean(),
   onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
 });
+
+const QuestAssemblyGuidePanelPropsSchema = z.object({
+  guide: z.custom<QuestAssemblyGuide>(),
+});
+
+const QuestAssemblyGuidePanel = defineComponent(QuestAssemblyGuidePanelPropsSchema, ({ guide }) => (
+  <section
+    data-board-section="quest-assembly-guide"
+    data-quest-terminal-recipe-id={guide.terminalRecipeId}
+    className={`grid gap-2 rounded-[6px] border p-2 shadow-[0_2px_0_rgba(72,45,16,0.1)] ${
+      guide.readyToAssemble
+        ? "border-emerald-600/70 bg-emerald-50/85"
+        : "border-sky-800/25 bg-white/70"
+    }`}
+    aria-label={`${guide.terminalRecipeName} prepared parts`}
+  >
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+      <div className="min-w-0">
+        <p className="text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+          Prepared parts
+        </p>
+        <p className="mt-0.5 text-xs font-bold leading-snug text-neutral-900">
+          {guide.instruction}
+        </p>
+      </div>
+      <span
+        className={`rounded-full border px-2 py-1 font-mono text-[10px] font-black leading-none ${
+          guide.readyToAssemble
+            ? "border-emerald-700/30 bg-white/80 text-emerald-900"
+            : "border-sky-900/20 bg-sky-50/80 text-sky-950"
+        }`}
+      >
+        {guide.preparedCount}/{guide.requiredCount}
+      </span>
+    </div>
+
+    <div className="grid gap-1">
+      {guide.ingredients.map((ingredient) => (
+        <QuestAssemblyIngredientRow key={ingredient.cardId} ingredient={ingredient} />
+      ))}
+    </div>
+  </section>
+));
+
+const QuestAssemblyIngredientRowPropsSchema = z.object({
+  ingredient: z.custom<QuestAssemblyIngredient>(),
+});
+
+const QuestAssemblyIngredientRow = defineComponent(
+  QuestAssemblyIngredientRowPropsSchema,
+  ({ ingredient }) => {
+    const isStored = ingredient.status === "stored";
+    return (
+      <div
+        data-board-section="quest-assembly-ingredient"
+        data-card-id={ingredient.cardId}
+        data-status={ingredient.status}
+        className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[4px] border px-2 py-1 ${
+          isStored ? "border-emerald-700/25 bg-white/80" : "border-sky-900/15 bg-white/55"
+        }`}
+      >
+        <span
+          className={`grid size-5 place-items-center rounded-full ${
+            isStored ? "bg-emerald-600 text-white" : "bg-sky-950/10 text-sky-950"
+          }`}
+          aria-hidden="true"
+        >
+          {isStored ? (
+            <CheckCircle2 className="size-3.5" strokeWidth={2.6} />
+          ) : (
+            <FlaskConical className="size-3.5" strokeWidth={2.5} />
+          )}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[11px] font-black leading-tight text-sky-950">
+            {ingredient.label}
+          </span>
+          <span className="block truncate text-[9px] font-bold uppercase leading-tight text-neutral-700">
+            {formatQuestAssemblyIngredientStatus(ingredient.status)}
+          </span>
+        </span>
+        <span className="rounded-full border border-sky-950/15 bg-white/75 px-1.5 py-0.5 font-mono text-[9px] font-black leading-none text-sky-950">
+          {ingredient.readyCount}/{ingredient.requiredCount}
+        </span>
+      </div>
+    );
+  },
+);
 
 const questPanelTabLabels = {
   current: "Current Quest",
@@ -2238,50 +2350,140 @@ const boardModeTabSoundIds = {
 
 const BoardModeTabsPropsSchema = z.object({
   activeTab: BoardModeTabSchema,
+  expeditionAvailable: z.boolean(),
+  expeditionNudgeActive: z.boolean(),
+  expeditionRevealActive: z.boolean(),
+  expeditionRevealKey: z.number().int().min(0),
   gatheringNudgeActive: z.boolean(),
   onTabChange: z.custom<(tab: BoardModeTab) => void>(),
 });
 
 const BoardModeTabs = defineComponent(
   BoardModeTabsPropsSchema,
-  ({ activeTab, gatheringNudgeActive, onTabChange }) => (
-    <div
-      data-board-section="board-mode-tabs"
-      data-board-name="Board Mode Tabs"
-      data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
-      className="pointer-events-auto flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
-      role="tablist"
-      aria-label="Board modes"
-    >
-      {boardModeTabs.map((tab) => {
-        const selected = activeTab === tab;
-        const nudgeActive = tab === "gathering" && gatheringNudgeActive;
-        const TabIcon = boardModeTabIcons[tab];
+  ({
+    activeTab,
+    expeditionAvailable,
+    expeditionNudgeActive,
+    expeditionRevealActive,
+    expeditionRevealKey,
+    gatheringNudgeActive,
+    onTabChange,
+  }) => {
+    const visibleTabs = expeditionAvailable
+      ? boardModeTabs
+      : boardModeTabs.filter((tab) => tab !== "expedition");
 
-        return (
-          <button
-            key={tab}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            data-gathering-nudge-active={nudgeActive ? "true" : undefined}
-            className={getBoardModeTabClass(selected, nudgeActive)}
-            onClick={() => {
-              onTabChange(tab);
-            }}
-          >
-            <TabIcon className="size-3.5 stroke-[2.5]" aria-hidden="true" />
-            <span>{boardModeTabLabels[tab]}</span>
-          </button>
-        );
-      })}
-    </div>
-  ),
+    return (
+      <div
+        data-board-section="board-mode-tabs"
+        data-board-name="Board Mode Tabs"
+        data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
+        className="pointer-events-auto flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+        role="tablist"
+        aria-label="Board modes"
+      >
+        {visibleTabs.map((tab) => {
+          const selected = activeTab === tab;
+          const nudgeActive =
+            (tab === "gathering" && gatheringNudgeActive) ||
+            (tab === "expedition" && expeditionNudgeActive);
+
+          return (
+            <BoardModeTabButton
+              key={tab}
+              nudgeActive={nudgeActive}
+              revealActive={tab === "expedition" && expeditionRevealActive}
+              revealKey={tab === "expedition" ? expeditionRevealKey : 0}
+              selected={selected}
+              tab={tab}
+              onTabChange={onTabChange}
+            />
+          );
+        })}
+      </div>
+    );
+  },
 );
 
-function getBoardModeTabClass(selected: boolean, nudgeActive: boolean): string {
+const BoardModeTabButtonPropsSchema = z.object({
+  nudgeActive: z.boolean(),
+  onTabChange: z.custom<(tab: BoardModeTab) => void>(),
+  revealActive: z.boolean(),
+  revealKey: z.number().int().min(0),
+  selected: z.boolean(),
+  tab: BoardModeTabSchema,
+});
+
+const BoardModeTabButton = defineComponent(
+  BoardModeTabButtonPropsSchema,
+  ({ nudgeActive, onTabChange, revealActive, revealKey, selected, tab }) => {
+    const tabRef = useRef<HTMLButtonElement>(null);
+    const TabIcon = boardModeTabIcons[tab];
+
+    useAnime(
+      tabRef,
+      revealKey > 0
+        ? {
+            duration: 1280,
+            ease: "out(4)",
+            opacity: [0, 1],
+            rotate: ["-8deg", "2deg", "0deg"],
+            scale: [0.62, 1.22, 1],
+            y: [18, -5, 0],
+          }
+        : {
+            duration: 1,
+            opacity: [1, 1],
+          },
+      [revealKey],
+    );
+
+    return (
+      <button
+        ref={tabRef}
+        type="button"
+        role="tab"
+        aria-selected={selected}
+        data-board-mode-reveal-active={revealActive ? "true" : undefined}
+        data-board-mode-nudge-active={nudgeActive ? "true" : undefined}
+        className={getBoardModeTabClass(selected, nudgeActive, revealActive)}
+        onClick={() => {
+          onTabChange(tab);
+        }}
+      >
+        {revealActive ? (
+          <span
+            className="pointer-events-none absolute -inset-1 -z-10 rounded-[7px] border border-emerald-300/70 bg-emerald-300/20 shadow-[0_0_24px_rgba(16,185,129,0.65)]"
+            aria-hidden="true"
+          />
+        ) : null}
+        {revealActive ? (
+          <span
+            className="pointer-events-none absolute -right-4 -top-5 inline-flex items-center gap-1 rounded-full border border-emerald-700/25 bg-white px-2 py-1 text-[9px] font-black uppercase leading-none text-emerald-900 shadow-[0_8px_18px_rgba(15,23,42,0.2)]"
+            aria-hidden="true"
+          >
+            <Sparkles className="size-3" strokeWidth={2.8} aria-hidden="true" />
+            Unlocked
+          </span>
+        ) : null}
+        <TabIcon className="size-3.5 stroke-[2.5]" aria-hidden="true" />
+        <span>{boardModeTabLabels[tab]}</span>
+      </button>
+    );
+  },
+);
+
+function getBoardModeTabClass(
+  selected: boolean,
+  nudgeActive: boolean,
+  revealActive: boolean,
+): string {
   const baseClass =
-    "relative isolate flex shrink-0 items-center gap-1.5 overflow-visible rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color]";
+    "relative isolate flex shrink-0 items-center gap-1.5 overflow-visible rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color,box-shadow]";
+
+  if (revealActive) {
+    return `${baseClass} gathering-nudge-emission border-emerald-700/50 bg-emerald-50 text-emerald-950 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]`;
+  }
 
   if (nudgeActive) {
     return `${baseClass} gathering-nudge-emission bg-emerald-50 text-emerald-950`;
@@ -2290,6 +2492,108 @@ function getBoardModeTabClass(selected: boolean, nudgeActive: boolean): string {
   if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
 
   return `${baseClass} border-amber-900/20 bg-white/60 text-amber-950/70 hover:bg-white/85`;
+}
+
+function isExpeditionAvailable(boardState: AlchemistGuildBoardState): boolean {
+  return boardState.discoveredRecipeIds.includes(EXPEDITION_UNLOCK_RECIPE_ID);
+}
+
+function isExpeditionRewardReady(
+  expedition: AlchemistGuildExpeditionState,
+  nowMs: number,
+): boolean {
+  return Boolean(expedition.targetCardId && expedition.readyAtMs && nowMs >= expedition.readyAtMs);
+}
+
+function getExpeditionProgress(expedition: AlchemistGuildExpeditionState, nowMs: number): number {
+  if (!expedition.startedAtMs || !expedition.readyAtMs) return 0;
+  const durationMs = expedition.readyAtMs - expedition.startedAtMs;
+  if (durationMs <= 0) return 1;
+
+  return clamp((nowMs - expedition.startedAtMs) / durationMs, 0, 1);
+}
+
+function getExpeditionRemainingLabel(
+  expedition: AlchemistGuildExpeditionState,
+  nowMs: number,
+): string {
+  if (!expedition.readyAtMs) return "No route plotted.";
+  const remainingMs = Math.max(0, expedition.readyAtMs - nowMs);
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")} until delivery.`;
+}
+
+function getExpeditionTargetOptions(
+  boardState: AlchemistGuildBoardState,
+  quest: StaticAlchemyQuest | null,
+): ExpeditionTargetOption[] {
+  const discoveredElementIds = new Set(boardState.discoveredElementIds);
+  const questElementIds = quest ? getQuestRequiredElementIds(quest) : new Set<string>();
+
+  return ELEMENT_CARDS.flatMap((elementCard) => {
+    const inVault = discoveredElementIds.has(elementCard.id);
+    const inQuest = questElementIds.has(elementCard.id);
+    if (!inVault && !inQuest) return [];
+
+    const card = getAlchemyCard(elementCard.id);
+    if (!card) return [];
+
+    let source: ExpeditionTargetOption["source"] = "vault";
+    if (inVault && inQuest) source = "both";
+    if (!inVault && inQuest) source = "quest";
+
+    return [{ card, source }];
+  });
+}
+
+function getQuestRequiredElementIds(quest: StaticAlchemyQuest): Set<string> {
+  const elementIds = new Set<string>();
+  for (const recipeId of quest.recipeIds) {
+    const recipe = getAlchemyRecipeById(recipeId);
+    if (!recipe) continue;
+    collectRequiredElementIds(recipe.output.cardId, elementIds, new Set());
+  }
+  return elementIds;
+}
+
+function collectRequiredElementIds(
+  cardId: string,
+  elementIds: Set<string>,
+  stack: Set<string>,
+): void {
+  if (isElementCardId(cardId)) {
+    elementIds.add(cardId);
+    return;
+  }
+  if (stack.has(cardId)) return;
+
+  const recipe = getAlchemyRecipeByOutput(cardId);
+  if (!recipe) return;
+
+  stack.add(cardId);
+  for (const argument of recipe.arguments) {
+    collectRequiredElementIds(argument.cardId, elementIds, stack);
+  }
+  stack.delete(cardId);
+}
+
+function isElementCardId(cardId: string): boolean {
+  return ELEMENT_CARDS.some((card) => card.id === cardId);
+}
+
+function formatExpeditionTargetSource(source: ExpeditionTargetOption["source"]): string {
+  switch (source) {
+    case "both":
+      return "Vault + Quest";
+    case "quest":
+      return "Quest";
+    case "vault":
+      return "Vault";
+    default:
+      return "Vault";
+  }
 }
 
 const QuestCurrentCarouselPropsSchema = z.object({
@@ -2828,6 +3132,7 @@ const InventorySlotPropsSchema = z.object({
   cooldowns: z.array(z.custom<AlchemistGuildInventoryCooldown>()),
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
   isFlyDestination: z.boolean(),
+  marker: z.custom<QuestInventoryMarker | null>(),
   nowMs: z.number(),
   onPointerDown:
     z.custom<
@@ -2850,6 +3155,7 @@ const InventorySlot = defineComponent(
     cooldowns,
     draggedCard,
     isFlyDestination,
+    marker,
     nowMs,
     onPointerDown,
     sellPrice,
@@ -2860,6 +3166,7 @@ const InventorySlot = defineComponent(
     const readyCount = getReadyCooldownCount(cooldowns, nowMs);
     const isDraggingSource =
       draggedCard?.source.kind === "inventory" && draggedCard.source.slotId === slotId;
+    const stateClass = getInventoryCardStateClass(marker, readyCount);
 
     return (
       <div
@@ -2877,11 +3184,9 @@ const InventorySlot = defineComponent(
             data-card-id={card.id}
             data-ready-count={readyCount}
             data-stack-count={stackCount}
-            className={`absolute inset-1 grid touch-none select-none grid-cols-[2.3rem_minmax(0,1fr)] items-center gap-1.5 rounded-[5px] border bg-white/70 px-1.5 text-left shadow-[0_5px_14px_rgba(15,23,42,0.14)] transition-[border-color,opacity,box-shadow] [-webkit-user-drag:none] active:cursor-grabbing ${
-              readyCount > 0
-                ? "cursor-grab border-emerald-600/50"
-                : "cursor-not-allowed border-amber-500/60 opacity-80"
-            } ${isDraggingSource ? "opacity-45" : ""}`}
+            className={`absolute inset-1 grid touch-none select-none grid-cols-[2.3rem_minmax(0,1fr)] items-center gap-1.5 rounded-[5px] border bg-white/70 px-1.5 text-left transition-[border-color,opacity,box-shadow] [-webkit-user-drag:none] active:cursor-grabbing ${stateClass} ${
+              isDraggingSource ? "opacity-45" : ""
+            }`}
             aria-label={
               readyCount > 0
                 ? `Pick up ${readyCount} ready ${card.name} from ${slotName}`
@@ -2930,6 +3235,15 @@ const InventorySlot = defineComponent(
             <span className="absolute -right-1.5 -top-1.5 rounded-full bg-sky-950 px-1.5 py-0.5 text-[10px] font-black leading-none text-white">
               x{stackCount}
             </span>
+            {marker ? (
+              <span
+                className={`absolute -bottom-1.5 left-1 rounded-[3px] px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-normal text-white ${
+                  marker.tone === "delivery" ? "bg-amber-700" : "bg-emerald-700"
+                }`}
+              >
+                {marker.label}
+              </span>
+            ) : null}
             <CooldownStack cooldowns={cooldowns} nowMs={nowMs} />
           </button>
         ) : null}
@@ -2942,6 +3256,23 @@ const InventorySellZonePropsSchema = z.object({
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
   dropIntent: z.custom<DropIntent>(),
 });
+
+function getInventoryCardStateClass(
+  marker: QuestInventoryMarker | null,
+  readyCount: number,
+): string {
+  if (marker?.tone === "delivery") {
+    return "border-amber-500/80 shadow-[0_0_0_2px_rgba(245,158,11,0.24),0_5px_14px_rgba(15,23,42,0.14)]";
+  }
+  if (marker?.tone === "prep") {
+    return "border-emerald-600/70 shadow-[0_0_0_2px_rgba(16,185,129,0.2),0_5px_14px_rgba(15,23,42,0.14)]";
+  }
+  if (readyCount > 0) {
+    return "cursor-grab border-emerald-600/50 shadow-[0_5px_14px_rgba(15,23,42,0.14)]";
+  }
+
+  return "cursor-not-allowed border-amber-500/60 opacity-80 shadow-[0_5px_14px_rgba(15,23,42,0.14)]";
+}
 
 const InventorySellZone = defineComponent(
   InventorySellZonePropsSchema,
@@ -3165,6 +3496,44 @@ const OutputEmergentCard = defineComponent(OutputEmergentCardPropsSchema, ({ pre
     </article>
   );
 });
+
+const QuestTransmutationHintPropsSchema = z.object({
+  guide: z.custom<QuestAssemblyGuide | null>(),
+  preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+});
+
+const QuestTransmutationHint = defineComponent(
+  QuestTransmutationHintPropsSchema,
+  ({ guide, preview }) => {
+    if (!guide) return null;
+
+    const previewRecipeId =
+      preview && !isEmergentRecipePreview(preview) && !isExtendedRecipePreview(preview)
+        ? preview.recipe.id
+        : null;
+    const makingAssemblyTarget = previewRecipeId === guide.terminalRecipeId;
+    if (!guide.readyToAssemble && !makingAssemblyTarget) return null;
+
+    const label = makingAssemblyTarget
+      ? `${guide.terminalRecipeName} matched`
+      : `${guide.terminalRecipeName} ready`;
+    const detail = makingAssemblyTarget
+      ? "Swipe to finish the quest item."
+      : "Put the prepared parts on the Workbench.";
+
+    return (
+      <div
+        data-board-section="quest-transmutation-hint"
+        className="pointer-events-none absolute left-3 top-3 z-20 grid max-w-[15rem] gap-0.5 rounded-[5px] border border-emerald-700/30 bg-white/90 px-2 py-1.5 text-left text-emerald-950 shadow-[0_8px_20px_rgba(15,23,42,0.16)]"
+      >
+        <span className="text-[9px] font-black uppercase leading-none tracking-normal">
+          {label}
+        </span>
+        <span className="text-[11px] font-bold leading-tight">{detail}</span>
+      </div>
+    );
+  },
+);
 
 const EmergentTransmutationToastPropsSchema = z.object({
   notice: z.custom<EmergentTransmutationNotice>(),
@@ -4476,6 +4845,7 @@ const LeftModePanelPropsSchema = z.object({
   onQuestOpenFromLog: z.custom<(questId: string) => void>(),
   onQuestSelect: z.custom<(questId: string) => void>(),
   onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  questAssemblyGuide: z.custom<QuestAssemblyGuide | null>(),
   questLogScrollTop: z.number().min(0),
   questPanelAccepted: z.boolean(),
   selectedQuestId: z.string().min(1),
@@ -4504,6 +4874,7 @@ const LeftModePanel = defineComponent(
     onQuestOpenFromLog,
     onQuestSelect,
     onTabChange,
+    questAssemblyGuide,
     questLogScrollTop,
     questPanelAccepted,
     selectedQuestId,
@@ -4551,6 +4922,7 @@ const LeftModePanel = defineComponent(
           onQuestOpenFromLog={onQuestOpenFromLog}
           onQuestSelect={onQuestSelect}
           onTabChange={onTabChange}
+          questAssemblyGuide={questAssemblyGuide}
           questLogScrollTop={questLogScrollTop}
           selectedQuestId={selectedQuestId}
           unlockedQuestIds={unlockedQuestIds}
@@ -4583,6 +4955,7 @@ const CenterBoardPanelsPropsSchema = z.object({
   onTransmutationSwipePointerDown: z.custom<ButtonPointerDownHandler>(),
   periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
   recipePreview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
+  questAssemblyGuide: z.custom<QuestAssemblyGuide | null>(),
   selectedGatheringRewardCardId: z.string().nullable(),
   showBoardDebugBadges: z.boolean(),
   swapAnimation: z.custom<SwapAnimation | null>(),
@@ -4616,6 +4989,7 @@ const CenterBoardPanels = defineComponent(
     onTransmutationSwipePointerDown,
     periodicTableViewportRef,
     recipePreview,
+    questAssemblyGuide,
     selectedGatheringRewardCardId,
     showBoardDebugBadges,
     swapAnimation,
@@ -4744,8 +5118,13 @@ const CenterBoardPanels = defineComponent(
                     canTransmutePreview ? "text-sky-950" : "text-neutral-700"
                   }`}
                 >
-                  {getTransmutationPadPrompt(recipePreview, isOutputAlreadyMade)}
+                  {getTransmutationPadPrompt(
+                    recipePreview,
+                    isOutputAlreadyMade,
+                    questAssemblyGuide,
+                  )}
                 </p>
+                <QuestTransmutationHint guide={questAssemblyGuide} preview={recipePreview} />
                 <button
                   type="button"
                   data-board-section="swipe-rune-handle"
@@ -4798,30 +5177,299 @@ const CenterBoardPanels = defineComponent(
 );
 
 const ExpeditionCanvasPanelPropsSchema = z.object({
+  available: z.boolean(),
+  canClaimReward: z.boolean(),
+  expedition: z.custom<AlchemistGuildExpeditionState>(),
+  nowMs: z.number(),
+  onCancel: z.custom<() => void>(),
+  onClaimReward: z.custom<() => void>(),
+  onStart: z.custom<(cardId: string) => void>(),
   periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
   showBoardDebugBadges: z.boolean(),
+  targetOptions: z.array(z.custom<ExpeditionTargetOption>()),
 });
 
 const ExpeditionCanvasPanel = defineComponent(
   ExpeditionCanvasPanelPropsSchema,
-  ({ periodicTableViewportRef, showBoardDebugBadges }) => (
-    <section className="grid min-h-0">
-      <div
-        ref={periodicTableViewportRef}
-        data-board-section="expedition-canvas-panel"
-        data-board-name="Expedition Canvas"
-        data-board-description="An empty dotted expedition canvas that can be panned and zoomed."
-        className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS}`}
-      >
-        <BoardDebugBadge
-          description="An empty dotted expedition canvas that can be panned and zoomed."
-          label="Expedition Canvas"
-          visible={showBoardDebugBadges}
+  ({
+    available,
+    canClaimReward,
+    expedition,
+    nowMs,
+    onCancel,
+    onClaimReward,
+    onStart,
+    periodicTableViewportRef,
+    showBoardDebugBadges,
+    targetOptions,
+  }) => {
+    const targetCard = getAlchemyCard(expedition.targetCardId);
+    const expeditionRunning = Boolean(expedition.targetCardId && expedition.readyAtMs);
+    const rewardReady = isExpeditionRewardReady(expedition, nowMs);
+    const progress = getExpeditionProgress(expedition, nowMs);
+    const remainingLabel = getExpeditionRemainingLabel(expedition, nowMs);
+
+    return (
+      <section className="grid min-h-0">
+        <div
+          ref={periodicTableViewportRef}
+          data-board-section="expedition-canvas-panel"
+          data-board-name="Expedition Canvas"
+          data-board-description="Select a known or quest-needed element and send one fixed expedition."
+          className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS} relative overflow-hidden p-4`}
+        >
+          <BoardDebugBadge
+            description="Select a known or quest-needed element and send one fixed expedition."
+            label="Expedition Canvas"
+            visible={showBoardDebugBadges}
+          />
+          <span className={GATHERING_PANEL_LABEL_CLASS}>Expedition Canvas</span>
+
+          <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 pt-8">
+            <header className="grid gap-1 rounded-[7px] border border-sky-950/15 bg-white/70 p-3">
+              <p className="text-[10px] font-black uppercase leading-none tracking-normal text-sky-950/65">
+                Expedition contract
+              </p>
+              <h2 className="font-serif text-2xl leading-none text-sky-950">
+                {available ? "Send a focused scout" : "Glass unlock required"}
+              </h2>
+              <p className="max-w-3xl text-sm font-semibold leading-snug text-neutral-800">
+                {available
+                  ? "Pick one element. The scout locks onto it for three minutes, then brings back one card."
+                  : "Craft Glass first. Once the guild has glass lenses, expeditions can search for known or quest-needed elements."}
+              </p>
+            </header>
+
+            <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <section className="min-h-0 overflow-hidden rounded-[7px] border border-sky-950/15 bg-white/60 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="font-serif text-lg leading-none text-sky-950">Element Targets</h3>
+                  <span className="rounded-full border border-sky-900/20 bg-sky-50/80 px-2 py-1 font-mono text-[10px] font-black leading-none text-sky-950">
+                    {targetOptions.length}
+                  </span>
+                </div>
+                <div className="grid max-h-full grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2 overflow-y-auto pr-1">
+                  {targetOptions.map((option) => (
+                    <ExpeditionTargetButton
+                      key={option.card.id}
+                      disabled={!available || expeditionRunning}
+                      option={option}
+                      selected={option.card.id === expedition.targetCardId}
+                      onStart={onStart}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <aside className="grid content-start gap-3 rounded-[7px] border border-amber-900/15 bg-white/65 p-3">
+                <h3 className="font-serif text-lg leading-none text-amber-950">Current Run</h3>
+                {targetCard ? (
+                  <div className="grid gap-3">
+                    <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-3 rounded-[6px] border border-amber-900/15 bg-white/75 p-2">
+                      <img
+                        src={getAlchemyCardArtSrc(targetCard)}
+                        alt=""
+                        aria-hidden="true"
+                        className="size-12 object-contain"
+                        draggable={false}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-black leading-tight text-sky-950">
+                          {targetCard.name}
+                        </span>
+                        <span className="block text-[10px] font-bold uppercase leading-tight text-neutral-700">
+                          Locked target
+                        </span>
+                      </span>
+                    </div>
+                    <progress
+                      className="h-3 w-full overflow-hidden rounded-full"
+                      max={1}
+                      value={progress}
+                    >
+                      {Math.round(progress * 100)}%
+                    </progress>
+                    <p className="text-xs font-bold leading-snug text-neutral-800">
+                      {rewardReady ? "Delivery is ready." : remainingLabel}
+                    </p>
+                    <button
+                      type="button"
+                      className="rounded-[5px] border border-rose-900/20 bg-rose-50 px-3 py-2 text-xs font-black uppercase leading-none text-rose-950 transition-colors hover:bg-rose-100"
+                      onClick={onCancel}
+                    >
+                      Cancel Expedition
+                    </button>
+                  </div>
+                ) : (
+                  <p className="rounded-[6px] border border-dashed border-neutral-900/20 bg-white/55 p-3 text-sm font-bold leading-snug text-neutral-700">
+                    No expedition is running. Choose one target from the list.
+                  </p>
+                )}
+              </aside>
+            </div>
+          </div>
+
+          {rewardReady && targetCard ? (
+            <ExpeditionRewardModal
+              canClaim={canClaimReward}
+              card={targetCard}
+              onClaim={onClaimReward}
+              onReset={onCancel}
+            />
+          ) : null}
+        </div>
+      </section>
+    );
+  },
+);
+
+const ExpeditionTargetButtonPropsSchema = z.object({
+  disabled: z.boolean(),
+  onStart: z.custom<(cardId: string) => void>(),
+  option: z.custom<ExpeditionTargetOption>(),
+  selected: z.boolean(),
+});
+
+const ExpeditionTargetButton = defineComponent(
+  ExpeditionTargetButtonPropsSchema,
+  ({ disabled, onStart, option, selected }) => (
+    <button
+      type="button"
+      data-board-section="expedition-target"
+      data-card-id={option.card.id}
+      data-selected={selected ? "true" : undefined}
+      disabled={disabled}
+      className={`grid min-h-24 grid-rows-[1fr_auto] gap-1 rounded-[6px] border p-2 text-left transition-[background-color,border-color,box-shadow,opacity] ${
+        selected
+          ? "border-emerald-600/70 bg-emerald-50 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]"
+          : "border-sky-950/15 bg-white/70 hover:bg-white/90"
+      } disabled:cursor-not-allowed disabled:opacity-55`}
+      onClick={() => {
+        onStart(option.card.id);
+      }}
+    >
+      <span className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-2">
+        <img
+          src={getAlchemyCardArtSrc(option.card)}
+          alt=""
+          aria-hidden="true"
+          className="size-9 object-contain"
+          draggable={false}
         />
-        <span className={GATHERING_PANEL_LABEL_CLASS}>Expedition Canvas</span>
-      </div>
-    </section>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-black leading-tight text-sky-950">
+            {option.card.name}
+          </span>
+          <span className="block truncate font-mono text-[11px] font-black leading-none text-sky-950/70">
+            {option.card.symbol}
+          </span>
+        </span>
+      </span>
+      <span className="justify-self-start rounded-full border border-sky-900/15 bg-sky-50/90 px-1.5 py-0.5 text-[9px] font-black uppercase leading-none text-sky-950">
+        {formatExpeditionTargetSource(option.source)}
+      </span>
+    </button>
   ),
+);
+
+const ExpeditionRewardModalPropsSchema = z.object({
+  canClaim: z.boolean(),
+  card: z.custom<AlchemyBoardCard>(),
+  onClaim: z.custom<() => void>(),
+  onReset: z.custom<() => void>(),
+});
+
+const ExpeditionRewardModal = defineComponent(
+  ExpeditionRewardModalPropsSchema,
+  ({ canClaim, card, onClaim, onReset }) => {
+    const dialogRef = useRef<HTMLDialogElement>(null);
+
+    useBrowserLayoutEffect(() => {
+      const dialogElement = dialogRef.current;
+      if (!dialogElement) return;
+      if (!dialogElement.open) dialogElement.showModal();
+
+      return () => {
+        if (dialogElement.open) dialogElement.close();
+      };
+    }, []);
+
+    useBrowserLayoutEffect(() => {
+      const dialogElement = dialogRef.current;
+      if (!dialogElement || prefersReducedMotion()) return;
+
+      const animation = animate(dialogElement, {
+        duration: 240,
+        ease: "out(3)",
+        opacity: [0, 1],
+        scale: [0.95, 1],
+        y: [16, 0],
+      });
+
+      return () => {
+        animation.cancel();
+      };
+    }, []);
+
+    return (
+      <dialog
+        ref={dialogRef}
+        data-board-section="expedition-reward-modal"
+        className="m-auto w-[min(24rem,calc(100vw_-_2rem))] rounded-[8px] border border-emerald-700/30 bg-white/95 p-0 text-center text-sky-950 shadow-[0_24px_48px_rgba(15,23,42,0.28)] backdrop:bg-sky-950/25 backdrop:backdrop-blur-[2px]"
+        aria-labelledby="expedition-reward-title"
+        onCancel={(event) => {
+          event.preventDefault();
+        }}
+      >
+        <section className="grid gap-3 p-4">
+          <p className="text-[10px] font-black uppercase leading-none tracking-normal text-emerald-800">
+            Expedition delivered
+          </p>
+          <div
+            data-board-section="expedition-reward-card"
+            className="mx-auto grid size-28 place-items-center rounded-[7px] border-2 border-emerald-600/55 bg-emerald-50"
+          >
+            <img
+              src={getAlchemyCardArtSrc(card)}
+              alt=""
+              aria-hidden="true"
+              className="size-20 object-contain"
+              draggable={false}
+            />
+          </div>
+          <div>
+            <h2
+              id="expedition-reward-title"
+              className="font-serif text-2xl leading-none text-sky-950"
+            >
+              {card.name}
+            </h2>
+            <p className="mt-1 text-sm font-semibold leading-snug text-neutral-800">
+              The scout brought back one ready card for Inventory.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+            <button
+              type="button"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[6px] border border-rose-900/20 bg-white px-4 py-2 text-xs font-black uppercase leading-none text-rose-950 shadow-[0_2px_0_rgba(15,23,42,0.12)] transition-[background-color,transform] hover:bg-rose-50 active:translate-y-px"
+              onClick={onReset}
+            >
+              <X className="size-4" strokeWidth={2.8} aria-hidden="true" />
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!canClaim}
+              className="rounded-[6px] border border-emerald-700/30 bg-emerald-600 px-4 py-3 text-sm font-black uppercase leading-none text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-[background-color,opacity] hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-55"
+              onClick={onClaim}
+            >
+              {canClaim ? "Accept Prize" : "Inventory Full"}
+            </button>
+          </div>
+        </section>
+      </dialog>
+    );
+  },
 );
 
 const RightModePanelsPropsSchema = z.object({
@@ -4972,10 +5620,8 @@ function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
   return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]`;
 }
 
-function getBoardChromeClass(isExpeditionMode: boolean): string {
+function getBoardChromeClass(): string {
   const baseClass = "pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px]";
-  if (isExpeditionMode) return `${baseClass} grid-rows-[auto_minmax(0,1fr)] gap-2.5`;
-
   return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
 }
 
@@ -5081,6 +5727,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   >([]);
   const [pendingQuestNotificationIds, setPendingQuestNotificationIds] = useState<string[]>([]);
   const [gatheringNudgeDismissedKey, setGatheringNudgeDismissedKey] = useState<string | null>(null);
+  const [expeditionReveal, setExpeditionReveal] = useState({
+    active: false,
+    key: 0,
+  });
   const [recipeRevealIds, setRecipeRevealIds] = useState<string[]>([]);
   const [extendedRecipeRevealIds, setExtendedRecipeRevealIds] = useState<string[]>([]);
   const [emergentRecipeRevealIds, setEmergentRecipeRevealIds] = useState<string[]>([]);
@@ -5125,10 +5775,27 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     selectedQuestUnlocked &&
     !claimedSelectedQuest &&
     selectedQuestDelivery.delivered >= selectedQuestDelivery.required;
+  const selectedQuestAssemblyGuide =
+    selectedQuestUnlocked && !claimedSelectedQuest
+      ? createQuestAssemblyGuide(boardState, selectedQuest, nowMs)
+      : null;
   const questPanelAccepted = isQuestPanelAcceptedDrop(dropIntent);
-  const activeBoardMode = boardState.activeBoardMode;
+  const expeditionAvailable = isExpeditionAvailable(boardState);
+  const activeBoardMode =
+    boardState.activeBoardMode === "expedition" && !expeditionAvailable
+      ? "crafting"
+      : boardState.activeBoardMode;
   const isGatheringMode = activeBoardMode === "gathering";
   const isExpeditionMode = activeBoardMode === "expedition";
+  const expeditionNudgeActive = expeditionAvailable && !boardState.expedition.unlockSeen;
+  const expeditionTargetOptions = getExpeditionTargetOptions(
+    boardState,
+    selectedQuestUnlocked && !claimedSelectedQuest ? selectedQuest : null,
+  );
+  const expeditionRewardReady = isExpeditionRewardReady(boardState.expedition, nowMs);
+  const canClaimExpeditionReward =
+    expeditionRewardReady &&
+    getInventoryDestinationSlotId(boardState, boardState.expedition.targetCardId ?? "") !== null;
   const noAvailablePeriodicElements = !hasAvailablePeriodicElement(boardState);
   const craftingNeedsGathering =
     !draggedCard &&
@@ -5159,10 +5826,181 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   boardStateRef.current = boardState;
   extendedLedgerFilterCardIdsRef.current = extendedLedgerFilterCardIds;
 
+  useEffect(() => {
+    if (expeditionAvailable || boardState.activeBoardMode !== "expedition") return;
+
+    setBoardState((previous) =>
+      previous.activeBoardMode === "expedition"
+        ? {
+            ...previous,
+            activeBoardMode: "crafting",
+          }
+        : previous,
+    );
+  }, [boardState.activeBoardMode, expeditionAvailable, setBoardState]);
+
+  useEffect(() => {
+    if (!expeditionAvailable || boardState.expedition.unlockAnnounced) return;
+
+    setExpeditionReveal((previous) => ({
+      active: true,
+      key: previous.key + 1,
+    }));
+    setBoardState((previous) =>
+      previous.expedition.unlockAnnounced
+        ? previous
+        : {
+            ...previous,
+            expedition: {
+              ...previous.expedition,
+              unlockAnnounced: true,
+            },
+          },
+    );
+    void sfx.play("expedition.unlocked");
+  }, [boardState.expedition.unlockAnnounced, expeditionAvailable, setBoardState]);
+
+  useEffect(() => {
+    if (!expeditionReveal.active) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setExpeditionReveal((previous) =>
+        previous.active
+          ? {
+              ...previous,
+              active: false,
+            }
+          : previous,
+      );
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [expeditionReveal.active]);
+
+  useEffect(() => {
+    if (!expeditionRewardReady || boardState.expedition.readyNotified) return;
+
+    setBoardState((previous) =>
+      previous.expedition.readyNotified
+        ? previous
+        : {
+            ...previous,
+            expedition: {
+              ...previous.expedition,
+              readyNotified: true,
+            },
+          },
+    );
+    void sfx.play("cooldown.ready");
+  }, [boardState.expedition.readyNotified, expeditionRewardReady, setBoardState]);
+
   const handleGatheringMonsterDeathAnimationComplete = (animationId: string, round: number) => {
     setGatheringMonsterDeathUiState((current) =>
       current.animation?.id === animationId ? { animation: null, completedRound: round } : current,
     );
+  };
+
+  const handleExpeditionStart = (cardId: string) => {
+    const currentBoardState = boardStateRef.current;
+    if (!isExpeditionAvailable(currentBoardState)) return;
+    if (currentBoardState.expedition.targetCardId !== null) return;
+
+    const targetOptions = getExpeditionTargetOptions(
+      currentBoardState,
+      isQuestUnlocked(currentBoardState.selectedQuestId, currentBoardState.completedQuestIds)
+        ? getRequiredAlchemyQuest(currentBoardState.selectedQuestId)
+        : null,
+    );
+    if (!targetOptions.some((option) => option.card.id === cardId)) return;
+
+    const startedAtMs = Date.now();
+    setBoardState((previous) => ({
+      ...previous,
+      expedition: {
+        ...previous.expedition,
+        readyAtMs: startedAtMs + EXPEDITION_DURATION_MS,
+        readyNotified: false,
+        startedAtMs,
+        targetCardId: cardId,
+        unlockSeen: true,
+      },
+    }));
+    void sfx.play("board-mode.expedition");
+  };
+
+  const handleExpeditionCancel = () => {
+    setBoardState((previous) => ({
+      ...previous,
+      expedition: {
+        ...previous.expedition,
+        readyAtMs: null,
+        readyNotified: false,
+        startedAtMs: null,
+        targetCardId: null,
+      },
+    }));
+    void sfx.play("card.dissolve");
+  };
+
+  const handleExpeditionRewardClaim = () => {
+    const currentBoardState = boardStateRef.current;
+    const targetCardId = currentBoardState.expedition.targetCardId;
+    if (!targetCardId || !isExpeditionRewardReady(currentBoardState.expedition, Date.now())) return;
+
+    const rewardCard = getAlchemyCard(targetCardId);
+    if (!rewardCard) return;
+
+    const destinationSlotId = getInventoryDestinationSlotId(currentBoardState, targetCardId);
+    if (!destinationSlotId) {
+      void sfx.play("transmute.failed");
+      return;
+    }
+
+    const claimedAtMs = Date.now();
+    const cooldownId = createInventoryCooldownId(targetCardId, claimedAtMs, "expedition");
+    notifiedCooldownIdsRef.current?.add(cooldownId);
+    const fromRect = getCenteredCardRect(
+      getElementRect("[data-board-section='expedition-reward-card']"),
+      FLOATING_ELEMENT_CARD_WIDTH,
+      FLOATING_ELEMENT_CARD_HEIGHT,
+    );
+    const toRect = getCenteredCardRect(
+      getInventorySlotRect(destinationSlotId),
+      FLOATING_ELEMENT_CARD_WIDTH,
+      FLOATING_ELEMENT_CARD_HEIGHT,
+    );
+    if (fromRect && toRect) {
+      transmuteFlyAnimationSequenceRef.current += 1;
+      setTransmuteFlyAnimation({
+        card: rewardCard,
+        fromRect,
+        id: `expedition-reward:${transmuteFlyAnimationSequenceRef.current}`,
+        toInventorySlotId: destinationSlotId,
+        toRect,
+      });
+    }
+
+    setBoardState((previous) => ({
+      ...previous,
+      discoveredElementIds: appendUniqueId(previous.discoveredElementIds, targetCardId),
+      expedition: {
+        ...previous.expedition,
+        readyAtMs: null,
+        readyNotified: false,
+        startedAtMs: null,
+        targetCardId: null,
+      },
+      inventorySlots: addReadyInventoryCopy(
+        previous.inventorySlots,
+        destinationSlotId,
+        targetCardId,
+        claimedAtMs,
+        cooldownId,
+      ),
+    }));
+    void sfx.play("gathering.rewardClaim");
   };
 
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
@@ -5289,6 +6127,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   const handleBoardModeTabChange = (nextTab: BoardModeTab) => {
     if (gatheringSessionReview?.depositing === true || gatheringWrongResetKey !== null) return;
+    if (nextTab === "expedition" && !expeditionAvailable) return;
     if (nextTab === activeBoardMode) return;
 
     if (
@@ -5312,7 +6151,17 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (nextTab === "gathering" && gatheringNudgeKey) {
       setGatheringNudgeDismissedKey(gatheringNudgeKey);
     }
-    setBoardState((previous) => ({ ...previous, activeBoardMode: nextTab }));
+    setBoardState((previous) => ({
+      ...previous,
+      activeBoardMode: nextTab,
+      expedition:
+        nextTab === "expedition" && expeditionAvailable
+          ? {
+              ...previous.expedition,
+              unlockSeen: true,
+            }
+          : previous.expedition,
+    }));
     void sfx.play(boardModeTabSoundIds[nextTab]);
   };
 
@@ -7335,69 +8184,84 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           targetRef={rightPrimaryPanelRef}
         />
       ) : null}
-      <div className={getBoardChromeClass(isExpeditionMode)}>
-        {isExpeditionMode ? null : (
-          <section
-            data-board-section="top-inventory-panel"
-            data-board-name="Inventory"
-            data-board-description={BOARD_DESCRIPTIONS.inventory}
-            className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)_2.5rem] items-center gap-3 py-2 pl-3 pr-16`}
-            aria-label="Inventory"
+      <div className={getBoardChromeClass()}>
+        <section
+          data-board-section="top-inventory-panel"
+          data-board-name="Inventory"
+          data-board-description={BOARD_DESCRIPTIONS.inventory}
+          className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)_2.5rem] items-center gap-3 py-2 pl-3 pr-16`}
+          aria-label="Inventory"
+        >
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.inventory}
+            label="Inventory"
+            visible={showBoardDebugBadges}
+          />
+          <div
+            className="grid size-10 place-items-center justify-self-start rounded-[6px] border border-sky-950/20 bg-white/40 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)]"
+            aria-hidden="true"
           >
-            <BoardDebugBadge
-              description={BOARD_DESCRIPTIONS.inventory}
-              label="Inventory"
-              visible={showBoardDebugBadges}
-            />
-            <div
-              className="grid size-10 place-items-center justify-self-start rounded-[6px] border border-sky-950/20 bg-white/40 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)]"
-              aria-hidden="true"
-            >
-              <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
-            </div>
-            <span className="h-10 w-px bg-neutral-950/25" aria-hidden="true" />
-            <div
-              data-board-section="inventory-shelf"
-              data-board-name="Inventory shelf"
-              className="flex min-h-14 min-w-0 touch-pan-x items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-1 pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]"
-            >
-              {inventorySlots.map((slot) => {
-                const item = boardState.inventorySlots[slot.id];
-                const card = getAlchemyCard(item?.cardId ?? null);
+            <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
+          </div>
+          <span className="h-10 w-px bg-neutral-950/25" aria-hidden="true" />
+          <div
+            data-board-section="inventory-shelf"
+            data-board-name="Inventory shelf"
+            className="flex min-h-14 min-w-0 touch-pan-x items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-1 pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]"
+          >
+            {inventorySlots.map((slot) => {
+              const item = boardState.inventorySlots[slot.id];
+              const card = getAlchemyCard(item?.cardId ?? null);
 
-                return (
-                  <InventorySlot
-                    key={slot.id}
-                    card={card}
-                    cooldowns={item?.cooldowns ?? []}
-                    draggedCard={draggedCard}
-                    isFlyDestination={
-                      transmuteFlyAnimation?.toInventorySlotId === slot.id &&
-                      transmuteFlyAnimation.card.id === item?.cardId
-                    }
-                    nowMs={nowMs}
-                    onPointerDown={beginInventoryCardDrag}
-                    sellPrice={card ? getAlchemyCardSellPrice(card) : 0}
-                    slotId={slot.id}
-                    slotName={slot.name}
-                  />
-                );
-              })}
-            </div>
-            <InventorySellZone draggedCard={draggedCard} dropIntent={dropIntent} />
-          </section>
-        )}
+              return (
+                <InventorySlot
+                  key={slot.id}
+                  card={card}
+                  cooldowns={item?.cooldowns ?? []}
+                  draggedCard={draggedCard}
+                  isFlyDestination={
+                    transmuteFlyAnimation?.toInventorySlotId === slot.id &&
+                    transmuteFlyAnimation.card.id === item?.cardId
+                  }
+                  marker={getQuestInventoryMarker(
+                    card,
+                    selectedQuestAssemblyGuide,
+                    selectedQuestDelivery,
+                  )}
+                  nowMs={nowMs}
+                  onPointerDown={beginInventoryCardDrag}
+                  sellPrice={card ? getAlchemyCardSellPrice(card) : 0}
+                  slotId={slot.id}
+                  slotName={slot.name}
+                />
+              );
+            })}
+          </div>
+          <InventorySellZone draggedCard={draggedCard} dropIntent={dropIntent} />
+        </section>
 
         <BoardModeTabs
           activeTab={activeBoardMode}
+          expeditionAvailable={expeditionAvailable}
+          expeditionNudgeActive={expeditionNudgeActive}
+          expeditionRevealActive={expeditionReveal.active}
+          expeditionRevealKey={expeditionReveal.key}
           gatheringNudgeActive={gatheringNudgeActive}
           onTabChange={handleBoardModeTabChange}
         />
 
         {isExpeditionMode ? (
           <ExpeditionCanvasPanel
+            available={expeditionAvailable}
+            canClaimReward={canClaimExpeditionReward}
+            expedition={boardState.expedition}
+            nowMs={nowMs}
+            targetOptions={expeditionTargetOptions}
             periodicTableViewportRef={periodicTableViewportRef}
             showBoardDebugBadges={showBoardDebugBadges}
+            onCancel={handleExpeditionCancel}
+            onClaimReward={handleExpeditionRewardClaim}
+            onStart={handleExpeditionStart}
           />
         ) : (
           <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
@@ -7443,6 +8307,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 hasQuestNotifications={pendingQuestNotificationIds.length > 0}
                 isClaimDragging={selectedQuestClaimSwipeState.dragging}
                 isGatheringMode={isGatheringMode}
+                questAssemblyGuide={selectedQuestAssemblyGuide}
                 questLogScrollTop={boardState.questLogScrollTop}
                 questPanelAccepted={questPanelAccepted}
                 selectedQuestId={selectedQuestId}
@@ -7475,6 +8340,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               onGatheringMovePointerDown={beginGatheringMoveDrag}
               onGatheringRewardSelect={handleGatheringRewardSelect}
               periodicTableViewportRef={periodicTableViewportRef}
+              questAssemblyGuide={selectedQuestAssemblyGuide}
               recipePreview={transmutationPreview}
               selectedGatheringRewardCardId={selectedGatheringRewardCardId}
               showBoardDebugBadges={showBoardDebugBadges}
@@ -8288,6 +9154,23 @@ function getAlchemyCardSellPrice(card: AlchemyBoardCard): number {
   return 10 + Math.min(18, card.name.length);
 }
 
+function getQuestInventoryMarker(
+  card: AlchemyBoardCard | null,
+  guide: QuestAssemblyGuide | null,
+  delivery: AlchemistGuildQuestDelivery,
+): QuestInventoryMarker | null {
+  if (!card) return null;
+  if (card.id === delivery.cardId) return { label: "Turn in", tone: "delivery" };
+
+  const ingredient = guide?.ingredients.find((candidate) => candidate.cardId === card.id);
+  if (!ingredient) return null;
+
+  return {
+    label: ingredient.readyCount >= ingredient.requiredCount ? "Quest part" : "Prep part",
+    tone: "prep",
+  };
+}
+
 function formatEmergentRecipeRarity(rarity: AlchemistGuildEmergentRecipeRarity): string {
   return rarity === "mythical" ? "Mythical" : formatTokenLabel(rarity);
 }
@@ -8394,9 +9277,20 @@ function getRecipePreviewKindLabel(preview: AlchemyWorkbenchAnyRecipePreview): s
 function getTransmutationPadPrompt(
   preview: AlchemyWorkbenchAnyRecipePreview | null,
   alreadyMade: boolean,
+  guide: QuestAssemblyGuide | null,
 ): string {
   if (alreadyMade) return "Already made";
   if (preview && isEmergentRecipePreview(preview)) return "Swipe to stabilize";
+  if (
+    preview &&
+    guide &&
+    !isEmergentRecipePreview(preview) &&
+    !isExtendedRecipePreview(preview) &&
+    preview.recipe.id === guide.terminalRecipeId
+  ) {
+    return `Swipe to make ${guide.terminalRecipeName}`;
+  }
+  if (!preview && guide?.readyToAssemble) return `${guide.terminalRecipeName} is ready`;
   return preview ? "Swipe to transmute" : "Match a recipe first";
 }
 

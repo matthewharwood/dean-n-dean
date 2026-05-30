@@ -263,6 +263,18 @@ export type AlchemistGuildGatheringState = z.infer<typeof AlchemistGuildGatherin
 export const ALCHEMIST_GUILD_GATHERING_DEFAULT: AlchemistGuildGatheringState =
   AlchemistGuildGatheringStateSchema.parse({});
 
+export const AlchemistGuildExpeditionStateSchema = z.object({
+  readyAtMs: z.number().min(0).nullable().default(null),
+  readyNotified: z.boolean().default(false),
+  startedAtMs: z.number().min(0).nullable().default(null),
+  targetCardId: AlchemistGuildCardIdSchema.nullable().default(null),
+  unlockAnnounced: z.boolean().default(false),
+  unlockSeen: z.boolean().default(false),
+});
+export type AlchemistGuildExpeditionState = z.infer<typeof AlchemistGuildExpeditionStateSchema>;
+export const ALCHEMIST_GUILD_EXPEDITION_DEFAULT: AlchemistGuildExpeditionState =
+  AlchemistGuildExpeditionStateSchema.parse({});
+
 export const AlchemistGuildBoardStateSchema = z.object({
   activeBoardMode: AlchemistGuildBoardModeSchema.default("crafting"),
   completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
@@ -275,6 +287,7 @@ export const AlchemistGuildBoardStateSchema = z.object({
   discoveredRecipeIds: z.array(AlchemyRecipeIdSchema).default([]),
   elementQuantities: AlchemistGuildElementQuantitiesSchema,
   gathering: AlchemistGuildGatheringStateSchema.default(ALCHEMIST_GUILD_GATHERING_DEFAULT),
+  expedition: AlchemistGuildExpeditionStateSchema.default(ALCHEMIST_GUILD_EXPEDITION_DEFAULT),
   profile: AlchemistGuildProfileSchema.default(ALCHEMIST_GUILD_PROFILE_DEFAULT),
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(
     ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,
