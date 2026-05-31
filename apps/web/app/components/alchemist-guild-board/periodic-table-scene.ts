@@ -1,5 +1,5 @@
 import { type AlchemistGuildElementQuantities, ELEMENT_CARDS } from "@dean-stack/schemas";
-import type { Application, Ticker } from "pixi.js";
+import type { Application } from "pixi.js";
 import { Container, Graphics, Text } from "pixi.js";
 
 const CELL_WIDTH = 48;
@@ -15,19 +15,20 @@ const TEXT_RESOLUTION = 2;
 const PRIMARY_POINTER_BUTTON = 0;
 const MIDDLE_POINTER_BUTTON = 1;
 const PERIODIC_TABLE_FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
-const WORLD_FOG_MARGIN = 2600;
-const WORLD_FOG_PERIMETER_EXPANSIONS = [126, 74, 38] as const;
-const WORLD_FOG_ORGANIC_POINT_COUNT = 40;
-const WORLD_FOG_ROLLING_LAYER_COUNT = 13;
-const WORLD_FOG_DARK_COLOR = 0x020617;
-const WORLD_FOG_DEEP_COLOR = 0x0f172a;
-const WORLD_FOG_COOL_COLOR = 0x1e293b;
-const WORLD_FOG_MIST_COLOR = 0x64748b;
-const CELL_FOG_LIGHT_COLOR = 0xf8fafc;
-const CELL_FOG_MID_COLOR = 0xdbeafe;
-const CELL_FOG_SHADOW_COLOR = 0x94a3b8;
-const CELL_FOG_DEEP_COLOR = 0x334155;
-const CELL_FOG_PUFFS = 3;
+const CARD_BACK_BASE_COLOR = 0x991b1b;
+const CARD_BACK_DARK_COLOR = 0x450a0a;
+const CARD_BACK_INK_COLOR = 0xfff7ed;
+const CARD_BACK_ACCENT_COLOR = 0x1e3a8a;
+const CARD_BACK_LINE_COLOR = 0xfecaca;
+const CARD_BACK_PATTERN_INSET = 6;
+const CARD_BACK_PATTERN_STEP = 8;
+const CARD_BACK_PATTERN_RADIUS_X = 2.3;
+const CARD_BACK_PATTERN_RADIUS_Y = 3.3;
+const EMPTY_CARD_CROSS_COLOR = 0x334155;
+const ELEMENT_REVEAL_STAGGER_MS = 92;
+const ELEMENT_REVEAL_DURATION_MS = 560;
+const ELEMENT_REVEAL_START_SCALE_X = 0.04;
+const ELEMENT_REVEAL_START_SKEW_Y = -0.42;
 export const FLOATING_ELEMENT_CARD_WIDTH = 105;
 export const FLOATING_ELEMENT_CARD_HEIGHT = 148;
 
@@ -42,13 +43,22 @@ export type PeriodicTableElementGrab = {
 };
 
 type PeriodicTableSceneOptions = {
+  cameraMode?: PeriodicTableCameraMode;
+  cameraTransition?: PeriodicTableCameraTransition;
   discoveredElementIds?: readonly string[];
   elementQuantities?: Readonly<AlchemistGuildElementQuantities>;
   getFitRect?: () => DOMRect | null;
   getInteractionRect?: () => DOMRect | null;
   onElementGrab?: (grab: PeriodicTableElementGrab) => void;
   reducedMotion?: boolean;
+  revealElementIds?: readonly string[];
 };
+
+type PeriodicTableCameraMode =
+  | { kind: "element"; elementId: string; scale?: number }
+  | { kind: "fit" };
+
+type PeriodicTableCameraTransition = "intro-zoom-out" | "none";
 
 type PeriodicElementAccess = {
   discovered: boolean;
@@ -73,44 +83,22 @@ type ElementHit = {
   grabOffsetY: number;
 };
 
+type RevealedElementCell = {
+  cell: Container;
+  order: number;
+};
+
+type CameraState = {
+  scale: number;
+  x: number;
+  y: number;
+};
+
 type ViewRect = {
   height: number;
   left: number;
   top: number;
   width: number;
-};
-
-type FogMotionTarget = Container | Graphics;
-
-type FogMotion = {
-  alphaPulse: number;
-  baseAlpha: number;
-  baseRotation: number;
-  baseScaleX: number;
-  baseScaleY: number;
-  baseX: number;
-  baseY: number;
-  driftX: number;
-  driftY: number;
-  phase: number;
-  rotationDrift: number;
-  scalePulse: number;
-  speed: number;
-  target: FogMotionTarget;
-};
-
-type FogDisplay = {
-  container: Container;
-  motions: FogMotion[];
-};
-
-type FogMotionOptions = {
-  alphaPulse?: number;
-  driftX?: number;
-  driftY?: number;
-  rotationDrift?: number;
-  scalePulse?: number;
-  speed?: number;
 };
 
 const tableWidth = TABLE_COLUMNS * CELL_WIDTH + (TABLE_COLUMNS - 1) * CELL_GAP;
@@ -127,36 +115,127 @@ export function setupPeriodicTableScene(
   const resizeTarget = canvas.parentElement ?? canvas;
   let disposed = false;
   let resizeFrame = 0;
+  let cameraAnimationFrame = 0;
+  let cameraTransitionComplete = false;
+  let cancelRevealAnimation: (() => void) | null = null;
 
   app.stage.addChild(tableLayer);
-  const fogMotions = drawPeriodicTable(tableLayer, elementAccess);
-  let fogTimeSeconds = 0;
-
-  const animateFog = (ticker: Ticker) => {
-    if (disposed) return;
-
-    fogTimeSeconds += ticker.deltaMS / 1000;
-    updateFogMotions(fogMotions, fogTimeSeconds);
-  };
 
   const renderNow = () => {
     if (disposed) return;
     app.render();
   };
 
-  const fitTable = () => {
-    if (disposed) return;
+  const revealedCells = drawPeriodicTable(
+    tableLayer,
+    elementAccess,
+    new Set(options.revealElementIds ?? []),
+  );
+
+  const applyCameraState = (camera: CameraState) => {
+    tableLayer.scale.set(camera.scale);
+    tableLayer.position.set(camera.x, camera.y);
+  };
+
+  const getFitCameraState = (): CameraState => {
     const fitRect = getCanvasLocalFitRect();
     const availableWidth = Math.max(fitRect.width - FIT_PADDING * 2, tableWidth * MIN_SCALE);
     const availableHeight = Math.max(fitRect.height - FIT_PADDING * 2, tableHeight * MIN_SCALE);
     const scale = Math.min(availableWidth / tableWidth, availableHeight / tableHeight, 1);
     const nextScale = clamp(scale, MIN_SCALE, MAX_SCALE);
 
-    tableLayer.scale.set(nextScale);
-    tableLayer.position.set(
-      fitRect.left + (fitRect.width - tableWidth * nextScale) / 2,
-      fitRect.top + (fitRect.height - tableHeight * nextScale) / 2,
-    );
+    return {
+      scale: nextScale,
+      x: fitRect.left + (fitRect.width - tableWidth * nextScale) / 2,
+      y: fitRect.top + (fitRect.height - tableHeight * nextScale) / 2,
+    };
+  };
+
+  const getElementFocusCameraState = (
+    elementId: string,
+    preferredScale: number | undefined,
+  ): CameraState => {
+    const card = ELEMENT_CARDS.find((elementCard) => elementCard.id === elementId);
+    if (!card) return getFitCameraState();
+
+    const fitRect = getCanvasLocalFitRect();
+    const x = (card.element.table.column - 1) * (CELL_WIDTH + CELL_GAP);
+    const y = TITLE_HEIGHT + (card.element.table.row - 1) * (CELL_HEIGHT + CELL_GAP);
+    const centerX = x + CELL_WIDTH / 2;
+    const centerY = y + CELL_HEIGHT / 2;
+    const scale = clamp(preferredScale ?? MAX_SCALE, MIN_SCALE, MAX_SCALE);
+
+    return {
+      scale,
+      x: fitRect.left + fitRect.width / 2 - centerX * scale,
+      y: fitRect.top + fitRect.height / 2 - centerY * scale,
+    };
+  };
+
+  const getCameraState = (mode: PeriodicTableCameraMode): CameraState => {
+    if (mode.kind === "element") return getElementFocusCameraState(mode.elementId, mode.scale);
+    return getFitCameraState();
+  };
+
+  const getCurrentCameraMode = (): PeriodicTableCameraMode => {
+    if (options.cameraTransition === "intro-zoom-out" && cameraTransitionComplete) {
+      return { kind: "fit" };
+    }
+
+    return options.cameraMode ?? { kind: "fit" };
+  };
+
+  const syncCamera = () => {
+    if (disposed || cameraAnimationFrame !== 0) return;
+    applyCameraState(getCameraState(getCurrentCameraMode()));
+  };
+
+  const cancelCameraAnimation = () => {
+    if (cameraAnimationFrame === 0) return;
+    cancelAnimationFrame(cameraAnimationFrame);
+    cameraAnimationFrame = 0;
+  };
+
+  const startIntroZoomOut = () => {
+    if (disposed) return;
+
+    const startCamera = getCameraState(options.cameraMode ?? { kind: "fit" });
+    const endCamera = getFitCameraState();
+    if (options.reducedMotion === true) {
+      cameraTransitionComplete = true;
+      applyCameraState(endCamera);
+      renderNow();
+      return;
+    }
+
+    const startedAtMs = performance.now();
+    const durationMs = 1080;
+    applyCameraState(startCamera);
+    renderNow();
+
+    const tick = (nowMs: number) => {
+      const progress = clamp((nowMs - startedAtMs) / durationMs, 0, 1);
+      const eased = easeInOutCubic(progress);
+
+      applyCameraState({
+        scale: lerp(startCamera.scale, endCamera.scale, eased),
+        x: lerp(startCamera.x, endCamera.x, eased),
+        y: lerp(startCamera.y, endCamera.y, eased),
+      });
+      renderNow();
+
+      if (progress < 1) {
+        cameraAnimationFrame = requestAnimationFrame(tick);
+        return;
+      }
+
+      cameraAnimationFrame = 0;
+      cameraTransitionComplete = true;
+      applyCameraState(endCamera);
+      renderNow();
+    };
+
+    cameraAnimationFrame = requestAnimationFrame(tick);
   };
 
   const getCanvasLocalFitRect = (): ViewRect => {
@@ -191,6 +270,7 @@ export function setupPeriodicTableScene(
 
   const zoomAt = (screenX: number, screenY: number, nextScale: number) => {
     if (disposed) return;
+    cancelCameraAnimation();
     const currentScale = tableLayer.scale.x;
     const worldX = (screenX - tableLayer.x) / currentScale;
     const worldY = (screenY - tableLayer.y) / currentScale;
@@ -283,6 +363,7 @@ export function setupPeriodicTableScene(
   };
 
   const beginPan = (event: PointerEvent, point: ScreenPoint) => {
+    cancelCameraAnimation();
     canvas.setPointerCapture(event.pointerId);
     state.pointers.set(event.pointerId, point);
     canvas.style.cursor = "grabbing";
@@ -346,7 +427,7 @@ export function setupPeriodicTableScene(
 
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = 0;
-      fitTable();
+      syncCamera();
       renderNow();
     });
   };
@@ -363,14 +444,23 @@ export function setupPeriodicTableScene(
 
   const resizeObserver = new ResizeObserver(handleResize);
   resizeObserver.observe(resizeTarget);
-  handleResize();
+  if (options.cameraTransition === "intro-zoom-out") {
+    startIntroZoomOut();
+  } else {
+    handleResize();
+  }
+  cancelRevealAnimation = startElementRevealAnimation(
+    revealedCells,
+    renderNow,
+    options.reducedMotion === true,
+  );
   void document.fonts?.ready.then(renderNow);
-  if (!options.reducedMotion) app.ticker.add(animateFog);
 
   return () => {
     disposed = true;
-    app.ticker.remove(animateFog);
     if (resizeFrame !== 0) cancelAnimationFrame(resizeFrame);
+    cancelCameraAnimation();
+    cancelRevealAnimation?.();
     resizeObserver.disconnect();
     canvas.removeEventListener("mousedown", preventMiddleClickDefault);
     canvas.removeEventListener("auxclick", preventMiddleClickDefault);
@@ -387,12 +477,9 @@ export function setupPeriodicTableScene(
 function drawPeriodicTable(
   tableLayer: Container,
   elementAccess: ReadonlyMap<string, PeriodicElementAccess>,
-): FogMotion[] {
-  const fogMotions: FogMotion[] = [];
-  const worldFog = drawWorldFog();
-  tableLayer.addChild(worldFog.container);
-  fogMotions.push(...worldFog.motions);
-
+  revealElementIds: ReadonlySet<string>,
+): RevealedElementCell[] {
+  const revealedCells: RevealedElementCell[] = [];
   const title = new Text({
     text: "Periodic Table of the Elements",
     resolution: TEXT_RESOLUTION,
@@ -409,182 +496,26 @@ function drawPeriodicTable(
   tableLayer.addChild(title);
 
   for (const card of ELEMENT_CARDS) {
-    const cell = drawElementCell(card, getElementAccess(card, elementAccess));
+    const access = getElementAccess(card, elementAccess);
+    const cell = drawElementCell(card, access);
     const x = (card.element.table.column - 1) * (CELL_WIDTH + CELL_GAP);
     const y = TITLE_HEIGHT + (card.element.table.row - 1) * (CELL_HEIGHT + CELL_GAP);
 
-    cell.position.set(x, y);
+    if (access.discovered && revealElementIds.has(card.id)) {
+      cell.pivot.set(CELL_WIDTH / 2, CELL_HEIGHT / 2);
+      cell.position.set(x + CELL_WIDTH / 2, y + CELL_HEIGHT / 2);
+      cell.scale.set(ELEMENT_REVEAL_START_SCALE_X, 0.94);
+      cell.skew.set(0, ELEMENT_REVEAL_START_SKEW_Y);
+      cell.alpha = 0;
+      revealedCells.push({ cell, order: revealedCells.length });
+    } else {
+      cell.position.set(x, y);
+    }
+
     tableLayer.addChild(cell);
   }
 
-  const cellFog = drawFogLayer(elementAccess);
-  tableLayer.addChild(cellFog.container);
-  fogMotions.push(...cellFog.motions);
-
-  return fogMotions;
-}
-
-function drawWorldFog(): FogDisplay {
-  const fog = new Container();
-  const motions: FogMotion[] = [];
-  const ambientFog = drawOrganicWorldFogField();
-  const perimeterFog = drawPeriodicTablePerimeterFog();
-
-  fog.addChild(ambientFog.container, perimeterFog.container);
-  motions.push(...ambientFog.motions, ...perimeterFog.motions);
-
-  return { container: fog, motions };
-}
-
-function drawOrganicWorldFogField(): FogDisplay {
-  const container = new Container();
-  const motions: FogMotion[] = [];
-  const centerX = tableWidth / 2;
-  const centerY = tableHeight / 2;
-  const baseFog = drawOrganicBlob({
-    alpha: 0.38,
-    color: WORLD_FOG_DARK_COLOR,
-    pointCount: WORLD_FOG_ORGANIC_POINT_COUNT,
-    radiusX: tableWidth / 2 + WORLD_FOG_MARGIN,
-    radiusY: tableHeight / 2 + WORLD_FOG_MARGIN,
-    seed: 10,
-  });
-  baseFog.position.set(centerX, centerY);
-  container.addChild(baseFog);
-  motions.push(
-    createFogMotion(baseFog, 12, {
-      alphaPulse: 0.025,
-      driftX: 28,
-      driftY: -18,
-      rotationDrift: 0.012,
-      scalePulse: 0.008,
-      speed: 0.1,
-    }),
-  );
-
-  for (let index = 0; index < WORLD_FOG_ROLLING_LAYER_COUNT; index += 1) {
-    const angle = (index / WORLD_FOG_ROLLING_LAYER_COUNT) * Math.PI * 2;
-    const distance = 420 + seededUnit(index * 43 + 4) * 840;
-    const radiusX = 360 + seededUnit(index * 71 + 3) * 720;
-    const radiusY = 190 + seededUnit(index * 59 + 8) * 420;
-    const layer = drawOrganicBlob({
-      alpha: 0.1 + seededUnit(index * 67 + 12) * 0.12,
-      color: index % 3 === 0 ? WORLD_FOG_COOL_COLOR : WORLD_FOG_DEEP_COLOR,
-      pointCount: 28,
-      radiusX,
-      radiusY,
-      seed: index * 97 + 21,
-    });
-    layer.position.set(
-      centerX + Math.cos(angle) * distance,
-      centerY + Math.sin(angle) * distance * 0.72,
-    );
-    layer.rotation = angle * 0.17;
-    container.addChild(layer);
-    motions.push(
-      createFogMotion(layer, index * 37 + 5, {
-        alphaPulse: 0.035,
-        driftX: 28 + seededUnit(index * 19 + 1) * 42,
-        driftY: -22 + seededUnit(index * 23 + 2) * 44,
-        rotationDrift: 0.02,
-        scalePulse: 0.018,
-        speed: 0.08 + seededUnit(index * 13 + 6) * 0.07,
-      }),
-    );
-  }
-
-  return { container, motions };
-}
-
-function drawPeriodicTablePerimeterFog(): FogDisplay {
-  const container = new Container();
-  const motions: FogMotion[] = [];
-
-  for (const [layerIndex, expansion] of WORLD_FOG_PERIMETER_EXPANSIONS.entries()) {
-    const layer = new Graphics();
-    const alpha = getPerimeterFogLayerAlpha(layerIndex);
-    const color = layerIndex === 0 ? WORLD_FOG_DEEP_COLOR : WORLD_FOG_DARK_COLOR;
-
-    for (const card of ELEMENT_CARDS) {
-      const x = (card.element.table.column - 1) * (CELL_WIDTH + CELL_GAP) - expansion;
-      const y = TITLE_HEIGHT + (card.element.table.row - 1) * (CELL_HEIGHT + CELL_GAP) - expansion;
-      layer
-        .roundRect(
-          x,
-          y,
-          CELL_WIDTH + expansion * 2,
-          CELL_HEIGHT + expansion * 2,
-          Math.max(12, expansion * 0.68),
-        )
-        .fill({ color, alpha });
-    }
-
-    container.addChild(layer);
-    motions.push(
-      createFogMotion(layer, expansion * 3 + 9, {
-        alphaPulse: 0.025,
-        driftX: 7 + layerIndex * 5,
-        driftY: -5 + layerIndex * 3,
-        rotationDrift: 0.002,
-        scalePulse: 0.004,
-        speed: 0.12 + layerIndex * 0.035,
-      }),
-    );
-  }
-
-  const perimeterWisps = drawPerimeterWisps();
-  container.addChild(perimeterWisps.container);
-  motions.push(...perimeterWisps.motions);
-
-  return { container, motions };
-}
-
-function drawPerimeterWisps(): FogDisplay {
-  const container = new Container();
-  const motions: FogMotion[] = [];
-
-  for (const [index, card] of ELEMENT_CARDS.entries()) {
-    if (index % 4 !== 0) continue;
-    const x = (card.element.table.column - 1) * (CELL_WIDTH + CELL_GAP) + CELL_WIDTH / 2;
-    const y =
-      TITLE_HEIGHT + (card.element.table.row - 1) * (CELL_HEIGHT + CELL_GAP) + CELL_HEIGHT / 2;
-    const side = index % 8 < 4 ? -1 : 1;
-    const wisp = drawOrganicBlob({
-      alpha: 0.16 + seededUnit(index * 17 + 2) * 0.1,
-      color: index % 12 === 0 ? WORLD_FOG_MIST_COLOR : WORLD_FOG_DEEP_COLOR,
-      pointCount: 18,
-      radiusX: 42 + seededUnit(index * 31 + 5) * 54,
-      radiusY: 24 + seededUnit(index * 29 + 7) * 38,
-      seed: index * 61 + 14,
-    });
-    wisp.position.set(x + side * (52 + seededUnit(index * 11 + 1) * 42), y - 18);
-    wisp.rotation = seededUnit(index * 47 + 9) * Math.PI;
-    container.addChild(wisp);
-    motions.push(
-      createFogMotion(wisp, index * 53 + 17, {
-        alphaPulse: 0.045,
-        driftX: side * (8 + seededUnit(index * 19 + 3) * 12),
-        driftY: 5 + seededUnit(index * 23 + 4) * 12,
-        rotationDrift: 0.035,
-        scalePulse: 0.025,
-        speed: 0.1 + seededUnit(index * 13 + 6) * 0.08,
-      }),
-    );
-  }
-
-  return { container, motions };
-}
-
-function getPerimeterFogLayerAlpha(layerIndex: number): number {
-  if (layerIndex === 0) return 0.16;
-  if (layerIndex === 1) return 0.24;
-  return 0.33;
-}
-
-function getCellFogPuffColor(puffIndex: number): number {
-  if (puffIndex === 0) return CELL_FOG_LIGHT_COLOR;
-  if (puffIndex === 1) return CELL_FOG_SHADOW_COLOR;
-  return CELL_FOG_DEEP_COLOR;
+  return revealedCells;
 }
 
 function drawElementCell(
@@ -592,6 +523,12 @@ function drawElementCell(
   access: PeriodicElementAccess,
 ): Container {
   const cell = new Container();
+
+  if (!access.discovered) {
+    cell.addChild(drawElementCardBack());
+    return cell;
+  }
+
   const familyColor = hexToNumber(card.visual.familyColor);
   const background = new Graphics()
     .roundRect(0, 0, CELL_WIDTH, CELL_HEIGHT, 3)
@@ -654,12 +591,158 @@ function drawElementCell(
 
   cell.addChild(background, familyBand, atomicNumber, symbol, name, mass);
 
-  if (access.discovered) {
-    cell.addChild(drawQuantityBadge(access.quantity));
-    if (access.quantity <= 0) cell.addChild(drawEmptyQuantityOverlay());
-  }
+  if (access.quantity <= 0) cell.addChild(drawEmptyQuantityOverlay());
+  cell.addChild(drawQuantityBadge(access.quantity));
 
   return cell;
+}
+
+function drawElementCardBack(): Container {
+  const back = new Container();
+  const base = new Graphics()
+    .roundRect(0, 0, CELL_WIDTH, CELL_HEIGHT, 4)
+    .fill(CARD_BACK_BASE_COLOR)
+    .stroke({ color: CARD_BACK_DARK_COLOR, width: 1.2 })
+    .roundRect(3, 3, CELL_WIDTH - 6, CELL_HEIGHT - 6, 3)
+    .stroke({ color: CARD_BACK_INK_COLOR, width: 1, alpha: 0.86 })
+    .roundRect(6, 6, CELL_WIDTH - 12, CELL_HEIGHT - 12, 2)
+    .stroke({ color: CARD_BACK_LINE_COLOR, width: 0.7, alpha: 0.55 });
+
+  back.addChild(base, drawCardBackLattice(), drawCardBackDiamonds(), drawCardBackMedallion());
+  return back;
+}
+
+function drawCardBackLattice(): Graphics {
+  const lattice = new Graphics();
+  const left = CARD_BACK_PATTERN_INSET;
+  const top = CARD_BACK_PATTERN_INSET;
+  const right = CELL_WIDTH - CARD_BACK_PATTERN_INSET;
+  const bottom = CELL_HEIGHT - CARD_BACK_PATTERN_INSET;
+  const patternWidth = right - left;
+  const patternHeight = bottom - top;
+
+  for (let startX = left; startX <= right; startX += CARD_BACK_PATTERN_STEP) {
+    const run = Math.min(patternHeight, right - startX);
+    strokeCardBackPatternLine(lattice, startX, top, startX + run, top + run, 0.24);
+    strokeCardBackPatternLine(lattice, startX, bottom, startX + run, bottom - run, 0.2);
+  }
+
+  for (
+    let startY = top + CARD_BACK_PATTERN_STEP;
+    startY < bottom;
+    startY += CARD_BACK_PATTERN_STEP
+  ) {
+    const run = Math.min(patternWidth, bottom - startY);
+    strokeCardBackPatternLine(lattice, left, startY, left + run, startY + run, 0.24);
+  }
+
+  for (
+    let startY = bottom - CARD_BACK_PATTERN_STEP;
+    startY > top;
+    startY -= CARD_BACK_PATTERN_STEP
+  ) {
+    const run = Math.min(patternWidth, startY - top);
+    strokeCardBackPatternLine(lattice, left, startY, left + run, startY - run, 0.2);
+  }
+
+  lattice
+    .rect(left, top, right - left, bottom - top)
+    .stroke({ color: CARD_BACK_ACCENT_COLOR, width: 0.7, alpha: 0.62 });
+
+  return lattice;
+}
+
+function strokeCardBackPatternLine(
+  graphics: Graphics,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  alpha: number,
+): void {
+  graphics
+    .moveTo(startX, startY)
+    .lineTo(endX, endY)
+    .stroke({ color: CARD_BACK_INK_COLOR, width: 0.45, alpha });
+}
+
+function drawCardBackDiamonds(): Graphics {
+  const diamonds = new Graphics();
+  let row = 0;
+
+  for (
+    let y = CARD_BACK_PATTERN_INSET + 4;
+    y <= CELL_HEIGHT - CARD_BACK_PATTERN_INSET - 2;
+    y += CARD_BACK_PATTERN_STEP
+  ) {
+    const xOffset = row % 2 === 0 ? 0 : CARD_BACK_PATTERN_STEP / 2;
+    for (
+      let x = CARD_BACK_PATTERN_INSET + 4 + xOffset;
+      x <= CELL_WIDTH - CARD_BACK_PATTERN_INSET - 2;
+      x += CARD_BACK_PATTERN_STEP
+    ) {
+      drawDiamond(
+        diamonds,
+        x,
+        y,
+        CARD_BACK_PATTERN_RADIUS_X,
+        CARD_BACK_PATTERN_RADIUS_Y,
+        CARD_BACK_INK_COLOR,
+        0.36,
+      );
+      drawDiamond(diamonds, x, y, 1, 1.45, CARD_BACK_ACCENT_COLOR, 0.5);
+    }
+    row += 1;
+  }
+
+  return diamonds;
+}
+
+function drawCardBackMedallion(): Graphics {
+  const centerX = CELL_WIDTH / 2;
+  const centerY = CELL_HEIGHT / 2;
+  const medallion = new Graphics()
+    .ellipse(centerX, centerY, 10.5, 15)
+    .fill({ color: CARD_BACK_DARK_COLOR, alpha: 0.32 })
+    .stroke({ color: CARD_BACK_INK_COLOR, width: 0.8, alpha: 0.84 })
+    .ellipse(centerX, centerY, 6.5, 10)
+    .stroke({ color: CARD_BACK_LINE_COLOR, width: 0.65, alpha: 0.78 });
+
+  drawDiamond(medallion, centerX, centerY - 4.5, 3.2, 4.8, CARD_BACK_INK_COLOR, 0.7);
+  drawDiamond(medallion, centerX, centerY + 4.5, 3.2, 4.8, CARD_BACK_INK_COLOR, 0.7);
+  medallion
+    .circle(centerX, centerY, 2.15)
+    .fill({ color: CARD_BACK_ACCENT_COLOR, alpha: 0.82 })
+    .circle(centerX, centerY, 0.8)
+    .fill({ color: CARD_BACK_INK_COLOR, alpha: 0.95 });
+
+  return medallion;
+}
+
+function drawDiamond(
+  graphics: Graphics,
+  centerX: number,
+  centerY: number,
+  radiusX: number,
+  radiusY: number,
+  color: number,
+  alpha: number,
+): void {
+  graphics
+    .poly(
+      [
+        centerX,
+        centerY - radiusY,
+        centerX + radiusX,
+        centerY,
+        centerX,
+        centerY + radiusY,
+        centerX - radiusX,
+        centerY,
+      ],
+      true,
+    )
+    .fill({ color, alpha });
 }
 
 function drawQuantityBadge(quantity: number): Container {
@@ -688,145 +771,102 @@ function drawQuantityBadge(quantity: number): Container {
 }
 
 function drawEmptyQuantityOverlay(): Graphics {
-  return new Graphics()
+  const overlay = new Graphics()
     .roundRect(0, 0, CELL_WIDTH, CELL_HEIGHT, 3)
-    .fill({ color: 0xffffff, alpha: 0.42 })
-    .stroke({ color: 0x64748b, width: 1.25, alpha: 0.72 });
+    .fill({ color: 0xffffff, alpha: 0.18 })
+    .stroke({ color: EMPTY_CARD_CROSS_COLOR, width: 1, alpha: 0.58 });
+
+  overlay
+    .moveTo(7, 8)
+    .lineTo(CELL_WIDTH - 7, CELL_HEIGHT - 8)
+    .stroke({ color: EMPTY_CARD_CROSS_COLOR, width: 1.6, alpha: 0.54, cap: "round" });
+  overlay
+    .moveTo(CELL_WIDTH - 7, 8)
+    .lineTo(7, CELL_HEIGHT - 8)
+    .stroke({ color: EMPTY_CARD_CROSS_COLOR, width: 1.6, alpha: 0.46, cap: "round" });
+
+  return overlay;
 }
 
-function drawFogLayer(elementAccess: ReadonlyMap<string, PeriodicElementAccess>): FogDisplay {
-  const container = new Container();
-  const motions: FogMotion[] = [];
+function startElementRevealAnimation(
+  revealedCells: readonly RevealedElementCell[],
+  renderNow: () => void,
+  reducedMotion: boolean,
+): () => void {
+  if (revealedCells.length === 0) return noopRevealAnimationCleanup;
 
-  for (const [index, card] of ELEMENT_CARDS.entries()) {
-    if (getElementAccess(card, elementAccess).discovered) continue;
-    const cellFog = drawElementFog(card, index);
+  const finish = () => {
+    for (const { cell } of revealedCells) {
+      cell.alpha = 1;
+      cell.scale.set(1);
+      cell.skew.set(0, 0);
+    }
+    renderNow();
+  };
 
-    container.addChild(cellFog.container);
-    motions.push(...cellFog.motions);
+  if (reducedMotion || typeof window === "undefined") {
+    finish();
+    return noopRevealAnimationCleanup;
   }
 
-  return { container, motions };
-}
+  let animationFrame = 0;
+  const startedAtMs = performance.now();
+  const totalDurationMs =
+    (revealedCells.length - 1) * ELEMENT_REVEAL_STAGGER_MS + ELEMENT_REVEAL_DURATION_MS;
 
-function drawElementFog(card: PeriodicElementCard, index: number): FogDisplay {
-  const container = new Container();
-  const motions: FogMotion[] = [];
-  const x = (card.element.table.column - 1) * (CELL_WIDTH + CELL_GAP);
-  const y = TITLE_HEIGHT + (card.element.table.row - 1) * (CELL_HEIGHT + CELL_GAP);
-  const veil = new Graphics()
-    .roundRect(x - 1, y - 1, CELL_WIDTH + 2, CELL_HEIGHT + 2, 7)
-    .fill({ color: CELL_FOG_MID_COLOR, alpha: 0.72 })
-    .stroke({ color: CELL_FOG_SHADOW_COLOR, width: 1.2, alpha: 0.72 });
-  container.addChild(veil);
+  const tick = (nowMs: number) => {
+    const elapsedMs = nowMs - startedAtMs;
 
-  for (let puffIndex = 0; puffIndex < CELL_FOG_PUFFS; puffIndex += 1) {
-    const seed = index * 101 + puffIndex * 29;
-    const puff = drawOrganicBlob({
-      alpha: puffIndex === 0 ? 0.54 : 0.38,
-      color: getCellFogPuffColor(puffIndex),
-      pointCount: 14,
-      radiusX: 19 + seededUnit(seed + 1) * 13,
-      radiusY: 13 + seededUnit(seed + 2) * 11,
-      seed,
-    });
-    puff.position.set(
-      x + CELL_WIDTH * (0.34 + seededUnit(seed + 3) * 0.34),
-      y + CELL_HEIGHT * (0.34 + seededUnit(seed + 4) * 0.32),
-    );
-    puff.rotation = seededUnit(seed + 5) * Math.PI;
-    container.addChild(puff);
-    motions.push(
-      createFogMotion(puff, seed + 6, {
-        alphaPulse: 0.035,
-        driftX: -2 + seededUnit(seed + 7) * 4,
-        driftY: -2 + seededUnit(seed + 8) * 4,
-        rotationDrift: 0.035,
-        scalePulse: 0.04,
-        speed: 0.12 + seededUnit(seed + 9) * 0.08,
-      }),
-    );
-  }
+    for (const { cell, order } of revealedCells) {
+      const delayedElapsedMs = elapsedMs - order * ELEMENT_REVEAL_STAGGER_MS;
+      const progress = clamp(delayedElapsedMs / ELEMENT_REVEAL_DURATION_MS, 0, 1);
+      const eased = easeOutBack(progress);
+      const opacityEase = easeOutCubic(progress);
 
-  motions.push(
-    createFogMotion(veil, index * 47 + 10, {
-      alphaPulse: 0.03,
-      driftX: 0.7,
-      driftY: -0.5,
-      rotationDrift: 0,
-      scalePulse: 0.006,
-      speed: 0.1,
-    }),
-  );
+      cell.alpha = opacityEase;
+      cell.scale.set(
+        ELEMENT_REVEAL_START_SCALE_X + (1 - ELEMENT_REVEAL_START_SCALE_X) * eased,
+        0.94 + 0.06 * opacityEase,
+      );
+      cell.skew.set(0, ELEMENT_REVEAL_START_SKEW_Y * (1 - opacityEase));
+    }
 
-  return { container, motions };
-}
+    renderNow();
+    if (elapsedMs < totalDurationMs) {
+      animationFrame = requestAnimationFrame(tick);
+      return;
+    }
 
-function drawOrganicBlob(options: {
-  alpha: number;
-  color: number;
-  pointCount: number;
-  radiusX: number;
-  radiusY: number;
-  seed: number;
-}): Graphics {
-  const points: number[] = [];
+    animationFrame = 0;
+    finish();
+  };
 
-  for (let index = 0; index < options.pointCount; index += 1) {
-    const angle = (index / options.pointCount) * Math.PI * 2;
-    const broad = Math.sin(angle * 2 + seededUnit(options.seed + 11) * Math.PI * 2) * 0.08;
-    const folded = Math.sin(angle * 5 + seededUnit(options.seed + index * 13) * Math.PI) * 0.045;
-    const wobble = 0.88 + seededUnit(options.seed + index * 31) * 0.18 + broad + folded;
+  animationFrame = requestAnimationFrame(tick);
 
-    points.push(Math.cos(angle) * options.radiusX * wobble);
-    points.push(Math.sin(angle) * options.radiusY * wobble);
-  }
-
-  return new Graphics().poly(points).fill({ color: options.color, alpha: options.alpha });
-}
-
-function createFogMotion(
-  target: FogMotionTarget,
-  seed: number,
-  options: FogMotionOptions = {},
-): FogMotion {
-  return {
-    alphaPulse: options.alphaPulse ?? 0.04,
-    baseAlpha: target.alpha,
-    baseRotation: target.rotation,
-    baseScaleX: target.scale.x,
-    baseScaleY: target.scale.y,
-    baseX: target.x,
-    baseY: target.y,
-    driftX: options.driftX ?? 8,
-    driftY: options.driftY ?? -5,
-    phase: seededUnit(seed) * Math.PI * 2,
-    rotationDrift: options.rotationDrift ?? 0.02,
-    scalePulse: options.scalePulse ?? 0.02,
-    speed: options.speed ?? 0.12,
-    target,
+  return () => {
+    if (animationFrame !== 0) cancelAnimationFrame(animationFrame);
+    finish();
   };
 }
 
-function updateFogMotions(motions: readonly FogMotion[], timeSeconds: number): void {
-  for (const motion of motions) {
-    const primary = Math.sin(timeSeconds * motion.speed + motion.phase);
-    const secondary = Math.sin(timeSeconds * motion.speed * 0.47 + motion.phase * 1.9);
-    const targetX = motion.baseX + primary * motion.driftX + secondary * motion.driftX * 0.32;
-    const targetY = motion.baseY + secondary * motion.driftY + primary * motion.driftY * 0.26;
-    const scaleX = motion.baseScaleX * (1 + primary * motion.scalePulse);
-    const scaleY = motion.baseScaleY * (1 + secondary * motion.scalePulse * 0.78);
+function noopRevealAnimationCleanup(): void {
+  return;
+}
 
-    motion.target.position.set(targetX, targetY);
-    motion.target.scale.set(scaleX, scaleY);
-    motion.target.rotation =
-      motion.baseRotation + primary * motion.rotationDrift + secondary * motion.rotationDrift * 0.4;
-    motion.target.alpha = clamp(
-      motion.baseAlpha + primary * motion.alphaPulse + secondary * motion.alphaPulse * 0.38,
-      0,
-      1,
-    );
-  }
+function easeOutCubic(progress: number): number {
+  const inverted = 1 - progress;
+  return 1 - inverted * inverted * inverted;
+}
+
+function easeInOutCubic(progress: number): number {
+  return progress < 0.5 ? 4 * progress * progress * progress : 1 - (-2 * progress + 2) ** 3 / 2;
+}
+
+function easeOutBack(progress: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  const shifted = progress - 1;
+  return 1 + c3 * shifted * shifted * shifted + c1 * shifted * shifted;
 }
 
 function createElementAccess(
@@ -894,11 +934,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function hexToNumber(hex: string): number {
-  return Number.parseInt(hex.slice(1), 16);
+function lerp(start: number, end: number, progress: number): number {
+  return start + (end - start) * progress;
 }
 
-function seededUnit(seed: number): number {
-  const value = Math.sin(seed * 12.9898) * 43_758.5453;
-  return value - Math.floor(value);
+function hexToNumber(hex: string): number {
+  return Number.parseInt(hex.slice(1), 16);
 }

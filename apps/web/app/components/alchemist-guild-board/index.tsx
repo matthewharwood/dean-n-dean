@@ -1,5 +1,4 @@
 import {
-  ALCHEMIST_GUILD_BOARD_MODE_TABS,
   ALCHEMY_CRAFTED_CARDS,
   ALCHEMY_GATHERABLE_CARDS,
   ALCHEMY_QUESTS,
@@ -65,6 +64,7 @@ import {
   ScrollText,
   Sparkles,
   Trash2,
+  Trophy,
   X,
 } from "lucide-react";
 import { type Application, Graphics } from "pixi.js";
@@ -90,6 +90,11 @@ import { useAnime } from "~/motion/use-anime";
 import { sfx } from "~/sound/sfx";
 import { alchemistGuildBoardAtom } from "~/state/atoms";
 import {
+  getVisibleBoardModeTabs,
+  isGatheringAvailable,
+  resolveVisibleBoardMode,
+} from "./board-mode-tabs";
+import {
   type AlchemyWorkbenchEmergentPreview,
   createEmergentTransmutationResult,
   formatEmergentRecipeIngredients,
@@ -111,12 +116,18 @@ import {
   swapGatheringChoices,
 } from "./gathering-loop";
 import {
+  ALCHEMIST_GUILD_INTRO_FOCUS_ELEMENT_ID,
+  ALCHEMIST_GUILD_INTRO_FOCUS_SCALE,
+  type AlchemistGuildIntroPhase,
+  isAlchemyIntroZeroState,
+} from "./intro-choreography";
+import {
   FLOATING_ELEMENT_CARD_HEIGHT,
   FLOATING_ELEMENT_CARD_WIDTH,
   type PeriodicTableElementGrab,
   setupPeriodicTableScene,
 } from "./periodic-table-scene";
-import { FIRST_PROFILE_CARD_PROPS, ProfileCard } from "./profile-card";
+import { FIRST_PROFILE_CARD_PROPS } from "./profile-card";
 import {
   createQuestAssemblyGuide,
   formatQuestAssemblyIngredientStatus,
@@ -177,8 +188,8 @@ const QUEST_CURRENT_SWIPE_MIN_PX = 38;
 const QUEST_CURRENT_SNAP_DURATION_MS = 240;
 const QUEST_CURRENT_SLIDE_OFFSETS = [-1, 0, 1] as const;
 const QUEST_CURRENT_CENTER_SLIDE_INDEX = 1;
-const QUEST_LOG_ROW_HEIGHT_PX = 64;
-const QUEST_LOG_ROW_GAP_PX = 8;
+const QUEST_LOG_ROW_HEIGHT_PX = 80;
+const QUEST_LOG_ROW_GAP_PX = 10;
 const QUEST_LOG_ROW_PITCH_PX = QUEST_LOG_ROW_HEIGHT_PX + QUEST_LOG_ROW_GAP_PX;
 const QUEST_LOG_OVERSCAN_ROWS = 4;
 const EMPTY_DROP_INTENT: DropIntent = { kind: "none" };
@@ -205,15 +216,17 @@ const BOARD_DOT_GRID_STYLE = {
   backgroundSize: "12px 12px",
 } satisfies CSSProperties;
 const GLASS_PANEL_CLASS =
-  "pointer-events-auto relative min-h-0 rounded-[8px] border border-white/50 bg-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)] backdrop-blur-md backdrop-saturate-150";
+  "pointer-events-auto relative min-h-0 min-w-0 rounded-[8px] border border-white/50 bg-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)] backdrop-blur-md backdrop-saturate-150";
 const HIDDEN_SCROLL_CLASS =
   "overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const CLEAR_TABLE_WINDOW_CLASS =
-  "pointer-events-none relative min-h-0 overflow-hidden rounded-[8px] border border-white/40 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[8px] border border-white/40 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
 const GATHERING_PANEL_LABEL_CLASS =
   "pointer-events-none absolute left-3 top-3 z-20 text-xs font-black uppercase leading-none tracking-[-0.02em] text-neutral-950";
 const GATHERING_PANEL_TRANSITION_CLASS =
   "transition-[grid-template-rows,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+const BOARD_MAIN_GRID_TRANSITION_CLASS =
+  "transition-[grid-template-columns] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 const GATHERING_EQUATION_CARD_CLASS =
   "relative grid h-[148px] w-[105px] place-items-center rounded-[6px] border-2 bg-white/75 text-neutral-950 shadow-[0_8px_18px_rgba(15,23,42,0.12)]";
 const GATHERING_REWARD_TREASURE_CHEST_PATH = "gathering-art/reward-treasure-chest.webp";
@@ -223,7 +236,7 @@ const BOARD_DESCRIPTIONS = {
   alchemyWorkbenchInfo:
     "Explains the recipe or output currently previewed by the Alchemy Workbench output slot.",
   inventory: "Stores crafted cards, gathered materials, and quest outputs in the top board strip.",
-  boardModeTabs: "Switches between board modes: crafting, gathering, and expedition.",
+  boardModeTabs: "Switches between the currently unlocked board modes.",
   outputSlot: "Previews what the current Alchemy Workbench card arrangement is about to make.",
   periodicTableVault: "Holds the unlocked elemental cards that can be picked up for crafting.",
   profile: "Shows the player profile, guild rank, and long-term progression summary.",
@@ -346,7 +359,14 @@ const questPanelTabs = ["current", "log"] as const;
 const QuestPanelTabSchema = z.enum(questPanelTabs);
 type QuestPanelTab = z.infer<typeof QuestPanelTabSchema>;
 
-const boardModeTabs = ALCHEMIST_GUILD_BOARD_MODE_TABS;
+const QuestProfileStatKindSchema = z.enum(["level", "gold", "knowledge", "discovery", "muddlefog"]);
+type QuestProfileStatKind = z.infer<typeof QuestProfileStatKindSchema>;
+const QuestProfileStatSchema = z.object({
+  kind: QuestProfileStatKindSchema,
+  label: z.string().min(1),
+  value: z.string().min(1),
+});
+
 const BoardModeTabSchema = AlchemistGuildBoardModeSchema;
 type BoardModeTab = AlchemistGuildBoardMode;
 
@@ -1357,7 +1377,16 @@ const GatheringMonsterDeathCanvas = defineComponent(
   GatheringMonsterDeathCanvasPropsSchema,
   ({ accentColor, animationId }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const particlesRef = useRef(createGatheringMonsterDeathParticles(animationId));
+    const particlesRef = useRef<GatheringMonsterDeathParticle[] | null>(null);
+    if (particlesRef.current === null) {
+      particlesRef.current = createGatheringMonsterDeathParticles(animationId);
+    }
+    const getParticles = () => {
+      if (particlesRef.current === null) {
+        particlesRef.current = createGatheringMonsterDeathParticles(animationId);
+      }
+      return particlesRef.current;
+    };
 
     useEffect(() => {
       particlesRef.current = createGatheringMonsterDeathParticles(animationId);
@@ -1369,7 +1398,7 @@ const GatheringMonsterDeathCanvas = defineComponent(
         setupGatheringMonsterDeathCanvas(app, {
           accentColor,
           animationId,
-          particles: particlesRef.current,
+          particles: getParticles(),
           reducedMotion,
         }),
       [animationId, accentColor],
@@ -2087,6 +2116,7 @@ const QuestDeliverySlot = defineComponent(
 const QuestPanelPropsSchema = z.object({
   activeQuestIds: z.array(z.string().min(1)),
   activeTab: QuestPanelTabSchema,
+  avatarPath: z.string().min(1),
   canClaim: z.boolean(),
   claimedQuestIds: z.array(z.string().min(1)),
   claimProgress: z.number().min(0).max(1),
@@ -2100,13 +2130,17 @@ const QuestPanelPropsSchema = z.object({
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
+  onPlayerNameChange: z.custom<(nextPlayerName: string) => void>(),
   onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
   onQuestOpenFromLog: z.custom<(questId: string) => void>(),
   onQuestSelect: z.custom<(questId: string) => void>(),
   onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  playerName: z.string().min(1),
+  profileStats: z.array(QuestProfileStatSchema).min(1),
   questAssemblyGuide: z.custom<QuestAssemblyGuide | null>(),
   questLogScrollTop: z.number().min(0),
   selectedQuestId: z.string().min(1),
+  title: z.string().min(1),
   unlockedQuestIds: z.array(z.string().min(1)),
 });
 
@@ -2115,6 +2149,7 @@ const QuestPanel = defineComponent(
   ({
     activeQuestIds,
     activeTab,
+    avatarPath,
     canClaim,
     claimedQuestIds,
     claimProgress,
@@ -2125,26 +2160,35 @@ const QuestPanel = defineComponent(
     hasQuestNotifications,
     isClaimDragging,
     onClaimPointerDown,
+    onPlayerNameChange,
     onQuestLogScrollTopChange,
     onQuestOpenFromLog,
     onQuestSelect,
     onTabChange,
+    playerName,
+    profileStats,
     questAssemblyGuide,
     questLogScrollTop,
     selectedQuestId,
+    title,
     unlockedQuestIds,
   }) => (
     <section className="relative z-10 grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <QuestPanelTabs
+      <QuestPanelHeader
         activeTab={activeTab}
+        avatarPath={avatarPath}
         hasQuestNotifications={hasQuestNotifications}
+        onPlayerNameChange={onPlayerNameChange}
         onTabChange={onTabChange}
+        playerName={playerName}
+        stats={profileStats}
+        title={title}
       />
-      <div className="h-full min-h-0 overflow-hidden pt-1.5">
+      <div className="h-full min-h-0 overflow-hidden pt-2">
         {activeTab === "current" ? (
           <div
             data-board-section="quest-current"
-            className={`grid h-full min-h-0 content-start gap-1.5 overflow-y-auto pr-0.5 ${HIDDEN_SCROLL_CLASS}`}
+            className={`grid h-full min-h-0 content-start gap-3 overflow-y-auto pr-1 ${HIDDEN_SCROLL_CLASS}`}
           >
             <QuestCurrentCarousel
               developerNotesVisible={developerNotesVisible}
@@ -2186,6 +2230,157 @@ const QuestPanel = defineComponent(
     </section>
   ),
 );
+
+const QUEST_PROFILE_NAME_MAX_LENGTH = 24;
+
+const QuestPanelHeaderPropsSchema = z.object({
+  activeTab: QuestPanelTabSchema,
+  avatarPath: z.string().min(1),
+  hasQuestNotifications: z.boolean(),
+  onPlayerNameChange: z.custom<(nextPlayerName: string) => void>(),
+  onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  playerName: z.string().min(1).max(QUEST_PROFILE_NAME_MAX_LENGTH),
+  stats: z.array(QuestProfileStatSchema).min(1),
+  title: z.string().min(1),
+});
+
+const QuestPanelHeader = defineComponent(
+  QuestPanelHeaderPropsSchema,
+  ({
+    activeTab,
+    avatarPath,
+    hasQuestNotifications,
+    onPlayerNameChange,
+    onTabChange,
+    playerName,
+    stats,
+    title,
+  }) => {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [draftName, setDraftName] = useState("");
+
+    const beginEditing = () => {
+      setDraftName(playerName);
+      setIsEditing(true);
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    };
+
+    const commitName = () => {
+      const nextName = draftName.trim();
+      setIsEditing(false);
+      if (nextName && nextName !== playerName) {
+        onPlayerNameChange(nextName);
+        return;
+      }
+      setDraftName(playerName);
+    };
+
+    const cancelName = () => {
+      setDraftName(playerName);
+      setIsEditing(false);
+    };
+
+    return (
+      <header
+        data-board-section="quest-profile-header"
+        className="relative z-10 grid gap-2 border-b border-white/45 pb-2"
+      >
+        <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-2">
+          <div className="overflow-hidden rounded-[6px] border border-amber-500/55 bg-white/70 shadow-[0_2px_0_rgba(72,45,16,0.12)]">
+            <img
+              src={resolvePublicAssetPath(avatarPath)}
+              alt=""
+              aria-hidden="true"
+              className="aspect-square size-full object-cover"
+              draggable={false}
+            />
+          </div>
+          <div className="grid min-w-0 content-start gap-1.5">
+            <div className="min-w-0">
+              <p className="truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/60">
+                {title}
+              </p>
+              {isEditing ? (
+                <input
+                  ref={inputRef}
+                  data-profile-name-input=""
+                  className="mt-0.5 w-full border-0 border-b border-dashed border-amber-900 bg-transparent px-0 py-0.5 font-serif text-lg leading-none text-amber-950 outline-none focus:border-solid"
+                  maxLength={QUEST_PROFILE_NAME_MAX_LENGTH}
+                  value={draftName}
+                  aria-label="Player name"
+                  onBlur={commitName}
+                  onChange={(event) => {
+                    setDraftName(event.currentTarget.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") commitName();
+                    if (event.key === "Escape") cancelName();
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  data-profile-name-display=""
+                  className="mt-0.5 max-w-full border-b border-dashed border-amber-900/60 px-0 pb-0.5 text-left font-serif text-lg leading-none text-amber-950"
+                  aria-label="Edit player name"
+                  onDoubleClick={beginEditing}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") beginEditing();
+                  }}
+                >
+                  <span className="block truncate">{playerName}</span>
+                </button>
+              )}
+            </div>
+            <QuestPanelTabs
+              activeTab={activeTab}
+              hasQuestNotifications={hasQuestNotifications}
+              onTabChange={onTabChange}
+            />
+          </div>
+        </div>
+        <dl className="grid grid-cols-5 overflow-hidden rounded-[5px] border border-amber-500/35 bg-white/60 shadow-[0_1px_0_rgba(72,45,16,0.1)]">
+          {stats.map((stat, index) => (
+            <QuestProfileStatCell key={stat.kind} index={index} stat={stat} />
+          ))}
+        </dl>
+      </header>
+    );
+  },
+);
+
+const QuestProfileStatCellPropsSchema = z.object({
+  index: z.int().min(0),
+  stat: QuestProfileStatSchema,
+});
+
+const QuestProfileStatCell = defineComponent(QuestProfileStatCellPropsSchema, ({ index, stat }) => {
+  const StatIcon = questProfileStatIcons[stat.kind];
+
+  return (
+    <div
+      data-profile-stat={stat.kind}
+      className={`grid min-w-0 place-items-center gap-0.5 px-0.5 py-1 ${
+        index === 0 ? "" : "border-l border-amber-500/35"
+      }`}
+    >
+      <dt className="sr-only">{stat.label}</dt>
+      <dd className="grid place-items-center gap-0.5">
+        <StatIcon aria-hidden="true" className="size-3.5 stroke-[2.6] text-amber-950" />
+        <span
+          data-profile-stat-value={stat.kind}
+          className="text-[10px] font-black leading-none text-amber-950"
+        >
+          {stat.value}
+        </span>
+      </dd>
+    </div>
+  );
+});
 
 const QuestPanelTabsPropsSchema = z.object({
   activeTab: QuestPanelTabSchema,
@@ -2286,12 +2481,20 @@ const questPanelTabLabels = {
   log: "Quest Log",
 } satisfies Record<QuestPanelTab, string>;
 
+const questProfileStatIcons = {
+  discovery: Sparkles,
+  gold: Coins,
+  knowledge: Brain,
+  level: Trophy,
+  muddlefog: CloudFog,
+} satisfies Record<QuestProfileStatKind, LucideIcon>;
+
 const QuestPanelTabs = defineComponent(
   QuestPanelTabsPropsSchema,
   ({ activeTab, hasQuestNotifications, onTabChange }) => (
     <div
       data-board-section="quest-briefing-tabs"
-      className="flex items-center gap-1 border-b border-white/45 pb-1.5"
+      className="grid min-w-0 grid-cols-2 items-center gap-1"
       role="tablist"
       aria-label="Quest Briefing views"
     >
@@ -2306,7 +2509,7 @@ const QuestPanelTabs = defineComponent(
             data-info-panel-tab={tab}
             role="tab"
             aria-selected={selected}
-            className={`relative rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
+            className={`relative min-w-0 rounded-[5px] border px-2 py-1.5 text-[11px] font-black leading-none transition-[background-color,border-color,color] ${
               selected
                 ? "border-amber-900/45 bg-amber-950 text-white"
                 : "border-amber-900/20 bg-white/55 text-amber-950 hover:bg-white/80"
@@ -2354,7 +2557,10 @@ const BoardModeTabsPropsSchema = z.object({
   expeditionNudgeActive: z.boolean(),
   expeditionRevealActive: z.boolean(),
   expeditionRevealKey: z.number().int().min(0),
+  gatheringAvailable: z.boolean(),
   gatheringNudgeActive: z.boolean(),
+  gatheringRevealActive: z.boolean(),
+  gatheringRevealKey: z.number().int().min(0),
   onTabChange: z.custom<(tab: BoardModeTab) => void>(),
 });
 
@@ -2366,19 +2572,20 @@ const BoardModeTabs = defineComponent(
     expeditionNudgeActive,
     expeditionRevealActive,
     expeditionRevealKey,
+    gatheringAvailable,
     gatheringNudgeActive,
+    gatheringRevealActive,
+    gatheringRevealKey,
     onTabChange,
   }) => {
-    const visibleTabs = expeditionAvailable
-      ? boardModeTabs
-      : boardModeTabs.filter((tab) => tab !== "expedition");
+    const visibleTabs = getVisibleBoardModeTabs({ expeditionAvailable, gatheringAvailable });
 
     return (
       <div
         data-board-section="board-mode-tabs"
         data-board-name="Board Mode Tabs"
         data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
-        className="pointer-events-auto flex min-h-10 items-center gap-1 overflow-x-auto rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+        className="pointer-events-auto inline-flex min-h-10 w-fit max-w-full items-center gap-1 justify-self-center rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
         role="tablist"
         aria-label="Board modes"
       >
@@ -2387,13 +2594,17 @@ const BoardModeTabs = defineComponent(
           const nudgeActive =
             (tab === "gathering" && gatheringNudgeActive) ||
             (tab === "expedition" && expeditionNudgeActive);
+          const revealActive =
+            (tab === "gathering" && gatheringRevealActive) ||
+            (tab === "expedition" && expeditionRevealActive);
+          const revealKey = getBoardModeRevealKey(tab, gatheringRevealKey, expeditionRevealKey);
 
           return (
             <BoardModeTabButton
               key={tab}
               nudgeActive={nudgeActive}
-              revealActive={tab === "expedition" && expeditionRevealActive}
-              revealKey={tab === "expedition" ? expeditionRevealKey : 0}
+              revealActive={revealActive}
+              revealKey={revealKey}
               selected={selected}
               tab={tab}
               onTabChange={onTabChange}
@@ -2403,6 +2614,76 @@ const BoardModeTabs = defineComponent(
       </div>
     );
   },
+);
+
+const BoardControlRowPropsSchema = BoardModeTabsPropsSchema.extend({
+  onQuestPanelToggle: z.custom<() => void>(),
+  questPanelCollapsed: z.boolean(),
+});
+
+const BoardControlRow = defineComponent(
+  BoardControlRowPropsSchema,
+  ({
+    activeTab,
+    expeditionAvailable,
+    expeditionNudgeActive,
+    expeditionRevealActive,
+    expeditionRevealKey,
+    gatheringAvailable,
+    gatheringNudgeActive,
+    gatheringRevealActive,
+    gatheringRevealKey,
+    onQuestPanelToggle,
+    onTabChange,
+    questPanelCollapsed,
+  }) => (
+    <div
+      data-board-section="board-control-row"
+      className="grid min-h-10 min-w-0 gap-2.5 lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]"
+    >
+      <div className="flex min-w-0 items-center gap-1 justify-self-start lg:col-span-2">
+        <QuestPanelCollapseButton collapsed={questPanelCollapsed} onClick={onQuestPanelToggle} />
+        <BoardModeTabs
+          activeTab={activeTab}
+          expeditionAvailable={expeditionAvailable}
+          expeditionNudgeActive={expeditionNudgeActive}
+          expeditionRevealActive={expeditionRevealActive}
+          expeditionRevealKey={expeditionRevealKey}
+          gatheringAvailable={gatheringAvailable}
+          gatheringNudgeActive={gatheringNudgeActive}
+          gatheringRevealActive={gatheringRevealActive}
+          gatheringRevealKey={gatheringRevealKey}
+          onTabChange={onTabChange}
+        />
+      </div>
+    </div>
+  ),
+);
+
+const QuestPanelCollapseButtonPropsSchema = z.object({
+  collapsed: z.boolean(),
+  onClick: z.custom<() => void>(),
+});
+
+const QuestPanelCollapseButton = defineComponent(
+  QuestPanelCollapseButtonPropsSchema,
+  ({ collapsed, onClick }) => (
+    <button
+      type="button"
+      data-board-section="quest-panel-collapse-button"
+      data-board-name={collapsed ? "Open quest briefing" : "Collapse quest briefing"}
+      className="pointer-events-auto grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/50 bg-white/70 text-amber-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition-[background-color,transform] hover:bg-white/85 active:translate-y-px"
+      aria-label={collapsed ? "Open quest briefing panel" : "Collapse quest briefing panel"}
+      aria-expanded={!collapsed}
+      onClick={onClick}
+    >
+      {collapsed ? (
+        <ChevronRight className="size-4.5" strokeWidth={2.6} aria-hidden="true" />
+      ) : (
+        <ScrollText className="size-4.5" strokeWidth={2.6} aria-hidden="true" />
+      )}
+    </button>
+  ),
 );
 
 const BoardModeTabButtonPropsSchema = z.object({
@@ -2479,7 +2760,7 @@ function getBoardModeTabClass(
   revealActive: boolean,
 ): string {
   const baseClass =
-    "relative isolate flex shrink-0 items-center gap-1.5 overflow-visible rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color,box-shadow]";
+    "relative isolate flex shrink-0 items-center justify-center gap-1.5 overflow-visible whitespace-nowrap rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color,box-shadow]";
 
   if (revealActive) {
     return `${baseClass} gathering-nudge-emission border-emerald-700/50 bg-emerald-50 text-emerald-950 shadow-[0_0_0_2px_rgba(16,185,129,0.22)]`;
@@ -2492,6 +2773,16 @@ function getBoardModeTabClass(
   if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
 
   return `${baseClass} border-amber-900/20 bg-white/60 text-amber-950/70 hover:bg-white/85`;
+}
+
+function getBoardModeRevealKey(
+  tab: BoardModeTab,
+  gatheringRevealKey: number,
+  expeditionRevealKey: number,
+): number {
+  if (tab === "gathering") return gatheringRevealKey;
+  if (tab === "expedition") return expeditionRevealKey;
+  return 0;
 }
 
 function isExpeditionAvailable(boardState: AlchemistGuildBoardState): boolean {
@@ -2955,7 +3246,7 @@ const QuestLog = defineComponent(
       >
         <div className="relative" style={{ height: `${totalHeight}px` }}>
           <div
-            className="absolute inset-x-0 grid gap-2"
+            className="absolute inset-x-0 grid gap-2.5"
             style={{ transform: `translateY(${startIndex * QUEST_LOG_ROW_PITCH_PX}px)` }}
           >
             {visibleQuests.map((quest) => {
@@ -3019,7 +3310,7 @@ const QuestLogRow = defineComponent(
         data-quest-id={quest.id}
         data-quest-redacted={revealed ? "false" : "true"}
         data-quest-selected={isSelected ? "true" : "false"}
-        className={`grid h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded-[6px] border p-2 text-left text-neutral-950 shadow-[0_1px_0_rgba(72,45,16,0.1)] transition-[background-color,border-color,box-shadow,transform] hover:-translate-y-0.5 ${rowClass}`}
+        className={`grid h-20 w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[6px] border p-2.5 text-left text-neutral-950 shadow-[0_1px_0_rgba(72,45,16,0.1)] transition-[background-color,border-color,box-shadow,transform] hover:-translate-y-0.5 ${rowClass}`}
         onClick={() => {
           onQuestSelect(quest.id);
         }}
@@ -3028,7 +3319,7 @@ const QuestLogRow = defineComponent(
         }}
       >
         <span
-          className={`grid size-9 place-items-center rounded-[5px] border ${
+          className={`grid size-10 place-items-center rounded-[5px] border ${
             revealed
               ? "border-emerald-700/35 bg-emerald-50 text-emerald-800"
               : "border-neutral-900/15 bg-white/55 text-neutral-600"
@@ -3039,7 +3330,7 @@ const QuestLogRow = defineComponent(
         </span>
         <span className="min-w-0">
           <span
-            className={`block truncate text-xs font-black leading-tight ${
+            className={`block text-xs font-black leading-snug ${
               revealed ? "text-amber-950" : "text-neutral-700"
             }`}
           >
@@ -3174,7 +3465,7 @@ const InventorySlot = defineComponent(
         data-board-section={slotId}
         data-board-name={slotName}
         data-card-flight-hidden={isFlyDestination ? "true" : undefined}
-        className="relative h-14 min-w-[7.35rem] shrink-0 rounded-[6px] border border-dashed border-neutral-700/50 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+        className="relative h-14 min-w-0 rounded-[6px] border border-dashed border-neutral-700/50 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
       >
         {card && !isFlyDestination ? (
           <button
@@ -3184,7 +3475,7 @@ const InventorySlot = defineComponent(
             data-card-id={card.id}
             data-ready-count={readyCount}
             data-stack-count={stackCount}
-            className={`absolute inset-1 grid touch-none select-none grid-cols-[2.3rem_minmax(0,1fr)] items-center gap-1.5 rounded-[5px] border bg-white/70 px-1.5 text-left transition-[border-color,opacity,box-shadow] [-webkit-user-drag:none] active:cursor-grabbing ${stateClass} ${
+            className={`absolute inset-1 grid touch-none select-none grid-cols-[2rem_minmax(0,1fr)] items-center gap-1 rounded-[5px] border bg-white/70 px-1 text-left transition-[border-color,opacity,box-shadow] sm:grid-cols-[2.3rem_minmax(0,1fr)] sm:gap-1.5 sm:px-1.5 [-webkit-user-drag:none] active:cursor-grabbing ${stateClass} ${
               isDraggingSource ? "opacity-45" : ""
             }`}
             aria-label={
@@ -3204,13 +3495,13 @@ const InventorySlot = defineComponent(
                 src={getAlchemyCardArtSrc(card)}
                 alt=""
                 aria-hidden="true"
-                className="size-9 object-contain"
+                className="size-8 object-contain sm:size-9"
                 draggable={false}
               />
             ) : (
               <span
                 aria-hidden="true"
-                className="grid size-9 place-items-center rounded-[4px] border border-amber-800/35 bg-amber-100 text-[10px] font-black uppercase leading-none text-amber-950"
+                className="grid size-8 place-items-center rounded-[4px] border border-amber-800/35 bg-amber-100 text-[10px] font-black uppercase leading-none text-amber-950 sm:size-9"
               >
                 {card.symbol}
               </span>
@@ -3825,7 +4116,7 @@ const InfoPanelTabs = defineComponent(
   }) => (
     <div
       data-board-section="alchemy-workbench-info-tabs"
-      className="flex items-center gap-1 border-b border-white/45 p-2 pb-1.5"
+      className="grid min-w-0 grid-cols-2 items-center gap-1 border-b border-white/45 p-2 pb-1.5 xl:grid-cols-4"
       role="tablist"
       aria-label="Alchemy Workbench Info views"
     >
@@ -3842,7 +4133,7 @@ const InfoPanelTabs = defineComponent(
             type="button"
             role="tab"
             aria-selected={selected}
-            className={`relative rounded-[5px] border px-3 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
+            className={`relative min-w-0 rounded-[5px] border px-1.5 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
               selected
                 ? "border-sky-900/45 bg-sky-950 text-white"
                 : "border-sky-900/20 bg-white/55 text-sky-950 hover:bg-white/80"
@@ -4825,6 +5116,7 @@ const InfoFact = defineComponent(InfoFactPropsSchema, ({ label, value }) => (
 const LeftModePanelPropsSchema = z.object({
   activeQuestIds: z.array(z.string().min(1)),
   activeTab: QuestPanelTabSchema,
+  avatarPath: z.string().min(1),
   canClaim: z.boolean(),
   claimedQuestIds: z.array(z.string().min(1)),
   claimProgress: z.number().min(0).max(1),
@@ -4841,14 +5133,18 @@ const LeftModePanelPropsSchema = z.object({
   isClaimDragging: z.boolean(),
   isGatheringMode: z.boolean(),
   onClaimPointerDown: z.custom<ButtonPointerDownHandler>(),
+  onPlayerNameChange: z.custom<(nextPlayerName: string) => void>(),
   onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
   onQuestOpenFromLog: z.custom<(questId: string) => void>(),
   onQuestSelect: z.custom<(questId: string) => void>(),
   onTabChange: z.custom<(tab: QuestPanelTab) => void>(),
+  playerName: z.string().min(1),
+  profileStats: z.array(QuestProfileStatSchema).min(1),
   questAssemblyGuide: z.custom<QuestAssemblyGuide | null>(),
   questLogScrollTop: z.number().min(0),
   questPanelAccepted: z.boolean(),
   selectedQuestId: z.string().min(1),
+  title: z.string().min(1),
   unlockedQuestIds: z.array(z.string().min(1)),
 });
 
@@ -4857,6 +5153,7 @@ const LeftModePanel = defineComponent(
   ({
     activeQuestIds,
     activeTab,
+    avatarPath,
     canClaim,
     claimedQuestIds,
     claimProgress,
@@ -4870,14 +5167,18 @@ const LeftModePanel = defineComponent(
     isClaimDragging,
     isGatheringMode,
     onClaimPointerDown,
+    onPlayerNameChange,
     onQuestLogScrollTopChange,
     onQuestOpenFromLog,
     onQuestSelect,
     onTabChange,
+    playerName,
+    profileStats,
     questAssemblyGuide,
     questLogScrollTop,
     questPanelAccepted,
     selectedQuestId,
+    title,
     unlockedQuestIds,
   }) => {
     if (isGatheringMode) {
@@ -4908,6 +5209,7 @@ const LeftModePanel = defineComponent(
         <QuestPanel
           activeQuestIds={activeQuestIds}
           activeTab={activeTab}
+          avatarPath={avatarPath}
           canClaim={canClaim}
           claimedQuestIds={claimedQuestIds}
           claimProgress={claimProgress}
@@ -4918,13 +5220,17 @@ const LeftModePanel = defineComponent(
           hasQuestNotifications={hasQuestNotifications}
           isClaimDragging={isClaimDragging}
           onClaimPointerDown={onClaimPointerDown}
+          onPlayerNameChange={onPlayerNameChange}
           onQuestLogScrollTopChange={onQuestLogScrollTopChange}
           onQuestOpenFromLog={onQuestOpenFromLog}
           onQuestSelect={onQuestSelect}
           onTabChange={onTabChange}
+          playerName={playerName}
+          profileStats={profileStats}
           questAssemblyGuide={questAssemblyGuide}
           questLogScrollTop={questLogScrollTop}
           selectedQuestId={selectedQuestId}
+          title={title}
           unlockedQuestIds={unlockedQuestIds}
         />
       </div>
@@ -5093,7 +5399,7 @@ const CenterBoardPanels = defineComponent(
                 data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
                 data-transmutation-ready={canTransmutePreview ? "true" : "false"}
                 data-swipe-progress={transmuteSwipeProgress.toFixed(2)}
-                className={`relative col-span-full min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-4 ${
+                className={`relative col-span-full min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-2 xl:col-span-4 ${
                   canTransmutePreview
                     ? "cursor-ew-resize border-sky-800/70 bg-sky-50/35"
                     : "border-neutral-600/80 bg-white/25"
@@ -5159,7 +5465,7 @@ const CenterBoardPanels = defineComponent(
                 data-board-section="transmutation-output-slot"
                 data-board-name="Output Slot"
                 data-board-description={BOARD_DESCRIPTIONS.outputSlot}
-                className="relative col-span-full min-h-0 rounded-[6px] border border-neutral-600/80 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-1 sm:col-start-5"
+                className="relative col-span-full min-h-0 rounded-[6px] border border-neutral-600/80 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-1 sm:col-start-3 xl:col-start-5"
               >
                 <BoardDebugBadge
                   description={BOARD_DESCRIPTIONS.outputSlot}
@@ -5487,12 +5793,14 @@ const RightModePanelsPropsSchema = z.object({
   hasEmergentRecipeNotifications: z.boolean(),
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
+  infoPanelCollapsed: z.boolean(),
   isGatheringMode: z.boolean(),
   isGatheringRewardMode: z.boolean(),
   onDeathAnimationComplete: z.custom<GatheringMonsterDeathCompleteHandler>(),
   onEmergentRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onExtendedLedgerFilterRemove: z.custom<(cardId: string) => void>(),
   onExtendedRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
+  onInfoPanelToggle: z.custom<() => void>(),
   onRecipeRevealSeen: z.custom<(recipeId: string) => void>(),
   onTabChange: z.custom<(tab: InfoPanelTab) => void>(),
   preview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
@@ -5520,12 +5828,14 @@ const RightModePanels = defineComponent(
     hasEmergentRecipeNotifications,
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
+    infoPanelCollapsed,
     isGatheringMode,
     isGatheringRewardMode,
     onDeathAnimationComplete,
     onEmergentRecipeRevealSeen,
     onExtendedLedgerFilterRemove,
     onExtendedRecipeRevealSeen,
+    onInfoPanelToggle,
     onRecipeRevealSeen,
     onTabChange,
     preview,
@@ -5534,85 +5844,127 @@ const RightModePanels = defineComponent(
     revealRecipeIds,
     rightPrimaryPanelRef,
     showBoardDebugBadges,
-  }) => (
-    <aside className={getRightModePanelsClass(isGatheringMode)}>
-      <div
-        ref={rightPrimaryPanelRef}
-        data-board-section={
-          isGatheringMode ? "gathering-monster-panel" : "alchemy-workbench-info-panel"
-        }
-        data-board-name={isGatheringMode ? "Monster Panel" : "Alchemy Workbench Info"}
-        data-board-description={
-          isGatheringMode
-            ? "Gathering encounter monster slots."
-            : BOARD_DESCRIPTIONS.alchemyWorkbenchInfo
-        }
-        aria-hidden={isGatheringRewardMode ? true : undefined}
-        className={`${GLASS_PANEL_CLASS} overflow-hidden ${GATHERING_PANEL_TRANSITION_CLASS} ${
-          isGatheringMode ? "p-3" : ""
-        } ${
-          isGatheringRewardMode
-            ? "pointer-events-none opacity-0 scale-[0.98]"
-            : "opacity-100 scale-100"
-        }`}
-      >
-        {isGatheringMode ? (
-          <GatheringMonsterPanel
-            deathAnimation={deathAnimation}
-            deathCompletedRound={deathCompletedRound}
-            gathering={gathering}
-            gatheringDropTarget={gatheringDropTarget}
-            onDeathAnimationComplete={onDeathAnimationComplete}
+  }) => {
+    let primaryPanelContent: ReactNode;
+    if (isGatheringMode) {
+      primaryPanelContent = (
+        <GatheringMonsterPanel
+          deathAnimation={deathAnimation}
+          deathCompletedRound={deathCompletedRound}
+          gathering={gathering}
+          gatheringDropTarget={gatheringDropTarget}
+          onDeathAnimationComplete={onDeathAnimationComplete}
+        />
+      );
+    } else if (infoPanelCollapsed) {
+      primaryPanelContent = <CollapsedInfoPanelButton onClick={onInfoPanelToggle} />;
+    } else {
+      primaryPanelContent = (
+        <div className="h-full min-h-0 min-w-0">
+          <button
+            type="button"
+            className="absolute right-2 top-2 z-30 grid size-8 place-items-center rounded-[5px] border border-sky-900/20 bg-white/75 text-sky-950 shadow-[0_2px_0_rgba(15,23,42,0.12)] transition-[background-color,transform] hover:bg-white active:translate-y-px"
+            aria-label="Collapse alchemy workbench info"
+            aria-expanded="true"
+            onClick={onInfoPanelToggle}
+          >
+            <ChevronRight className="size-4" strokeWidth={2.6} aria-hidden="true" />
+          </button>
+          <BoardDebugBadge
+            description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
+            label="Alchemy Workbench Info"
+            visible={showBoardDebugBadges}
           />
-        ) : (
-          <>
-            <BoardDebugBadge
-              description={BOARD_DESCRIPTIONS.alchemyWorkbenchInfo}
-              label="Alchemy Workbench Info"
-              visible={showBoardDebugBadges}
-            />
-            <AlchemyWorkbenchInfoPanel
-              activeTab={activeTab}
-              discoveredEmergentRecipes={discoveredEmergentRecipes}
-              discoveredExtendedRecipeIds={discoveredExtendedRecipeIds}
-              discoveredRecipeIds={discoveredRecipeIds}
-              extendedLedgerFilterCardIds={extendedLedgerFilterCardIds}
-              extendedLedgerFilterDropFeedback={extendedLedgerFilterDropFeedback}
-              hasEmergentRecipeNotifications={hasEmergentRecipeNotifications}
-              hasExtendedRecipeNotifications={hasExtendedRecipeNotifications}
-              hasRecipeNotifications={hasRecipeNotifications}
-              onEmergentRecipeRevealSeen={onEmergentRecipeRevealSeen}
-              onExtendedLedgerFilterRemove={onExtendedLedgerFilterRemove}
-              onExtendedRecipeRevealSeen={onExtendedRecipeRevealSeen}
-              onRecipeRevealSeen={onRecipeRevealSeen}
-              onTabChange={onTabChange}
-              preview={preview}
-              revealEmergentRecipeIds={revealEmergentRecipeIds}
-              revealExtendedRecipeIds={revealExtendedRecipeIds}
-              revealRecipeIds={revealRecipeIds}
-            />
-          </>
-        )}
-      </div>
-      <div
-        ref={gatheringInfoPanelRef}
-        data-board-section="gathering-info-panel"
-        data-board-name="Info Panel"
-        aria-hidden={isGatheringMode ? undefined : true}
-        className={`${GLASS_PANEL_CLASS} overflow-hidden p-3 ${GATHERING_PANEL_TRANSITION_CLASS} ${
-          isGatheringMode
-            ? "opacity-100 translate-y-0 scale-100"
-            : "pointer-events-none opacity-0 translate-y-3 scale-[0.98]"
-        }`}
-      >
-        {isGatheringMode ? <GatheringInfoPanel gathering={gathering} /> : null}
-      </div>
-    </aside>
+          <AlchemyWorkbenchInfoPanel
+            activeTab={activeTab}
+            discoveredEmergentRecipes={discoveredEmergentRecipes}
+            discoveredExtendedRecipeIds={discoveredExtendedRecipeIds}
+            discoveredRecipeIds={discoveredRecipeIds}
+            extendedLedgerFilterCardIds={extendedLedgerFilterCardIds}
+            extendedLedgerFilterDropFeedback={extendedLedgerFilterDropFeedback}
+            hasEmergentRecipeNotifications={hasEmergentRecipeNotifications}
+            hasExtendedRecipeNotifications={hasExtendedRecipeNotifications}
+            hasRecipeNotifications={hasRecipeNotifications}
+            onEmergentRecipeRevealSeen={onEmergentRecipeRevealSeen}
+            onExtendedLedgerFilterRemove={onExtendedLedgerFilterRemove}
+            onExtendedRecipeRevealSeen={onExtendedRecipeRevealSeen}
+            onRecipeRevealSeen={onRecipeRevealSeen}
+            onTabChange={onTabChange}
+            preview={preview}
+            revealEmergentRecipeIds={revealEmergentRecipeIds}
+            revealExtendedRecipeIds={revealExtendedRecipeIds}
+            revealRecipeIds={revealRecipeIds}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <aside className={getRightModePanelsClass(isGatheringMode)}>
+        <div
+          ref={rightPrimaryPanelRef}
+          data-board-section={
+            isGatheringMode ? "gathering-monster-panel" : "alchemy-workbench-info-panel"
+          }
+          data-board-name={isGatheringMode ? "Monster Panel" : "Alchemy Workbench Info"}
+          data-board-description={
+            isGatheringMode
+              ? "Gathering encounter monster slots."
+              : BOARD_DESCRIPTIONS.alchemyWorkbenchInfo
+          }
+          aria-hidden={isGatheringRewardMode ? true : undefined}
+          className={`${getRightPrimaryPanelClass(isGatheringMode, infoPanelCollapsed)} ${
+            isGatheringRewardMode
+              ? "pointer-events-none opacity-0 scale-[0.98]"
+              : "opacity-100 scale-100"
+          }`}
+        >
+          {primaryPanelContent}
+        </div>
+        <div
+          ref={gatheringInfoPanelRef}
+          data-board-section="gathering-info-panel"
+          data-board-name="Info Panel"
+          aria-hidden={isGatheringMode ? undefined : true}
+          className={`${GLASS_PANEL_CLASS} overflow-hidden p-3 ${GATHERING_PANEL_TRANSITION_CLASS} ${
+            isGatheringMode
+              ? "opacity-100 translate-y-0 scale-100"
+              : "pointer-events-none opacity-0 translate-y-3 scale-[0.98]"
+          }`}
+        >
+          {isGatheringMode ? <GatheringInfoPanel gathering={gathering} /> : null}
+        </div>
+      </aside>
+    );
+  },
+);
+
+const CollapsedInfoPanelButtonPropsSchema = z.object({
+  onClick: z.custom<() => void>(),
+});
+
+const CollapsedInfoPanelButton = defineComponent(
+  CollapsedInfoPanelButtonPropsSchema,
+  ({ onClick }) => (
+    <button
+      type="button"
+      data-board-section="collapsed-info-panel-button"
+      data-board-name="Open alchemy workbench info"
+      className="grid size-full place-items-center rounded-[7px] text-sky-950 transition-[background-color,transform] hover:bg-white/45 active:scale-[0.98]"
+      aria-label="Open element, recipe, extended, and emergent info"
+      aria-expanded="false"
+      onClick={onClick}
+    >
+      <span className="grid place-items-center gap-0.5">
+        <BookOpen className="size-5" strokeWidth={2.5} aria-hidden="true" />
+        <Sparkles className="size-3.5 opacity-70" strokeWidth={2.6} aria-hidden="true" />
+      </span>
+    </button>
   ),
 );
 
 function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
-  const baseClass = `grid min-h-0 gap-2.5 ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  const baseClass = `grid min-h-0 min-w-0 gap-2.5 ${GATHERING_PANEL_TRANSITION_CLASS}`;
   if (isGatheringMode) {
     return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
   }
@@ -5621,7 +5973,8 @@ function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
 }
 
 function getBoardChromeClass(): string {
-  const baseClass = "pointer-events-none relative z-10 mx-auto grid h-full min-h-0 max-w-[1332px]";
+  const baseClass =
+    "pointer-events-none relative z-10 mx-auto grid h-full min-h-0 min-w-0 max-w-[1332px]";
   return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
 }
 
@@ -5641,11 +5994,11 @@ function getWorkbenchPanelClass(isGatheringMode: boolean): string {
     return `${GLASS_PANEL_CLASS} grid grid-cols-5 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 pt-10`;
   }
 
-  return `${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-5 sm:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-5 xl:gap-8`;
+  return `${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-3 sm:grid-rows-none lg:gap-5 xl:grid-cols-5 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:gap-8`;
 }
 
 function getRightModePanelsClass(isGatheringMode: boolean): string {
-  const baseClass = `hidden min-h-0 overflow-hidden lg:grid ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  const baseClass = `hidden min-h-0 min-w-0 overflow-hidden lg:grid ${GATHERING_PANEL_TRANSITION_CLASS}`;
   if (isGatheringMode) {
     return `${baseClass} gap-2.5 lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
   }
@@ -5653,9 +6006,26 @@ function getRightModePanelsClass(isGatheringMode: boolean): string {
   return `${baseClass} gap-0 lg:grid-rows-[minmax(0,1fr)_minmax(0,0px)]`;
 }
 
+function getRightPrimaryPanelClass(isGatheringMode: boolean, infoPanelCollapsed: boolean): string {
+  const baseClass = `${GLASS_PANEL_CLASS} overflow-hidden ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  if (isGatheringMode) return `${baseClass} p-3`;
+  if (infoPanelCollapsed)
+    return `${baseClass} grid size-14 place-items-center self-center justify-self-center`;
+
+  return baseClass;
+}
+
+function getMainBoardGridClass(questPanelCollapsed: boolean): string {
+  const baseClass = `grid min-h-0 min-w-0 gap-2.5 ${BOARD_MAIN_GRID_TRANSITION_CLASS}`;
+  return questPanelCollapsed
+    ? `${baseClass} lg:grid-cols-[3.75rem_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[3.75rem_minmax(30rem,1fr)_minmax(14rem,316px)]`
+    : `${baseClass} lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]`;
+}
+
 export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchema, () => {
   const boardState = useAtomValue(alchemistGuildBoardAtom);
   const setBoardState = useSetAtom(alchemistGuildBoardAtom);
+  const initialIntroZeroState = isAlchemyIntroZeroState(boardState);
   const periodicTableCanvasRef = useRef<HTMLCanvasElement>(null);
   const periodicTableViewportRef = useRef<HTMLDivElement>(null);
   const rightPrimaryPanelRef = useRef<HTMLDivElement>(null);
@@ -5672,6 +6042,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const gatheringDropTargetRef = useRef<GatheringDropTarget>("none");
   const gatheringDropChoiceIndexRef = useRef<number | null>(null);
   const gatheringDropFeedbackRef = useRef<GatheringDropFeedback>("none");
+  const introZeroActiveRef = useRef(initialIntroZeroState);
   const animatedGatheringRewardKeyRef = useRef<string | null>(null);
   const gatheringNudgePlayedKeyRef = useRef<string | null>(null);
   const notifiedCooldownIdsRef = useRef<Set<string> | null>(null);
@@ -5683,6 +6054,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const gatheringMonsterDeathAnimationSequenceRef = useRef(0);
   const gatheringSessionReviewSequenceRef = useRef(0);
   const depositedGatheringSessionReviewIdRef = useRef<string | null>(null);
+  const pendingGatheringElementRevealIdsRef = useRef<string[]>([]);
   const gatheringWrongResetKeyRef = useRef<string | null>(null);
   const previousGatheringStateRef = useRef<AlchemistGuildGatheringState | null>(null);
   const [draggedCard, setDraggedCard] = useState<DraggedAlchemyCard | null>(null);
@@ -5716,8 +6088,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     useState<GatheringMonsterDeathUiState>(EMPTY_GATHERING_MONSTER_DEATH_UI_STATE);
   const [questClaimSwipeStateByQuestId, setQuestClaimSwipeStateByQuestId] =
     useState<QuestClaimSwipeStateByQuestId>({});
+  const [introPhase, setIntroPhase] = useState<AlchemistGuildIntroPhase>(
+    initialIntroZeroState ? "zero" : "complete",
+  );
   const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
+  const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(initialIntroZeroState);
+  const [questPanelCollapsed, setQuestPanelCollapsed] = useState(initialIntroZeroState);
   const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
+  const [periodicTableRevealElementIds, setPeriodicTableRevealElementIds] = useState<string[]>([]);
   const [pendingRecipeNotificationIds, setPendingRecipeNotificationIds] = useState<string[]>([]);
   const [pendingExtendedRecipeNotificationIds, setPendingExtendedRecipeNotificationIds] = useState<
     string[]
@@ -5781,12 +6159,19 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       : null;
   const questPanelAccepted = isQuestPanelAcceptedDrop(dropIntent);
   const expeditionAvailable = isExpeditionAvailable(boardState);
-  const activeBoardMode =
-    boardState.activeBoardMode === "expedition" && !expeditionAvailable
-      ? "crafting"
-      : boardState.activeBoardMode;
+  const gatheringAvailable = isGatheringAvailable(boardState.completedQuestIds);
+  const activeBoardMode = resolveVisibleBoardMode({
+    activeBoardMode: boardState.activeBoardMode,
+    expeditionAvailable,
+    gatheringAvailable,
+  });
   const isGatheringMode = activeBoardMode === "gathering";
   const isExpeditionMode = activeBoardMode === "expedition";
+  const introEligible = isAlchemyIntroZeroState(boardState);
+  const introZeroActive = introEligible && introPhase === "zero";
+  const introCameraTransitionActive = introPhase === "zooming";
+  const gatheringRevealActive = gatheringAvailable && !boardState.gathering.unlockSeen;
+  const gatheringRevealKey = gatheringRevealActive ? boardState.completedQuestIds.length : 0;
   const expeditionNudgeActive = expeditionAvailable && !boardState.expedition.unlockSeen;
   const expeditionTargetOptions = getExpeditionTargetOptions(
     boardState,
@@ -5798,6 +6183,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     getInventoryDestinationSlotId(boardState, boardState.expedition.targetCardId ?? "") !== null;
   const noAvailablePeriodicElements = !hasAvailablePeriodicElement(boardState);
   const craftingNeedsGathering =
+    gatheringAvailable &&
     !draggedCard &&
     ((!hasWorkbenchCards && noAvailablePeriodicElements) ||
       (!canTransmutePreview && !canCompleteAnyPeriodicRecipe(boardState)));
@@ -5823,21 +6209,40 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const periodicTableQuantityKey = ELEMENT_CARDS.map(
     (card) => `${card.id}:${boardState.elementQuantities[card.id] ?? 0}`,
   ).join("|");
+  const periodicTableRevealKey = periodicTableRevealElementIds.join("|");
+  let periodicTableCameraModeKey = "fit";
+  if (introZeroActive) {
+    periodicTableCameraModeKey = "intro-hydrogen";
+  } else if (introCameraTransitionActive) {
+    periodicTableCameraModeKey = "intro-zoom-out";
+  }
   boardStateRef.current = boardState;
   extendedLedgerFilterCardIdsRef.current = extendedLedgerFilterCardIds;
+  introZeroActiveRef.current = introZeroActive;
 
   useEffect(() => {
-    if (expeditionAvailable || boardState.activeBoardMode !== "expedition") return;
+    if (activeBoardMode === boardState.activeBoardMode) return;
 
-    setBoardState((previous) =>
-      previous.activeBoardMode === "expedition"
-        ? {
+    setBoardState((previous) => {
+      const nextActiveBoardMode = resolveVisibleBoardMode({
+        activeBoardMode: previous.activeBoardMode,
+        expeditionAvailable,
+        gatheringAvailable,
+      });
+      return nextActiveBoardMode === previous.activeBoardMode
+        ? previous
+        : {
             ...previous,
-            activeBoardMode: "crafting",
-          }
-        : previous,
-    );
-  }, [boardState.activeBoardMode, expeditionAvailable, setBoardState]);
+            activeBoardMode: nextActiveBoardMode,
+          };
+    });
+  }, [
+    activeBoardMode,
+    boardState.activeBoardMode,
+    expeditionAvailable,
+    gatheringAvailable,
+    setBoardState,
+  ]);
 
   useEffect(() => {
     if (!expeditionAvailable || boardState.expedition.unlockAnnounced) return;
@@ -6003,6 +6408,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("gathering.rewardClaim");
   };
 
+  const completeIntroChoreography = () => {
+    if (!introZeroActiveRef.current) return;
+
+    setQuestPanelCollapsed(false);
+    setInfoPanelCollapsed(false);
+    setIntroPhase("zooming");
+  };
+
   const beginElementDrag = (grab: PeriodicTableElementGrab) => {
     const card = getAlchemyCard(grab.card.id);
     if (!card) return;
@@ -6127,8 +6540,23 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   const handleBoardModeTabChange = (nextTab: BoardModeTab) => {
     if (gatheringSessionReview?.depositing === true || gatheringWrongResetKey !== null) return;
+    if (nextTab === "gathering" && !gatheringAvailable) return;
     if (nextTab === "expedition" && !expeditionAvailable) return;
-    if (nextTab === activeBoardMode) return;
+    if (nextTab === "gathering" && gatheringNudgeKey) {
+      setGatheringNudgeDismissedKey(gatheringNudgeKey);
+    }
+    if (nextTab === activeBoardMode) {
+      if (nextTab === "gathering" && !boardStateRef.current.gathering.unlockSeen) {
+        setBoardState((previous) => ({
+          ...previous,
+          gathering: {
+            ...previous.gathering,
+            unlockSeen: true,
+          },
+        }));
+      }
+      return;
+    }
 
     if (
       activeBoardMode === "gathering" &&
@@ -6148,12 +6576,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       return;
     }
 
-    if (nextTab === "gathering" && gatheringNudgeKey) {
-      setGatheringNudgeDismissedKey(gatheringNudgeKey);
-    }
     setBoardState((previous) => ({
       ...previous,
       activeBoardMode: nextTab,
+      gathering:
+        nextTab === "gathering"
+          ? {
+              ...previous.gathering,
+              unlockSeen: true,
+            }
+          : previous.gathering,
       expedition:
         nextTab === "expedition" && expeditionAvailable
           ? {
@@ -6174,6 +6606,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const handleGatheringSessionConfirm = () => {
     if (!gatheringSessionReview || gatheringSessionReview.depositing) return;
 
+    const gatheredCardIds = new Set(gatheringSessionReview.entries.map((entry) => entry.cardId));
+    const revealElementIds = pendingGatheringElementRevealIdsRef.current.filter((cardId) =>
+      gatheredCardIds.has(cardId),
+    );
+    pendingGatheringElementRevealIdsRef.current = [];
+    setPeriodicTableRevealElementIds(revealElementIds);
     setGatheringSessionReview((current) => (current ? { ...current, depositing: true } : current));
     setBoardState((previous) => ({
       ...previous,
@@ -6250,6 +6688,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       startClientX: event.clientX,
       startClientY: event.clientY,
     });
+    sfx.startGatheringAttackCharge(move.id);
     void sfx.play("card.slot.pickup");
   };
 
@@ -6262,6 +6701,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       const destinationSlotId =
         rewardCard && rewardCard.kind !== "element"
           ? getInventoryDestinationSlotId(boardStateRef.current, cardId)
+          : null;
+      const newlyDiscoveredElementId =
+        rewardCard?.kind === "element" &&
+        !boardStateRef.current.discoveredElementIds.includes(cardId)
+          ? cardId
           : null;
       if (rewardCard && rewardCard.kind !== "element" && !destinationSlotId) {
         void sfx.play("card.drop");
@@ -6298,6 +6742,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           gathering: nextGathering,
         };
       });
+      if (newlyDiscoveredElementId) {
+        pendingGatheringElementRevealIdsRef.current = appendUniqueId(
+          pendingGatheringElementRevealIdsRef.current,
+          newlyDiscoveredElementId,
+        );
+      }
       void sfx.play("gathering.rewardClaim");
       return;
     }
@@ -6802,24 +7252,73 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       }
 
       return setupPeriodicTableScene(app, {
+        cameraMode:
+          introZeroActive || introCameraTransitionActive
+            ? {
+                elementId: ALCHEMIST_GUILD_INTRO_FOCUS_ELEMENT_ID,
+                kind: "element",
+                scale: ALCHEMIST_GUILD_INTRO_FOCUS_SCALE,
+              }
+            : { kind: "fit" },
+        cameraTransition: introCameraTransitionActive ? "intro-zoom-out" : "none",
         discoveredElementIds: boardStateRef.current.discoveredElementIds,
         elementQuantities: boardStateRef.current.elementQuantities,
         getFitRect: () => periodicTableViewportRef.current?.getBoundingClientRect() ?? null,
         onElementGrab: beginElementDrag,
         reducedMotion,
+        revealElementIds: periodicTableRevealElementIds,
       });
     },
-    [activeBoardMode, periodicTableDiscoveredKey, periodicTableQuantityKey],
+    [
+      activeBoardMode,
+      periodicTableCameraModeKey,
+      periodicTableDiscoveredKey,
+      periodicTableQuantityKey,
+      periodicTableRevealKey,
+    ],
     {
+      autoStart: false,
       backgroundAlpha: 0,
       preference: "canvas",
-      ...(activeBoardMode === "expedition" ? { autoStart: false } : {}),
     },
   );
 
   useEffect(() => {
+    if (introZeroActive) {
+      sfx.stopBackgroundMusic(240);
+      sfx.startIntroHum();
+      return () => {
+        sfx.stopIntroHum(260);
+      };
+    }
+
+    sfx.stopIntroHum(520);
     void sfx.startBackgroundMusic();
-  }, []);
+  }, [introZeroActive]);
+
+  useEffect(() => {
+    if (!introCameraTransitionActive) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setIntroPhase((current) => (current === "zooming" ? "complete" : current));
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [introCameraTransitionActive]);
+
+  useEffect(() => {
+    if (!periodicTableRevealKey) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setPeriodicTableRevealElementIds([]);
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [periodicTableRevealKey]);
 
   useEffect(() => {
     if (!gatheringNudgeActive || !gatheringNudgeKey) return;
@@ -7652,6 +8151,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             },
           };
         });
+        if (activeDraggedCard.card.id === ALCHEMIST_GUILD_INTRO_FOCUS_ELEMENT_ID) {
+          completeIntroChoreography();
+        }
         void sfx.play("card.drop");
         return;
       }
@@ -8057,6 +8559,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       if (released) return;
       released = true;
       removeDragListeners();
+      if (activeDraggedCard.kind === "move") sfx.stopGatheringAttackCharge(70);
       if (animationFrame !== 0) {
         cancelAnimationFrame(animationFrame);
         animationFrame = 0;
@@ -8135,6 +8638,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     return () => {
       removeDragListeners();
+      if (activeDraggedCard.kind === "move" && !released) sfx.stopGatheringAttackCharge(70);
       if (animationFrame !== 0) cancelAnimationFrame(animationFrame);
       if (!releaseComplete) releaseAnimation?.cancel();
       if (!released) motion.revert();
@@ -8207,7 +8711,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           <div
             data-board-section="inventory-shelf"
             data-board-name="Inventory shelf"
-            className="flex min-h-14 min-w-0 touch-pan-x items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-1 pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]"
+            className="grid min-h-14 min-w-0 grid-cols-[repeat(8,minmax(0,1fr))] items-center gap-1.5 pb-1 pr-1 sm:gap-2"
           >
             {inventorySlots.map((slot) => {
               const item = boardState.inventorySlots[slot.id];
@@ -8240,13 +8744,20 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           <InventorySellZone draggedCard={draggedCard} dropIntent={dropIntent} />
         </section>
 
-        <BoardModeTabs
+        <BoardControlRow
           activeTab={activeBoardMode}
           expeditionAvailable={expeditionAvailable}
           expeditionNudgeActive={expeditionNudgeActive}
           expeditionRevealActive={expeditionReveal.active}
           expeditionRevealKey={expeditionReveal.key}
+          gatheringAvailable={gatheringAvailable}
           gatheringNudgeActive={gatheringNudgeActive}
+          gatheringRevealActive={gatheringRevealActive}
+          gatheringRevealKey={gatheringRevealKey}
+          questPanelCollapsed={questPanelCollapsed}
+          onQuestPanelToggle={() => {
+            setQuestPanelCollapsed((collapsed) => !collapsed);
+          }}
           onTabChange={handleBoardModeTabChange}
         />
 
@@ -8264,60 +8775,49 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             onStart={handleExpeditionStart}
           />
         ) : (
-          <section className="grid min-h-0 gap-2.5 lg:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]">
-            <aside className="hidden min-h-0 gap-2.5 lg:grid lg:grid-rows-[minmax(0,225px)_minmax(0,1fr)]">
-              <div
-                data-board-section="left-profile-panel"
-                data-board-name="Profile"
-                data-board-description={BOARD_DESCRIPTIONS.profile}
-                className={`${GLASS_PANEL_CLASS} p-3`}
-              >
-                <BoardDebugBadge
-                  description={BOARD_DESCRIPTIONS.profile}
-                  label="Profile"
-                  visible={showBoardDebugBadges}
-                />
-                <ProfileCard
-                  {...FIRST_PROFILE_CARD_PROPS}
+          <section className={getMainBoardGridClass(questPanelCollapsed)}>
+            <aside className="hidden min-h-0 min-w-0 lg:grid">
+              {questPanelCollapsed ? null : (
+                <LeftModePanel
+                  activeQuestIds={activeQuestIds}
+                  activeTab={questPanelTab}
+                  avatarPath={FIRST_PROFILE_CARD_PROPS.avatarPath}
+                  canClaim={canClaimSelectedQuest}
+                  claimedQuestIds={boardState.completedQuestIds}
+                  claimProgress={selectedQuestClaimSwipeState.progress}
+                  deliveryCard={selectedQuestUnlocked ? selectedQuestDeliveryCard : null}
+                  deliveryDropFeedback={getQuestDeliveryDropFeedback(dropIntent)}
+                  deliveryProgress={{
+                    delivered: selectedQuestDelivery.delivered,
+                    required: selectedQuestDelivery.required,
+                  }}
+                  developerNotesVisible={showBoardDebugBadges}
+                  gathering={boardState.gathering}
+                  gatheringDropTarget={gatheringDropTarget}
+                  hasQuestNotifications={pendingQuestNotificationIds.length > 0}
+                  isClaimDragging={selectedQuestClaimSwipeState.dragging}
+                  isGatheringMode={isGatheringMode}
                   playerName={boardState.profile.playerName}
-                  stats={createProfileStats(boardState.profile)}
+                  profileStats={createProfileStats(boardState.profile)}
+                  questAssemblyGuide={selectedQuestAssemblyGuide}
+                  questLogScrollTop={boardState.questLogScrollTop}
+                  questPanelAccepted={questPanelAccepted}
+                  selectedQuestId={selectedQuestId}
+                  title={FIRST_PROFILE_CARD_PROPS.title}
+                  unlockedQuestIds={unlockedQuestIds}
+                  onClaimPointerDown={handleQuestClaimSwipePointerDown}
                   onPlayerNameChange={(nextPlayerName) => {
                     setBoardState((previous) => ({
                       ...previous,
                       profile: { ...previous.profile, playerName: nextPlayerName },
                     }));
                   }}
+                  onQuestLogScrollTopChange={handleQuestLogScrollTopChange}
+                  onQuestOpenFromLog={handleQuestOpenFromLog}
+                  onQuestSelect={handleQuestSelect}
+                  onTabChange={handleQuestPanelTabChange}
                 />
-              </div>
-              <LeftModePanel
-                activeQuestIds={activeQuestIds}
-                activeTab={questPanelTab}
-                canClaim={canClaimSelectedQuest}
-                claimedQuestIds={boardState.completedQuestIds}
-                claimProgress={selectedQuestClaimSwipeState.progress}
-                deliveryCard={selectedQuestUnlocked ? selectedQuestDeliveryCard : null}
-                deliveryDropFeedback={getQuestDeliveryDropFeedback(dropIntent)}
-                deliveryProgress={{
-                  delivered: selectedQuestDelivery.delivered,
-                  required: selectedQuestDelivery.required,
-                }}
-                developerNotesVisible={showBoardDebugBadges}
-                gathering={boardState.gathering}
-                gatheringDropTarget={gatheringDropTarget}
-                hasQuestNotifications={pendingQuestNotificationIds.length > 0}
-                isClaimDragging={selectedQuestClaimSwipeState.dragging}
-                isGatheringMode={isGatheringMode}
-                questAssemblyGuide={selectedQuestAssemblyGuide}
-                questLogScrollTop={boardState.questLogScrollTop}
-                questPanelAccepted={questPanelAccepted}
-                selectedQuestId={selectedQuestId}
-                unlockedQuestIds={unlockedQuestIds}
-                onClaimPointerDown={handleQuestClaimSwipePointerDown}
-                onQuestLogScrollTopChange={handleQuestLogScrollTopChange}
-                onQuestOpenFromLog={handleQuestOpenFromLog}
-                onQuestSelect={handleQuestSelect}
-                onTabChange={handleQuestPanelTabChange}
-              />
+              )}
             </aside>
 
             <CenterBoardPanels
@@ -8367,6 +8867,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               hasEmergentRecipeNotifications={pendingEmergentRecipeNotificationIds.length > 0}
               hasExtendedRecipeNotifications={pendingExtendedRecipeNotificationIds.length > 0}
               hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
+              infoPanelCollapsed={infoPanelCollapsed}
               isGatheringMode={isGatheringMode}
               isGatheringRewardMode={isGatheringRewardMode}
               preview={transmutationPreview}
@@ -8379,6 +8880,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               onEmergentRecipeRevealSeen={handleEmergentRecipeRevealSeen}
               onExtendedLedgerFilterRemove={handleExtendedLedgerFilterRemove}
               onExtendedRecipeRevealSeen={handleExtendedRecipeRevealSeen}
+              onInfoPanelToggle={() => {
+                setInfoPanelCollapsed((collapsed) => !collapsed);
+              }}
               onRecipeRevealSeen={handleRecipeRevealSeen}
               onTabChange={handleInfoPanelTabChange}
             />

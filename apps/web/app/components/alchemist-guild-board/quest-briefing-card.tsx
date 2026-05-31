@@ -43,18 +43,25 @@ const QUEST_CAROUSEL_INITIAL_INDEX = 1;
 const QUEST_CAROUSEL_FIRST_SLIDE_INDEX = 0;
 const QUEST_CAROUSEL_LAST_SLIDE_INDEX = QUEST_CAROUSEL_SLIDE_COUNT - 1;
 const QUEST_CAROUSEL_SWIPE_MIN_PX = 34;
+const QUEST_CAROUSEL_INTENT_MIN_PX = 8;
+const QUEST_CAROUSEL_VERTICAL_INTENT_MIN_PX = 10;
+const QUEST_CAROUSEL_VERTICAL_INTENT_RATIO = 1.15;
 const QUEST_CAROUSEL_EDGE_RESISTANCE = 0.32;
 const QUEST_CAROUSEL_SNAP_DURATION_MS = 230;
+
+type QuestCarouselSwipeIntent = "horizontal" | "pending" | "vertical";
 
 type QuestCarouselSwipe = {
   activeIndex: number;
   animationFrame: number;
   captureElement: HTMLDivElement;
+  horizontalActive: boolean;
   latestDeltaX: number;
   motion: AnimatableObject;
   pointerId: number;
   slideWidth: number;
   startClientX: number;
+  startClientY: number;
 };
 
 const QUEST_CAROUSEL_POINTER_LISTENER_OPTIONS = {
@@ -141,10 +148,10 @@ export const QuestBriefingCard = defineComponent(
       data-board-section="quest-briefing-card"
       data-board-name={title}
       data-quest-card-id={id}
-      className="relative grid min-h-0 content-start gap-1.5 overflow-hidden rounded-[6px] border border-amber-500/70 bg-white/60 p-2.5 text-neutral-950 shadow-[0_2px_0_rgba(72,45,16,0.14)] backdrop-blur-sm"
+      className="relative grid min-h-0 content-start gap-2.5 overflow-hidden rounded-[6px] border border-amber-500/70 bg-white/60 p-3 text-neutral-950 shadow-[0_2px_0_rgba(72,45,16,0.14)] backdrop-blur-sm"
       aria-labelledby={`${id}-title`}
     >
-      <header className="grid grid-cols-[2.5rem_1fr] gap-2">
+      <header className="grid grid-cols-[3rem_1fr] gap-2.5">
         <QuestRequesterAvatar
           redacted={redacted}
           requesterAvatarPath={requesterAvatarPath}
@@ -166,13 +173,13 @@ export const QuestBriefingCard = defineComponent(
           <p className="truncate text-[11px] font-semibold uppercase leading-tight tracking-normal text-amber-950/75">
             {actLabel}
           </p>
-          <h2 id={`${id}-title`} className="font-serif text-base leading-none text-amber-950">
+          <h2 id={`${id}-title`} className="font-serif text-lg leading-none text-amber-950">
             {redacted ? "Redacted Quest" : title}
           </h2>
         </div>
       </header>
 
-      <p className="text-[11px] font-semibold leading-snug text-neutral-900">
+      <p className="text-xs font-semibold leading-snug text-neutral-900">
         {redacted ? "Complete earlier guild work to reveal this request." : summary}
       </p>
 
@@ -192,7 +199,7 @@ export const QuestBriefingCard = defineComponent(
         />
       )}
 
-      <footer className="grid h-8 min-h-0 grid-cols-4 overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65">
+      <footer className="grid h-9 min-h-0 grid-cols-4 overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65">
         {rewards.map((reward, index) => {
           const RewardIcon = REWARD_ICONS[reward.icon];
           return (
@@ -206,8 +213,8 @@ export const QuestBriefingCard = defineComponent(
               <span className="sr-only">
                 {reward.value} {reward.label}
               </span>
-              <RewardIcon aria-hidden="true" className="size-3 stroke-[2.5] text-amber-950" />
-              <span aria-hidden="true" className="text-[10px] font-black leading-none">
+              <RewardIcon aria-hidden="true" className="size-3.5 stroke-[2.5] text-amber-950" />
+              <span aria-hidden="true" className="text-[11px] font-black leading-none">
                 {redacted ? "?" : reward.value}
               </span>
             </div>
@@ -253,7 +260,7 @@ const QuestRequesterAvatar = defineComponent(
     }
 
     return (
-      <div className="relative size-10 overflow-hidden rounded-[4px] border border-amber-500/55 bg-white/70">
+      <div className="relative size-12 overflow-hidden rounded-[4px] border border-amber-500/55 bg-white/70">
         {content}
       </div>
     );
@@ -333,7 +340,6 @@ const QuestBriefingCarousel = defineComponent(
       const slideWidth = event.currentTarget.getBoundingClientRect().width;
       if (slideWidth <= 0) return;
 
-      event.preventDefault();
       removePointerListenersRef.current?.();
       snapAnimationRef.current?.cancel();
       snapAnimationRef.current = null;
@@ -346,13 +352,14 @@ const QuestBriefingCarousel = defineComponent(
         activeIndex: activeSlideIndexRef.current,
         animationFrame: 0,
         captureElement: event.currentTarget,
+        horizontalActive: false,
         latestDeltaX: 0,
         motion,
         pointerId: event.pointerId,
         slideWidth,
         startClientX: event.clientX,
+        startClientY: event.clientY,
       };
-      event.currentTarget.setPointerCapture(event.pointerId);
       removePointerListenersRef.current = addQuestCarouselPointerListeners(
         handlePointerMove,
         handlePointerUp,
@@ -382,8 +389,32 @@ const QuestBriefingCarousel = defineComponent(
       const swipe = swipeRef.current;
       if (!swipe || event.pointerId !== swipe.pointerId) return;
 
+      const latestDeltaX = event.clientX - swipe.startClientX;
+      const latestDeltaY = event.clientY - swipe.startClientY;
+      if (!swipe.horizontalActive) {
+        const intent = getQuestCarouselSwipeIntent(latestDeltaX, latestDeltaY);
+        if (intent === "pending") return;
+        if (intent === "vertical") {
+          removePointerListenersRef.current?.();
+          removePointerListenersRef.current = null;
+          if (swipe.animationFrame !== 0) cancelAnimationFrame(swipe.animationFrame);
+          swipeRef.current = null;
+          swipe.motion.revert();
+          if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
+            swipe.captureElement.releasePointerCapture(event.pointerId);
+          }
+          settleSlide(swipe.activeIndex, false);
+          return;
+        }
+
+        swipe.horizontalActive = true;
+        if (!swipe.captureElement.hasPointerCapture(event.pointerId)) {
+          swipe.captureElement.setPointerCapture(event.pointerId);
+        }
+      }
+
       event.preventDefault();
-      swipe.latestDeltaX = event.clientX - swipe.startClientX;
+      swipe.latestDeltaX = latestDeltaX;
       queueDragPaint();
     };
 
@@ -391,7 +422,7 @@ const QuestBriefingCarousel = defineComponent(
       const swipe = swipeRef.current;
       if (!swipe || event.pointerId !== swipe.pointerId) return;
 
-      event.preventDefault();
+      if (swipe.horizontalActive) event.preventDefault();
       removePointerListenersRef.current?.();
       removePointerListenersRef.current = null;
       swipe.latestDeltaX = event.clientX - swipe.startClientX;
@@ -469,7 +500,7 @@ const QuestBriefingCarousel = defineComponent(
     return (
       <section
         data-quest-briefing-carousel=""
-        className="grid grid-rows-[6.75rem_1rem] overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65"
+        className="grid grid-rows-[10rem_1.25rem] overflow-hidden rounded-[4px] border border-amber-500/40 bg-white/65 xl:grid-rows-[11rem_1.25rem]"
         aria-label="Quest details"
       >
         <div
@@ -509,7 +540,7 @@ const QuestBriefingCarousel = defineComponent(
           </div>
         </div>
 
-        <div className="grid h-4 place-items-center border-t border-amber-500/30 bg-white/45">
+        <div className="grid h-5 place-items-center border-t border-amber-500/30 bg-white/45">
           <div className="flex items-center justify-center gap-1.5">
             {QUEST_CAROUSEL_DOTS.map((dot, index) => (
               <button
@@ -605,6 +636,29 @@ function getQuestCarouselSwipeDirection(deltaX: number): -1 | 0 | 1 {
   return -1;
 }
 
+export function getQuestCarouselSwipeIntent(
+  deltaX: number,
+  deltaY: number,
+): QuestCarouselSwipeIntent {
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+
+  if (absX < QUEST_CAROUSEL_INTENT_MIN_PX && absY < QUEST_CAROUSEL_INTENT_MIN_PX) {
+    return "pending";
+  }
+
+  if (
+    absY >= QUEST_CAROUSEL_VERTICAL_INTENT_MIN_PX &&
+    absY > absX * QUEST_CAROUSEL_VERTICAL_INTENT_RATIO
+  ) {
+    return "vertical";
+  }
+
+  if (absX >= QUEST_CAROUSEL_INTENT_MIN_PX && absX > absY) return "horizontal";
+
+  return "pending";
+}
+
 export function getQuestBriefingInitialSlideIndex(questId: string): number {
   return questId === ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID
     ? QUEST_CAROUSEL_INITIAL_INDEX
@@ -640,7 +694,7 @@ const QuestBriefingInfoSlidePropsSchema = z.object({
 const QuestBriefingInfoSlide = defineComponent(
   QuestBriefingInfoSlidePropsSchema,
   ({ children, eyebrow, title }) => (
-    <article className="grid h-27 content-start gap-1 p-2">
+    <article className="grid h-40 content-start gap-2 p-3 xl:h-44">
       <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
         {eyebrow}
       </p>
@@ -691,17 +745,14 @@ const QuestBriefingRecipeDeck = defineComponent(
       <article
         data-quest-recipe-deck=""
         data-quest-recipe-target={activeRecipe.name}
-        className={`grid h-27 overflow-hidden ${
+        className={`grid h-40 overflow-hidden xl:h-44 ${
           showRecipeRail ? "grid-cols-[minmax(0,1fr)_1.75rem]" : "grid-cols-1"
         }`}
         aria-label={`${activeRecipe.name}: ${formatIngredientList(activeRecipe.ingredients)}`}
       >
         <div
           ref={scrollerRef}
-          className="h-27 snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-          }}
+          className="h-40 snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none] xl:h-44 [&::-webkit-scrollbar]:hidden"
           onScroll={setRecipeIndexFromScroll}
         >
           {recipes.map((recipe, index) => (
@@ -735,7 +786,7 @@ const QuestBriefingRecipeCard = defineComponent(
   ({ positionLabel, recipe }) => (
     <section
       data-quest-recipe-card={recipe.name}
-      className="grid h-27 snap-start grid-rows-[auto_minmax(0,1fr)] gap-1.5 p-2"
+      className="grid h-40 snap-start grid-rows-[auto_minmax(0,1fr)] gap-2 p-3 xl:h-44"
       aria-label={`${recipe.name}: ${formatIngredientList(recipe.ingredients)}`}
     >
       <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2">
@@ -750,7 +801,7 @@ const QuestBriefingRecipeCard = defineComponent(
           <p className="text-[9px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
             Make
           </p>
-          <p className="truncate font-serif text-base leading-none text-sky-950">{recipe.name}</p>
+          <p className="font-serif text-lg leading-none text-sky-950">{recipe.name}</p>
         </div>
         <span className="rounded-[3px] border border-sky-950/20 bg-white/75 px-1 py-0.5 font-mono text-[9px] font-black leading-none text-sky-950">
           {positionLabel}
@@ -774,7 +825,7 @@ const QuestBriefingRecipeDeckRailPropsSchema = z.object({
 const QuestBriefingRecipeDeckRail = defineComponent(
   QuestBriefingRecipeDeckRailPropsSchema,
   ({ activeIndex, onSelect, recipes }) => (
-    <div className="grid h-27 grid-rows-[1.5rem_minmax(0,1fr)_1.5rem] place-items-center border-l border-amber-500/30 bg-white/45">
+    <div className="grid h-40 grid-rows-[1.75rem_minmax(0,1fr)_1.75rem] place-items-center border-l border-amber-500/30 bg-white/45 xl:h-44">
       <button
         type="button"
         className="grid size-5 place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"

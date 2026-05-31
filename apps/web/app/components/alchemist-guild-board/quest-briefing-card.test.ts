@@ -7,6 +7,7 @@ import {
   FIRST_QUEST_BRIEFING_CARD_PROPS,
   getQuestBriefingInitialSlideIndex,
   getQuestCarouselEdgeSwipeDirection,
+  getQuestCarouselSwipeIntent,
   QuestBriefingCardPropsSchema,
 } from "./quest-briefing-card";
 
@@ -91,5 +92,12 @@ describe("QuestBriefingCard carousel behavior", () => {
     expect(getQuestCarouselEdgeSwipeDirection(1, 1)).toBeNull();
     expect(getQuestCarouselEdgeSwipeDirection(2, -1)).toBeNull();
     expect(getQuestCarouselEdgeSwipeDirection(2, 1)).toBe(1);
+  });
+
+  test("lets vertical recipe-deck gestures scroll instead of hijacking them", () => {
+    expect(getQuestCarouselSwipeIntent(3, 4)).toBe("pending");
+    expect(getQuestCarouselSwipeIntent(14, 4)).toBe("horizontal");
+    expect(getQuestCarouselSwipeIntent(8, 22)).toBe("vertical");
+    expect(getQuestCarouselSwipeIntent(18, 20)).toBe("pending");
   });
 });

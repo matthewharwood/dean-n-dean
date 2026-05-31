@@ -257,6 +257,7 @@ export const AlchemistGuildGatheringStateSchema = z.object({
   rewardOptionCardIds: z.array(AlchemistGuildCardIdSchema).max(3).default([]),
   round: z.int().min(1).default(1),
   targetDropChances: AlchemistGuildGatheringTargetDropChancesSchema,
+  unlockSeen: z.boolean().default(false),
   wrongAnswerStreak: z.int().min(0).max(3).default(0),
 });
 export type AlchemistGuildGatheringState = z.infer<typeof AlchemistGuildGatheringStateSchema>;
