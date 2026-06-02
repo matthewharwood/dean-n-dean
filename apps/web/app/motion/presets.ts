@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-file
 import type { AnimationParams } from "animejs";
 
 export const fadeInUp: AnimationParams = {

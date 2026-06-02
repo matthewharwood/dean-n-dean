@@ -12,7 +12,6 @@ import { atomWithIDB } from "~/lib/atom-with-idb";
 
 import { persistAlchemistGuildBoard, persistProgress, persistSettings } from "./persist";
 
-// fallow-ignore-next-line unused-export
 export const settingsAtom = atomWithIDB(
   SettingsSchema,
   (snapshot) => snapshot.settings,
@@ -41,7 +40,6 @@ type ProgressAtom = WritableAtom<Progress, [Progress | ((prev: Progress) => Prog
 
 const progressAtoms = new Map<string, ProgressAtom>();
 
-// fallow-ignore-next-line unused-export
 export function getProgressAtom(id: string): ProgressAtom {
   let cached = progressAtoms.get(id);
   if (!cached) {

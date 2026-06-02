@@ -17,7 +17,6 @@ type DevMenuApi = { close: () => void };
 
 const DevMenuContext = createContext<DevMenuApi | null>(null);
 
-// fallow-ignore-next-line unused-export
 export function useDevMenu(): DevMenuApi {
   const context = use(DevMenuContext);
   if (!context) throw new Error("useDevMenu: must be used inside <DevMenu>");
