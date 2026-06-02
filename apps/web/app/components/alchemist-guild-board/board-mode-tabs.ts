@@ -34,3 +34,22 @@ export function resolveVisibleBoardMode({
   const visibleTabs = getVisibleBoardModeTabs({ expeditionAvailable, gatheringAvailable });
   return visibleTabs.includes(activeBoardMode) ? activeBoardMode : "crafting";
 }
+
+export function shouldShowGatheringNudge({
+  activeBoardMode,
+  dismissedKey,
+  gatheringNudgeKey,
+  gatheringUnlockSeen,
+}: {
+  activeBoardMode: AlchemistGuildBoardMode;
+  dismissedKey: string | null;
+  gatheringNudgeKey: string | null;
+  gatheringUnlockSeen: boolean;
+}): boolean {
+  return (
+    activeBoardMode === "crafting" &&
+    !gatheringUnlockSeen &&
+    gatheringNudgeKey !== null &&
+    dismissedKey !== gatheringNudgeKey
+  );
+}

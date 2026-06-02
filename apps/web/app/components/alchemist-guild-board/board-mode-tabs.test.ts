@@ -5,6 +5,7 @@ import {
   getVisibleBoardModeTabs,
   isGatheringAvailable,
   resolveVisibleBoardMode,
+  shouldShowGatheringNudge,
 } from "./board-mode-tabs";
 
 describe("board mode tutorial tabs", () => {
@@ -30,5 +31,24 @@ describe("board mode tutorial tabs", () => {
         gatheringAvailable: false,
       }),
     ).toBe("crafting");
+  });
+
+  test("stops the gathering nudge once the persisted unlock has been seen", () => {
+    expect(
+      shouldShowGatheringNudge({
+        activeBoardMode: "crafting",
+        dismissedKey: null,
+        gatheringNudgeKey: "needs:gathering",
+        gatheringUnlockSeen: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowGatheringNudge({
+        activeBoardMode: "crafting",
+        dismissedKey: null,
+        gatheringNudgeKey: "needs:gathering",
+        gatheringUnlockSeen: true,
+      }),
+    ).toBe(false);
   });
 });

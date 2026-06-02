@@ -11,6 +11,7 @@ import {
   type AlchemistGuildEmergentRecipe,
   type AlchemistGuildEmergentRecipeRarity,
   type AlchemistGuildExpeditionState,
+  type AlchemistGuildGatheringBossState,
   type AlchemistGuildGatheringLogEntry,
   type AlchemistGuildGatheringState,
   type AlchemistGuildInventoryCooldown,
@@ -88,11 +89,13 @@ import { usePixiApp } from "~/canvas/use-pixi-app";
 import { defineComponent } from "~/lib/define-component";
 import { useAnime } from "~/motion/use-anime";
 import { sfx } from "~/sound/sfx";
+import { getGatheringAttackChargeProfile } from "~/sound/sound-service";
 import { alchemistGuildBoardAtom } from "~/state/atoms";
 import {
   getVisibleBoardModeTabs,
   isGatheringAvailable,
   resolveVisibleBoardMode,
+  shouldShowGatheringNudge,
 } from "./board-mode-tabs";
 import {
   type AlchemyWorkbenchEmergentPreview,
@@ -103,15 +106,27 @@ import {
 } from "./emergent-recipes";
 import { setupExpeditionCanvasScene } from "./expedition-canvas-scene";
 import {
+  answerGatheringBossChallenge,
+  claimGatheringBossReward,
   claimGatheringReward,
   clearGatheringAnswer,
   confirmGatheringAnswer,
+  createGatheringLevelMasteryReport,
+  dismissGatheringBossFailure,
+  GATHERING_BOSS_ALLOWED_MISSES,
+  GATHERING_BOSS_PROBLEM_DURATION_MS,
+  GATHERING_BOSS_REQUIRED_STREAK,
+  type GatheringLevelMasteryReport,
   type GatheringMove,
   type GatheringMoveId,
+  getGatheringBossRewardQuantity,
   getGatheringMoves,
+  isGatheringBossReady,
+  recordGatheringMasteryProgress,
   resetGatheringEquationAfterWrongStreak,
   selectGatheringAnswer,
   selectGatheringMove,
+  startGatheringBossFight,
   swapGatheringAnswerWithChoice,
   swapGatheringChoices,
 } from "./gathering-loop";
@@ -135,6 +150,10 @@ import {
   type QuestAssemblyIngredient,
 } from "./quest-assembly-guide";
 import { createQuestBriefingCardProps, QuestBriefingCard } from "./quest-briefing-card";
+import {
+  getQuestCurrentSwipeDirection,
+  getQuestCurrentSwipeIntent,
+} from "./quest-current-carousel-gesture";
 import {
   type AlchemyWorkbenchExtendedRecipePreview,
   type AlchemyWorkbenchRecipePreview,
@@ -184,7 +203,6 @@ const RECIPE_REVEAL_STAGGER_MS = 70;
 const RECIPE_REVEAL_INTERSECTION_THRESHOLD = 0.36;
 const RECIPE_REVEAL_ID_SEPARATOR = "|";
 const QUEST_DELIVERY_COMPLETE_LABEL = "Ready to claim";
-const QUEST_CURRENT_SWIPE_MIN_PX = 38;
 const QUEST_CURRENT_SNAP_DURATION_MS = 240;
 const QUEST_CURRENT_SLIDE_OFFSETS = [-1, 0, 1] as const;
 const QUEST_CURRENT_CENTER_SLIDE_INDEX = 1;
@@ -317,6 +335,14 @@ type GatheringMonsterDeathCanvasOptions = {
 };
 
 type GatheringMonsterDeathCompleteHandler = (animationId: string, round: number) => void;
+type FloatingGatheringCardStyle = CSSProperties & {
+  "--gathering-charge-duration-ms"?: string;
+};
+type GatheringMasteryFrameStyle = CSSProperties & {
+  "--gathering-mastery-angle"?: string;
+  "--gathering-mastery-previous-angle"?: string;
+};
+type GatheringMasteryFeedback = "ready" | "regressing" | "steady";
 
 const gatheringMoveVisuals = {
   "left-spark": {
@@ -569,6 +595,8 @@ type GatheringMovePointerDownHandler = (
   event: ReactPointerEvent<HTMLButtonElement>,
 ) => void;
 type GatheringRewardSelectHandler = (cardId: string) => void;
+type GatheringBossAnswerHandler = (value: number) => void;
+type GatheringBossCommandHandler = () => void;
 
 type GatheringConfirmPointerDownHandler = (event: ReactPointerEvent<HTMLButtonElement>) => void;
 
@@ -675,11 +703,13 @@ type HorizontalSwipeMoveState = {
 type QuestCurrentSwipe = {
   animationFrame: number;
   captureElement: HTMLDivElement;
+  horizontalActive: boolean;
   latestDeltaX: number;
-  motion: AnimatableObject;
   pointerId: number;
   slideWidth: number;
   startClientX: number;
+  startClientY: number;
+  trackElement: HTMLDivElement;
 };
 
 const AlchemyCardFacePropsSchema = z.object({
@@ -830,7 +860,6 @@ const BoardDebugBadge = defineComponent(
 );
 
 const GatheringGamePanelPropsSchema = z.object({
-  confirmKnobTravelPx: z.number().min(0),
   confirmPadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
   confirmSwipeProgress: z.number().min(0).max(1),
   draggedGatheringCard: z.custom<DraggedGatheringCard | null>(),
@@ -844,7 +873,6 @@ const GatheringGamePanelPropsSchema = z.object({
 const GatheringGamePanel = defineComponent(
   GatheringGamePanelPropsSchema,
   ({
-    confirmKnobTravelPx,
     confirmPadTrackRef,
     confirmSwipeProgress,
     draggedGatheringCard,
@@ -868,11 +896,10 @@ const GatheringGamePanel = defineComponent(
       <div
         data-gathering-drop-target={gathering.phase === "move" ? "action-zone" : undefined}
         data-gathering-drop-active={actionDropActive ? "true" : undefined}
-        className={`pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12 transition-[box-shadow] duration-150 ${
+        className={`pointer-events-auto grid h-full min-h-0 place-items-center p-6 transition-[box-shadow] duration-150 ${
           actionDropActive ? "shadow-[inset_0_0_0_4px_rgba(14,165,233,0.22)]" : ""
         }`}
       >
-        <span className={GATHERING_PANEL_LABEL_CLASS}>Game Panel</span>
         <div className="grid w-full max-w-[46rem] gap-5 text-center">
           <div className="flex items-center justify-center gap-3 text-neutral-950">
             <GatheringEquationValue
@@ -922,7 +949,6 @@ const GatheringGamePanel = defineComponent(
             active={confirmReady}
             confirmed={confirmSucceeded}
             isDragging={isConfirmDragging}
-            knobTravelPx={confirmKnobTravelPx}
             onPointerDown={onConfirmPointerDown}
             progress={confirmSucceeded ? 1 : confirmSwipeProgress}
             trackRef={confirmPadTrackRef}
@@ -971,8 +997,7 @@ const GatheringRewardStagePanelPropsSchema = z.object({
 const GatheringRewardStagePanel = defineComponent(
   GatheringRewardStagePanelPropsSchema,
   ({ gathering }) => (
-    <div className="pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12">
-      <span className={GATHERING_PANEL_LABEL_CLASS}>Monster Panel</span>
+    <div className="pointer-events-auto grid h-full min-h-0 place-items-center p-6">
       <article
         data-board-section="gathering-reward-chest"
         data-board-name={`${gathering.monster.name} treasure chest`}
@@ -1004,11 +1029,214 @@ const GatheringRewardStagePanel = defineComponent(
   ),
 );
 
+const GatheringBossFightPanelPropsSchema = z.object({
+  boss: z.custom<AlchemistGuildGatheringBossState>(),
+  nowMs: z.number().min(0),
+});
+
+const GatheringBossFightPanel = defineComponent(
+  GatheringBossFightPanelPropsSchema,
+  ({ boss, nowMs }) => {
+    const remainingMs = getGatheringBossRemainingMs(boss, nowMs);
+    const timerPercent = Math.round((remainingMs / GATHERING_BOSS_PROBLEM_DURATION_MS) * 100);
+
+    return (
+      <div className="gathering-boss-arena gathering-boss-enter pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12">
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Fight</span>
+        <article
+          data-board-section="gathering-boss-fight"
+          className="grid w-full max-w-[44rem] gap-5 rounded-[8px] border-2 border-neutral-950/25 bg-white/80 p-5 text-center shadow-[0_20px_44px_rgba(15,23,42,0.22)] backdrop-blur-md"
+          aria-live="polite"
+        >
+          <div className="grid grid-cols-3 gap-2 text-[11px] font-black uppercase leading-none text-neutral-700">
+            <span className="rounded-[6px] border border-neutral-900/10 bg-white/65 p-2">
+              Streak {boss.currentStreak}/{GATHERING_BOSS_REQUIRED_STREAK}
+            </span>
+            <span className="rounded-[6px] border border-neutral-900/10 bg-white/65 p-2">
+              Problem {boss.problemIndex}
+            </span>
+            <span className="rounded-[6px] border border-neutral-900/10 bg-white/65 p-2">
+              Misses {boss.misses}/{GATHERING_BOSS_ALLOWED_MISSES}
+            </span>
+          </div>
+          <div className="grid gap-4">
+            <p className="text-xs font-black uppercase leading-none text-fuchsia-900">
+              Level {boss.level} addition
+            </p>
+            <div className="flex items-center justify-center gap-4 text-neutral-950">
+              <span className="grid size-28 place-items-center rounded-[8px] border-2 border-neutral-900/40 bg-white/85 font-mono text-6xl font-black leading-none shadow-[0_10px_20px_rgba(15,23,42,0.14)]">
+                {boss.equation.left}
+              </span>
+              <span className="font-mono text-5xl font-black leading-none">+</span>
+              <span className="grid size-28 place-items-center rounded-[8px] border-2 border-neutral-900/40 bg-white/85 font-mono text-6xl font-black leading-none shadow-[0_10px_20px_rgba(15,23,42,0.14)]">
+                {boss.equation.right}
+              </span>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <div className="h-5 overflow-hidden rounded-full border border-neutral-950/20 bg-neutral-200">
+              <span
+                className="gathering-boss-timer-fill block h-full rounded-full bg-emerald-500"
+                style={{ width: `${timerPercent}%` }}
+              />
+            </div>
+            <p className="font-mono text-lg font-black leading-none text-neutral-950">
+              {(remainingMs / 1000).toFixed(1)}s
+            </p>
+          </div>
+        </article>
+      </div>
+    );
+  },
+);
+
+const GatheringBossAnswerPanelPropsSchema = z.object({
+  boss: z.custom<AlchemistGuildGatheringBossState>(),
+  onAnswer: z.custom<GatheringBossAnswerHandler>(),
+});
+
+const GatheringBossAnswerPanel = defineComponent(
+  GatheringBossAnswerPanelPropsSchema,
+  ({ boss, onAnswer }) => (
+    <>
+      <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Answers</span>
+      {boss.equation.choiceValues.map((value) => (
+        <button
+          key={value}
+          type="button"
+          data-board-section="gathering-boss-answer-card"
+          data-board-name={`Boss answer ${value}`}
+          className="relative z-10 grid min-h-0 place-items-center rounded-[6px] border-2 border-neutral-800/50 bg-white text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.16)] transition-[border-color,box-shadow,transform] hover:border-fuchsia-500 hover:shadow-[inset_0_0_0_3px_rgba(217,70,239,0.18),0_8px_18px_rgba(0,0,0,0.18)] active:scale-[0.98]"
+          onClick={() => {
+            onAnswer(value);
+          }}
+        >
+          <span className="font-mono text-5xl font-black leading-none">{value}</span>
+        </button>
+      ))}
+    </>
+  ),
+);
+
+const GatheringBossRewardPanelPropsSchema = z.object({
+  boss: z.custom<AlchemistGuildGatheringBossState>(),
+  onClaim: z.custom<GatheringBossCommandHandler>(),
+});
+
+const GatheringBossRewardPanel = defineComponent(
+  GatheringBossRewardPanelPropsSchema,
+  ({ boss, onClaim }) => {
+    const quantity = getGatheringBossRewardQuantity(boss.level);
+    const rewardCards = boss.rewardCardIds.flatMap((cardId) => {
+      const card = getAlchemyCard(cardId);
+      return card ? [card] : [];
+    });
+
+    return (
+      <div className="gathering-boss-reward pointer-events-auto grid h-full min-h-0 place-items-center p-5 pt-12">
+        <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Reward</span>
+        <article
+          data-board-section="gathering-boss-reward"
+          className="grid w-full max-w-[46rem] gap-4 rounded-[8px] border-2 border-emerald-700/60 bg-white/82 p-5 text-center shadow-[0_20px_44px_rgba(15,23,42,0.2),0_0_0_5px_rgba(16,185,129,0.14)] backdrop-blur-md"
+        >
+          <div>
+            <p className="text-xs font-black uppercase leading-none text-emerald-900">
+              Level {boss.level} cleared
+            </p>
+            <h3 className="mt-1 font-serif text-4xl leading-none text-neutral-950">New elements</h3>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            {rewardCards.map((card, index) => (
+              <div
+                key={card.id}
+                data-board-section="gathering-boss-reward-card"
+                data-card-id={card.id}
+                className="gathering-boss-reward-card relative aspect-[5/7] overflow-hidden rounded-[6px] border-2 border-emerald-800/45 bg-[#eeeeee] text-left shadow-[0_10px_18px_rgba(15,23,42,0.16)]"
+                style={{ animationDelay: `${index * 80}ms` }}
+              >
+                <AlchemyCardFace card={card} />
+                <span className="absolute right-1 top-1 z-20 rounded-full border border-emerald-950/20 bg-emerald-400 px-1.5 py-0.5 font-mono text-[10px] font-black leading-none text-emerald-950">
+                  x{quantity}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="mx-auto inline-grid min-h-12 min-w-44 place-items-center rounded-[7px] border border-emerald-950/20 bg-emerald-600 px-5 text-sm font-black uppercase leading-none text-white shadow-[0_10px_20px_rgba(6,95,70,0.22)] transition-[transform,background-color] hover:bg-emerald-700 active:translate-y-px"
+            onClick={onClaim}
+          >
+            Claim Elements
+          </button>
+        </article>
+      </div>
+    );
+  },
+);
+
+const GatheringBossFailurePanelPropsSchema = z.object({
+  boss: z.custom<AlchemistGuildGatheringBossState>(),
+  onDismiss: z.custom<GatheringBossCommandHandler>(),
+});
+
+const GatheringBossFailurePanel = defineComponent(
+  GatheringBossFailurePanelPropsSchema,
+  ({ boss, onDismiss }) => (
+    <div className="gathering-boss-failure pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12">
+      <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Failed</span>
+      <article className="grid w-full max-w-[34rem] gap-4 rounded-[8px] border-2 border-rose-800/55 bg-white/82 p-5 text-center shadow-[0_18px_42px_rgba(15,23,42,0.2)] backdrop-blur-md">
+        <span className="mx-auto grid size-14 place-items-center rounded-[7px] border border-rose-900/25 bg-rose-50 text-rose-950">
+          <X className="size-7" strokeWidth={2.8} aria-hidden="true" />
+        </span>
+        <div>
+          <p className="text-xs font-black uppercase leading-none text-rose-900">
+            Level {boss.level} reset
+          </p>
+          <h3 className="mt-1 font-serif text-4xl leading-none text-neutral-950">Streak broken</h3>
+        </div>
+        <p className="text-sm font-bold leading-snug text-neutral-700">
+          The level memory track has restarted.
+        </p>
+        <button
+          type="button"
+          className="mx-auto inline-grid min-h-12 min-w-44 place-items-center rounded-[7px] border border-rose-950/20 bg-rose-600 px-5 text-sm font-black uppercase leading-none text-white shadow-[0_10px_20px_rgba(136,19,55,0.2)] transition-[transform,background-color] hover:bg-rose-700 active:translate-y-px"
+          onClick={onDismiss}
+        >
+          Return
+        </button>
+      </article>
+    </div>
+  ),
+);
+
+const GatheringBossStatusPanelPropsSchema = z.object({
+  boss: z.custom<AlchemistGuildGatheringBossState>(),
+  mastery: z.custom<GatheringLevelMasteryReport>(),
+});
+
+const GatheringBossStatusPanel = defineComponent(
+  GatheringBossStatusPanelPropsSchema,
+  ({ boss, mastery }) => (
+    <>
+      <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Status</span>
+      <div className="col-span-5 grid h-full min-h-0 place-items-center rounded-[6px] border border-neutral-900/10 bg-white/55 p-4 text-center">
+        <div className="grid max-w-[30rem] gap-2">
+          <p className="text-xs font-black uppercase leading-none text-neutral-700">
+            Level {mastery.currentLevel} boss
+          </p>
+          <p className="font-serif text-2xl leading-none text-neutral-950">
+            {getGatheringBossStatusText(boss, mastery)}
+          </p>
+        </div>
+      </div>
+    </>
+  ),
+);
+
 const GatheringAnswerConfirmPadPropsSchema = z.object({
   active: z.boolean(),
   confirmed: z.boolean(),
   isDragging: z.boolean(),
-  knobTravelPx: z.number().min(0),
   onPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
   progress: z.number().min(0).max(1),
   trackRef: z.custom<RefObject<HTMLDivElement | null>>(),
@@ -1016,7 +1244,7 @@ const GatheringAnswerConfirmPadPropsSchema = z.object({
 
 const GatheringAnswerConfirmPad = defineComponent(
   GatheringAnswerConfirmPadPropsSchema,
-  ({ active, confirmed, isDragging, knobTravelPx, onPointerDown, progress, trackRef }) => (
+  ({ active, confirmed, isDragging, onPointerDown, progress, trackRef }) => (
     <div
       ref={trackRef}
       data-board-section="gathering-answer-confirm-pad"
@@ -1057,9 +1285,10 @@ const GatheringAnswerConfirmPad = defineComponent(
           confirmed,
         )}`}
         style={{
-          left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
-          transform: `translateX(${progress * knobTravelPx}px)`,
-          transition: isDragging ? "none" : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
+          left: `calc(${TRANSMUTE_TRACK_PADDING_PX}px + ${progress * 100}% - ${
+            progress * (TRANSMUTE_KNOB_WIDTH_PX + TRANSMUTE_TRACK_PADDING_PX * 2)
+          }px)`,
+          transition: isDragging ? "none" : "left 220ms cubic-bezier(0.34,1.56,0.64,1)",
           width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
         }}
         onPointerDown={onPointerDown}
@@ -1130,26 +1359,23 @@ const GatheringGameCardsPanel = defineComponent(
         : gatheringGameCardSlots;
 
     return (
-      <>
-        <span className={GATHERING_PANEL_LABEL_CLASS}>Game Cards Panel</span>
-        <div
-          data-gathering-drop-target="cards-panel"
-          data-gathering-drop-active={gatheringDropTarget === "cards-panel" ? "true" : undefined}
-          className="contents"
-        >
-          {panelSlotIds.map((slotId, index) => (
-            <GatheringGameCardSlot
-              key={slotId}
-              card={occupiedCards[index] ?? null}
-              draggedGatheringCard={draggedGatheringCard}
-              gathering={gathering}
-              gatheringDropChoiceIndex={gatheringDropChoiceIndex}
-              gatheringDropTarget={gatheringDropTarget}
-              index={index}
-            />
-          ))}
-        </div>
-      </>
+      <div
+        data-gathering-drop-target="cards-panel"
+        data-gathering-drop-active={gatheringDropTarget === "cards-panel" ? "true" : undefined}
+        className="contents"
+      >
+        {panelSlotIds.map((slotId, index) => (
+          <GatheringGameCardSlot
+            key={slotId}
+            card={occupiedCards[index] ?? null}
+            draggedGatheringCard={draggedGatheringCard}
+            gathering={gathering}
+            gatheringDropChoiceIndex={gatheringDropChoiceIndex}
+            gatheringDropTarget={gatheringDropTarget}
+            index={index}
+          />
+        ))}
+      </div>
     );
   },
 );
@@ -1510,8 +1736,7 @@ const GatheringLogPanel = defineComponent(
           : ""
       }`}
     >
-      <span className={GATHERING_PANEL_LABEL_CLASS}>Gather Log Panel</span>
-      <div className="grid h-full min-h-0 content-start gap-2 overflow-hidden pt-8">
+      <div className="grid h-full min-h-0 content-start gap-2 overflow-hidden">
         {entries.length === 0 ? (
           <p className="rounded-[6px] border border-neutral-900/10 bg-white/55 px-3 py-2 text-sm font-bold leading-snug text-neutral-700">
             New drops will land here after each reward pick.
@@ -1692,6 +1917,7 @@ const GatheringMonsterPanelPropsSchema = z.object({
   deathCompletedRound: z.number().nullable(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
   gathering: z.custom<AlchemistGuildGatheringState>(),
+  mastery: z.custom<GatheringLevelMasteryReport>(),
   onDeathAnimationComplete: z.custom<GatheringMonsterDeathCompleteHandler>(),
 });
 
@@ -1702,9 +1928,15 @@ const GatheringMonsterPanel = defineComponent(
     deathCompletedRound,
     gathering,
     gatheringDropTarget,
+    mastery,
     onDeathAnimationComplete,
   }) => {
     const hpPercent = Math.round((gathering.monster.hp / gathering.monster.maxHp) * 100);
+    const storedMasteryProgress = getStoredGatheringMasteryProgress(
+      gathering,
+      mastery.currentLevel,
+    );
+    const masteryFeedback = getGatheringMasteryFeedback(gathering, mastery, storedMasteryProgress);
     const monsterDropActive = gatheringDropTarget === "monster-panel";
     const monsterCardRef = useRef<HTMLElement | null>(null);
     const monsterDamageVignetteRef = useRef<HTMLSpanElement | null>(null);
@@ -1818,76 +2050,83 @@ const GatheringMonsterPanel = defineComponent(
     }, [deathAnimation, gathering.monster.hp, gathering.round]);
 
     return (
-      <>
-        <span className={GATHERING_PANEL_LABEL_CLASS}>Monster Panel</span>
-        <div className="grid h-full min-h-0 place-items-center pt-10">
-          {monsterDefeated ? (
-            <div
-              data-board-section="gathering-monster-cleared-slot"
-              data-board-name={`${gathering.monster.name} cleared`}
-              className="grid h-[20.625rem] w-[13rem] place-items-center rounded-[7px] border-2 border-dashed border-emerald-600/45 bg-emerald-50/45 p-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
-            >
-              <span className="grid gap-2">
-                <span className="text-sm font-black uppercase leading-none text-emerald-950">
-                  Cleared
-                </span>
-                <span className="text-xs font-bold leading-snug text-emerald-900/75">
-                  Pick a reward card.
-                </span>
+      <div className="grid h-full min-h-0 place-items-center">
+        {monsterDefeated ? (
+          <div
+            data-board-section="gathering-monster-cleared-slot"
+            data-board-name={`${gathering.monster.name} cleared`}
+            className="grid h-[20.625rem] w-[13rem] place-items-center rounded-[7px] border-2 border-dashed border-emerald-600/45 bg-emerald-50/45 p-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+          >
+            <span className="grid gap-2">
+              <span className="text-sm font-black uppercase leading-none text-emerald-950">
+                Cleared
               </span>
+              <span className="text-xs font-bold leading-snug text-emerald-900/75">
+                Pick a reward card.
+              </span>
+            </span>
+          </div>
+        ) : (
+          <article
+            ref={monsterCardRef}
+            data-gathering-drop-target="monster-panel"
+            data-gathering-drop-active={monsterDropActive ? "true" : undefined}
+            data-gathering-monster-death-active={deathAnimation ? "true" : "false"}
+            data-board-section="gathering-monster-card"
+            data-board-name={gathering.monster.name}
+            className={`grid w-[13rem] gap-2 rounded-[7px] border-2 border-neutral-800/60 bg-white/80 p-2 shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition-[border-color,box-shadow] duration-150 ${
+              monsterDropActive
+                ? "border-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.22),0_14px_28px_rgba(15,23,42,0.18)]"
+                : ""
+            }`}
+          >
+            <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
+              <img
+                src={resolvePublicAssetPath(gathering.monster.imagePath)}
+                alt=""
+                aria-hidden="true"
+                className="size-full object-cover"
+                draggable={false}
+              />
+              <span
+                ref={monsterDamageVignetteRef}
+                className="pointer-events-none absolute inset-0 z-20 rounded-[5px] bg-[radial-gradient(circle_at_50%_45%,transparent_40%,rgba(239,68,68,0.44)_72%,rgba(127,29,29,0.72)_100%)] opacity-0 mix-blend-multiply"
+                aria-hidden="true"
+              />
+              {deathAnimation ? (
+                <GatheringMonsterDeathCanvas
+                  accentColor={0x14b8a6}
+                  animationId={deathAnimation.id}
+                />
+              ) : null}
             </div>
-          ) : (
-            <article
-              ref={monsterCardRef}
-              data-gathering-drop-target="monster-panel"
-              data-gathering-drop-active={monsterDropActive ? "true" : undefined}
-              data-gathering-monster-death-active={deathAnimation ? "true" : "false"}
-              data-board-section="gathering-monster-card"
-              data-board-name={gathering.monster.name}
-              className={`grid w-[13rem] gap-2 rounded-[7px] border-2 border-neutral-800/60 bg-white/80 p-2 shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition-[border-color,box-shadow] duration-150 ${
-                monsterDropActive
-                  ? "border-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.22),0_14px_28px_rgba(15,23,42,0.18)]"
-                  : ""
-              }`}
-            >
-              <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
-                <img
-                  src={resolvePublicAssetPath(gathering.monster.imagePath)}
-                  alt=""
-                  aria-hidden="true"
-                  className="size-full object-cover"
-                  draggable={false}
+            <div className="grid gap-1">
+              <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
+                {gathering.monster.name}
+              </h3>
+              <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
+                  style={{ width: `${hpPercent}%` }}
                 />
-                <span
-                  ref={monsterDamageVignetteRef}
-                  className="pointer-events-none absolute inset-0 z-20 rounded-[5px] bg-[radial-gradient(circle_at_50%_45%,transparent_40%,rgba(239,68,68,0.44)_72%,rgba(127,29,29,0.72)_100%)] opacity-0 mix-blend-multiply"
-                  aria-hidden="true"
-                />
-                {deathAnimation ? (
-                  <GatheringMonsterDeathCanvas
-                    accentColor={0x14b8a6}
-                    animationId={deathAnimation.id}
-                  />
-                ) : null}
               </div>
-              <div className="grid gap-1">
-                <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
-                  {gathering.monster.name}
-                </h3>
-                <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
-                    style={{ width: `${hpPercent}%` }}
-                  />
-                </div>
-                <p className="text-center text-[11px] font-black uppercase leading-none text-neutral-700">
-                  {gathering.monster.hp} / {gathering.monster.maxHp} HP
-                </p>
+              <p className="text-center text-[11px] font-black uppercase leading-none text-neutral-700">
+                {gathering.monster.hp} / {gathering.monster.maxHp} HP
+              </p>
+              <div
+                data-gathering-mastery-message={masteryFeedback}
+                className={`rounded-[5px] border px-2 py-1 text-center text-[10px] font-black uppercase leading-none transition-[background-color,border-color,color] duration-150 ${
+                  masteryFeedback === "regressing"
+                    ? "border-rose-700/35 bg-rose-50 text-rose-900"
+                    : "border-emerald-700/20 bg-emerald-50/55 text-emerald-900"
+                }`}
+              >
+                {getGatheringMasteryFeedbackLabel(masteryFeedback)}
               </div>
-            </article>
-          )}
-        </div>
-      </>
+            </div>
+          </article>
+        )}
+      </div>
     );
   },
 );
@@ -1898,8 +2137,7 @@ const GatheringInfoPanelPropsSchema = z.object({
 
 const GatheringInfoPanel = defineComponent(GatheringInfoPanelPropsSchema, ({ gathering }) => (
   <>
-    <span className={GATHERING_PANEL_LABEL_CLASS}>Info Panel</span>
-    <div className="grid h-full content-start gap-2 pt-8">
+    <div className="grid h-full content-start gap-2">
       <div className="rounded-[6px] border border-neutral-900/10 bg-white/65 p-3">
         <h3 className="text-sm font-black leading-tight text-neutral-950">
           {getGatheringInfoTitle(gathering)}
@@ -1966,7 +2204,7 @@ const QuestDeliverySlot = defineComponent(
     const deliveredCount = Math.min(delivered, required);
     const isComplete = deliveredCount >= required;
     const statusText = getQuestDeliveryStatusText(isComplete, claimed, card.name);
-    const claimLabel = claimed ? "Claimed" : "Swipe to claim";
+    const claimLabel = getQuestDeliveryClaimLabel(isComplete, claimed, card.name);
     const visibleClaimProgress = claimed ? 1 : claimProgress;
     const claimKnobLeft = `calc(${QUEST_CLAIM_TRACK_PADDING_PX}px + ${
       visibleClaimProgress * 100
@@ -2030,83 +2268,58 @@ const QuestDeliverySlot = defineComponent(
         className={getQuestDeliverySlotClass(dropFeedback, isComplete, claimed)}
         aria-label={`Deliver ${required} ${card.name} card${required === 1 ? "" : "s"} to ${requesterName}`}
       >
-        <div className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3">
-          <div
-            className={`grid size-18 place-items-center rounded-[6px] border-2 border-dashed bg-white/65 ${
-              isComplete ? "border-emerald-600" : "border-sky-950/35"
-            }`}
-            aria-hidden="true"
-          >
-            <img
-              src={getAlchemyCardArtSrc(card)}
-              alt=""
-              className={`size-14 object-contain ${isComplete ? "" : "opacity-35 grayscale"}`}
-              draggable={false}
-            />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-950/65">
-              {requesterName} needs
-            </p>
-            <p className="truncate font-serif text-2xl leading-none text-amber-950">{card.name}</p>
-            <p className="mt-1 text-xs font-bold leading-tight text-neutral-800">{statusText}</p>
-          </div>
-          <span className="rounded-full border border-amber-900/25 bg-white/70 px-2 py-1 font-mono text-sm font-black leading-none text-amber-950">
-            {deliveredCount}/{required}
-          </span>
-        </div>
         <div
           ref={claimRevealRef}
           data-board-section="quest-claim-swipe"
           data-claim-complete={claimed ? "true" : "false"}
           data-claim-locked={isComplete ? "false" : "true"}
-          className={`relative mt-3 h-11 overflow-hidden rounded-full border shadow-[inset_0_2px_8px_rgba(72,45,16,0.16)] ${
-            isComplete
-              ? "border-emerald-900/20 bg-white/70"
-              : "border-dashed border-neutral-900/25 bg-white/45"
-          }`}
+          className={getQuestDeliveryClaimTrackClass(isComplete)}
         >
-          {isComplete ? (
-            <>
-              <span
-                className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/45"
-                style={{ width: `${Math.round(visibleClaimProgress * 100)}%` }}
-                aria-hidden="true"
-              />
-              <p className="pointer-events-none absolute inset-0 grid place-items-center px-20 text-center font-serif text-xl leading-none text-emerald-950">
+          <span
+            className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/45 transition-[width] duration-75"
+            style={{ width: `${Math.round(visibleClaimProgress * 100)}%` }}
+            aria-hidden="true"
+          />
+          <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+            <span className={`min-w-0 ${isComplete ? "pl-[4.85rem]" : ""}`}>
+              <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+                {statusText}
+              </span>
+              <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
                 {claimLabel}
-              </p>
-              <button
-                type="button"
-                data-quest-claim-knob=""
-                tabIndex={canClaim && !claimed ? 0 : -1}
-                aria-label={claimLabel}
-                className={`absolute top-1/2 grid h-8 -translate-y-1/2 touch-none select-none place-items-center rounded-full border shadow-[0_5px_14px_rgba(72,45,16,0.22)] transition-[background-color,border-color,opacity] ${
-                  canClaim && !claimed
-                    ? "cursor-grab border-emerald-950/30 bg-emerald-600 text-white active:cursor-grabbing"
-                    : "cursor-not-allowed border-neutral-950/15 bg-white text-emerald-800"
-                } ${isClaimDragging ? "opacity-95" : ""}`}
-                style={{
-                  left: claimKnobLeft,
-                  transition: isClaimDragging
-                    ? "none"
-                    : "left 220ms cubic-bezier(0.34,1.56,0.64,1), background-color 160ms ease, border-color 160ms ease",
-                  width: `${QUEST_CLAIM_KNOB_WIDTH_PX}px`,
-                }}
-                onPointerDown={canClaim && !claimed ? onClaimPointerDown : undefined}
-              >
-                {claimed ? (
-                  <CheckCircle2 className="size-5" strokeWidth={2.5} />
-                ) : (
-                  <ChevronUp className="size-5 rotate-90" strokeWidth={2.75} />
-                )}
-              </button>
-            </>
-          ) : (
-            <p className="pointer-events-none absolute inset-0 grid place-items-center px-4 text-center text-xs font-black uppercase leading-none tracking-normal text-neutral-700/70">
-              Drop {card.name} to unlock claim
-            </p>
-          )}
+              </span>
+            </span>
+            <span className="rounded-full border border-amber-900/25 bg-white/78 px-2 py-1 font-mono text-xs font-black leading-none text-amber-950 shadow-[0_1px_0_rgba(72,45,16,0.1)]">
+              {deliveredCount}/{required}
+            </span>
+          </span>
+          {isComplete ? (
+            <button
+              type="button"
+              data-quest-claim-knob=""
+              tabIndex={canClaim && !claimed ? 0 : -1}
+              aria-label={claimLabel}
+              className={`absolute top-1/2 z-20 grid h-8 -translate-y-1/2 touch-none select-none place-items-center rounded-full border shadow-[0_5px_14px_rgba(72,45,16,0.22)] transition-[background-color,border-color,opacity] ${
+                canClaim && !claimed
+                  ? "cursor-grab border-emerald-950/30 bg-emerald-600 text-white active:cursor-grabbing"
+                  : "cursor-not-allowed border-neutral-950/15 bg-white text-emerald-800"
+              } ${isClaimDragging ? "opacity-95" : ""}`}
+              style={{
+                left: claimKnobLeft,
+                transition: isClaimDragging
+                  ? "none"
+                  : "left 220ms cubic-bezier(0.34,1.56,0.64,1), background-color 160ms ease, border-color 160ms ease",
+                width: `${QUEST_CLAIM_KNOB_WIDTH_PX}px`,
+              }}
+              onPointerDown={canClaim && !claimed ? onClaimPointerDown : undefined}
+            >
+              {claimed ? (
+                <CheckCircle2 className="size-5" strokeWidth={2.5} />
+              ) : (
+                <ChevronUp className="size-5 rotate-90" strokeWidth={2.75} />
+              )}
+            </button>
+          ) : null}
         </div>
       </section>
     );
@@ -2172,63 +2385,84 @@ const QuestPanel = defineComponent(
     selectedQuestId,
     title,
     unlockedQuestIds,
-  }) => (
-    <section className="relative z-10 grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <QuestPanelHeader
-        activeTab={activeTab}
-        avatarPath={avatarPath}
-        hasQuestNotifications={hasQuestNotifications}
-        onPlayerNameChange={onPlayerNameChange}
-        onTabChange={onTabChange}
-        playerName={playerName}
-        stats={profileStats}
-        title={title}
-      />
-      <div className="h-full min-h-0 overflow-hidden pt-2">
-        {activeTab === "current" ? (
-          <div
-            data-board-section="quest-current"
-            className={`grid h-full min-h-0 content-start gap-3 overflow-y-auto pr-1 ${HIDDEN_SCROLL_CLASS}`}
-          >
-            <QuestCurrentCarousel
-              developerNotesVisible={developerNotesVisible}
+  }) => {
+    const currentQuestViewportRef = useRef<HTMLDivElement>(null);
+    const selectedQuestClaimed = claimedQuestIds.includes(selectedQuestId);
+
+    useBrowserLayoutEffect(() => {
+      if (activeTab !== "current") return;
+      currentQuestViewportRef.current?.scrollTo({ top: 0 });
+    }, [activeTab, selectedQuestId]);
+
+    const deliverySlot =
+      !selectedQuestClaimed && deliveryCard ? (
+        <QuestDeliverySlot
+          key={selectedQuestId}
+          canClaim={canClaim}
+          card={deliveryCard}
+          claimed={false}
+          claimProgress={claimProgress}
+          delivered={deliveryProgress.delivered}
+          dropFeedback={deliveryDropFeedback}
+          isClaimDragging={isClaimDragging}
+          onClaimPointerDown={onClaimPointerDown}
+          questId={selectedQuestId}
+          required={deliveryProgress.required}
+          requesterName={getQuestRequesterName(selectedQuestId)}
+        />
+      ) : null;
+
+    return (
+      <section className="relative z-10 grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <QuestPanelHeader
+          activeTab={activeTab}
+          avatarPath={avatarPath}
+          hasQuestNotifications={hasQuestNotifications}
+          onPlayerNameChange={onPlayerNameChange}
+          onTabChange={onTabChange}
+          playerName={playerName}
+          stats={profileStats}
+          title={title}
+        />
+        <div className="h-full min-h-0 overflow-hidden pt-2">
+          {activeTab === "current" ? (
+            <div
+              className={`grid h-full min-h-0 gap-2.5 ${
+                deliverySlot ? "grid-rows-[minmax(0,1fr)_auto]" : "grid-rows-[minmax(0,1fr)]"
+              }`}
+            >
+              <div
+                ref={currentQuestViewportRef}
+                data-board-section="quest-current"
+                className={`grid h-full min-h-0 touch-pan-y grid-rows-[minmax(0,1fr)_auto] gap-2.5 overflow-y-auto scroll-py-2 pr-1 ${HIDDEN_SCROLL_CLASS}`}
+              >
+                <QuestCurrentCarousel
+                  claimedQuestIds={claimedQuestIds}
+                  developerNotesVisible={developerNotesVisible}
+                  selectedQuestId={selectedQuestId}
+                  unlockedQuestIds={unlockedQuestIds}
+                  onQuestSelect={onQuestSelect}
+                />
+                {questAssemblyGuide ? <QuestAssemblyGuidePanel guide={questAssemblyGuide} /> : null}
+              </div>
+              {deliverySlot}
+            </div>
+          ) : (
+            <QuestLog
+              activeQuestIds={activeQuestIds}
+              claimedQuestIds={claimedQuestIds}
+              questLogScrollTop={questLogScrollTop}
               selectedQuestId={selectedQuestId}
               unlockedQuestIds={unlockedQuestIds}
+              onQuestLogScrollTopChange={onQuestLogScrollTopChange}
+              onQuestOpenFromLog={onQuestOpenFromLog}
               onQuestSelect={onQuestSelect}
             />
-            {questAssemblyGuide ? <QuestAssemblyGuidePanel guide={questAssemblyGuide} /> : null}
-            {deliveryCard ? (
-              <QuestDeliverySlot
-                key={selectedQuestId}
-                canClaim={canClaim}
-                card={deliveryCard}
-                claimed={claimedQuestIds.includes(selectedQuestId)}
-                claimProgress={claimProgress}
-                delivered={deliveryProgress.delivered}
-                dropFeedback={deliveryDropFeedback}
-                isClaimDragging={isClaimDragging}
-                onClaimPointerDown={onClaimPointerDown}
-                questId={selectedQuestId}
-                required={deliveryProgress.required}
-                requesterName={getQuestRequesterName(selectedQuestId)}
-              />
-            ) : null}
-          </div>
-        ) : (
-          <QuestLog
-            activeQuestIds={activeQuestIds}
-            claimedQuestIds={claimedQuestIds}
-            questLogScrollTop={questLogScrollTop}
-            selectedQuestId={selectedQuestId}
-            unlockedQuestIds={unlockedQuestIds}
-            onQuestLogScrollTopChange={onQuestLogScrollTopChange}
-            onQuestOpenFromLog={onQuestOpenFromLog}
-            onQuestSelect={onQuestSelect}
-          />
-        )}
-      </div>
-    </section>
-  ),
+          )}
+        </div>
+      </section>
+    );
+  },
 );
 
 const QUEST_PROFILE_NAME_MAX_LENGTH = 24;
@@ -2287,10 +2521,10 @@ const QuestPanelHeader = defineComponent(
     return (
       <header
         data-board-section="quest-profile-header"
-        className="relative z-10 grid gap-2 border-b border-white/45 pb-2"
+        className="relative z-10 border-b border-white/45 pb-1.5"
       >
-        <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-2">
-          <div className="overflow-hidden rounded-[6px] border border-amber-500/55 bg-white/70 shadow-[0_2px_0_rgba(72,45,16,0.12)]">
+        <div className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-1.5">
+          <div className="size-8 overflow-hidden rounded-[5px] border border-amber-500/55 bg-white/70 shadow-[0_2px_0_rgba(72,45,16,0.12)]">
             <img
               src={resolvePublicAssetPath(avatarPath)}
               alt=""
@@ -2299,51 +2533,47 @@ const QuestPanelHeader = defineComponent(
               draggable={false}
             />
           </div>
-          <div className="grid min-w-0 content-start gap-1.5">
-            <div className="min-w-0">
-              <p className="truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/60">
-                {title}
-              </p>
-              {isEditing ? (
-                <input
-                  ref={inputRef}
-                  data-profile-name-input=""
-                  className="mt-0.5 w-full border-0 border-b border-dashed border-amber-900 bg-transparent px-0 py-0.5 font-serif text-lg leading-none text-amber-950 outline-none focus:border-solid"
-                  maxLength={QUEST_PROFILE_NAME_MAX_LENGTH}
-                  value={draftName}
-                  aria-label="Player name"
-                  onBlur={commitName}
-                  onChange={(event) => {
-                    setDraftName(event.currentTarget.value);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") commitName();
-                    if (event.key === "Escape") cancelName();
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  data-profile-name-display=""
-                  className="mt-0.5 max-w-full border-b border-dashed border-amber-900/60 px-0 pb-0.5 text-left font-serif text-lg leading-none text-amber-950"
-                  aria-label="Edit player name"
-                  onDoubleClick={beginEditing}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") beginEditing();
-                  }}
-                >
-                  <span className="block truncate">{playerName}</span>
-                </button>
-              )}
-            </div>
-            <QuestPanelTabs
-              activeTab={activeTab}
-              hasQuestNotifications={hasQuestNotifications}
-              onTabChange={onTabChange}
-            />
+          <div className="min-w-0">
+            <p className="sr-only">{title}</p>
+            {isEditing ? (
+              <input
+                ref={inputRef}
+                data-profile-name-input=""
+                className="h-7 w-full border-0 border-b border-dashed border-amber-900 bg-transparent p-0 font-serif text-base leading-none text-amber-950 outline-none focus:border-solid"
+                maxLength={QUEST_PROFILE_NAME_MAX_LENGTH}
+                value={draftName}
+                aria-label="Player name"
+                onBlur={commitName}
+                onChange={(event) => {
+                  setDraftName(event.currentTarget.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") commitName();
+                  if (event.key === "Escape") cancelName();
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                data-profile-name-display=""
+                className="max-w-full border-b border-dashed border-amber-900/60 px-0 pb-0.5 text-left font-serif text-base leading-none text-amber-950"
+                aria-label="Edit player name"
+                onDoubleClick={beginEditing}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") beginEditing();
+                }}
+              >
+                <span className="block truncate">{playerName}</span>
+              </button>
+            )}
           </div>
+          <QuestPanelTabs
+            activeTab={activeTab}
+            hasQuestNotifications={hasQuestNotifications}
+            onTabChange={onTabChange}
+          />
         </div>
-        <dl className="grid grid-cols-5 overflow-hidden rounded-[5px] border border-amber-500/35 bg-white/60 shadow-[0_1px_0_rgba(72,45,16,0.1)]">
+        <dl className="sr-only">
           {stats.map((stat, index) => (
             <QuestProfileStatCell key={stat.kind} index={index} stat={stat} />
           ))}
@@ -2423,7 +2653,7 @@ const QuestAssemblyGuidePanel = defineComponent(QuestAssemblyGuidePanelPropsSche
       </span>
     </div>
 
-    <div className="grid gap-1">
+    <div className="grid gap-1 xl:grid-cols-2">
       {guide.ingredients.map((ingredient) => (
         <QuestAssemblyIngredientRow key={ingredient.cardId} ingredient={ingredient} />
       ))}
@@ -2444,7 +2674,7 @@ const QuestAssemblyIngredientRow = defineComponent(
         data-board-section="quest-assembly-ingredient"
         data-card-id={ingredient.cardId}
         data-status={ingredient.status}
-        className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[4px] border px-2 py-1 ${
+        className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-[4px] border px-1.5 py-1 ${
           isStored ? "border-emerald-700/25 bg-white/80" : "border-sky-900/15 bg-white/55"
         }`}
       >
@@ -2477,6 +2707,11 @@ const QuestAssemblyIngredientRow = defineComponent(
 );
 
 const questPanelTabLabels = {
+  current: "Quest",
+  log: "Log",
+} satisfies Record<QuestPanelTab, string>;
+
+const questPanelTabAriaLabels = {
   current: "Current Quest",
   log: "Quest Log",
 } satisfies Record<QuestPanelTab, string>;
@@ -2494,7 +2729,7 @@ const QuestPanelTabs = defineComponent(
   ({ activeTab, hasQuestNotifications, onTabChange }) => (
     <div
       data-board-section="quest-briefing-tabs"
-      className="grid min-w-0 grid-cols-2 items-center gap-1"
+      className="grid w-[5.6rem] min-w-0 shrink-0 grid-cols-2 items-center gap-1"
       role="tablist"
       aria-label="Quest Briefing views"
     >
@@ -2509,7 +2744,8 @@ const QuestPanelTabs = defineComponent(
             data-info-panel-tab={tab}
             role="tab"
             aria-selected={selected}
-            className={`relative min-w-0 rounded-[5px] border px-2 py-1.5 text-[11px] font-black leading-none transition-[background-color,border-color,color] ${
+            aria-label={questPanelTabAriaLabels[tab]}
+            className={`relative min-w-0 rounded-[5px] border px-1.5 py-1 text-[10px] font-black leading-none transition-[background-color,border-color,color] ${
               selected
                 ? "border-amber-900/45 bg-amber-950 text-white"
                 : "border-amber-900/20 bg-white/55 text-amber-950 hover:bg-white/80"
@@ -2796,6 +3032,24 @@ function isExpeditionRewardReady(
   return Boolean(expedition.targetCardId && expedition.readyAtMs && nowMs >= expedition.readyAtMs);
 }
 
+function getExpeditionRewardModalCard({
+  card,
+  gatheringSessionReview,
+  gatheringWrongResetKey,
+  rewardReady,
+}: {
+  card: AlchemyBoardCard | null;
+  gatheringSessionReview: GatheringSessionReviewState | null;
+  gatheringWrongResetKey: string | null;
+  rewardReady: boolean;
+}): AlchemyBoardCard | null {
+  if (!rewardReady || gatheringSessionReview !== null || gatheringWrongResetKey !== null) {
+    return null;
+  }
+
+  return card;
+}
+
 function getExpeditionProgress(expedition: AlchemistGuildExpeditionState, nowMs: number): number {
   if (!expedition.startedAtMs || !expedition.readyAtMs) return 0;
   const durationMs = expedition.readyAtMs - expedition.startedAtMs;
@@ -2888,6 +3142,7 @@ function formatExpeditionTargetSource(source: ExpeditionTargetOption["source"]):
 }
 
 const QuestCurrentCarouselPropsSchema = z.object({
+  claimedQuestIds: z.array(z.string().min(1)),
   developerNotesVisible: z.boolean(),
   onQuestSelect: z.custom<(questId: string) => void>(),
   selectedQuestId: z.string().min(1),
@@ -2896,13 +3151,20 @@ const QuestCurrentCarouselPropsSchema = z.object({
 
 const QuestCurrentCarousel = defineComponent(
   QuestCurrentCarouselPropsSchema,
-  ({ developerNotesVisible, onQuestSelect, selectedQuestId, unlockedQuestIds }) => {
+  ({
+    claimedQuestIds,
+    developerNotesVisible,
+    onQuestSelect,
+    selectedQuestId,
+    unlockedQuestIds,
+  }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
     const trackRef = useRef<HTMLDivElement>(null);
     const swipeRef = useRef<QuestCurrentSwipe | null>(null);
     const animationRef = useRef<JSAnimation | null>(null);
     const removePointerListenersRef = useRef<(() => void) | null>(null);
     const selectedQuestIndex = getQuestIndexById(selectedQuestId);
+    const claimedQuestIdSet = new Set(claimedQuestIds);
     const unlockedQuestIdSet = new Set(unlockedQuestIds);
     const selectedQuestNumber = selectedQuestIndex + 1;
 
@@ -2961,23 +3223,22 @@ const QuestCurrentCarousel = defineComponent(
       const slideWidth = event.currentTarget.getBoundingClientRect().width;
       if (slideWidth <= 0) return;
 
-      event.preventDefault();
       removePointerListenersRef.current?.();
       animationRef.current?.cancel();
       animationRef.current = null;
 
-      const motion = createAnimatable(trackElement, { x: { duration: 0, unit: "px" } });
-      setMotionProperty(motion, "x", getQuestCurrentCenterX(slideWidth));
+      setQuestCurrentTrackX(trackElement, getQuestCurrentCenterX(slideWidth));
       swipeRef.current = {
         animationFrame: 0,
         captureElement: event.currentTarget,
+        horizontalActive: false,
         latestDeltaX: 0,
-        motion,
         pointerId: event.pointerId,
         slideWidth,
         startClientX: event.clientX,
+        startClientY: event.clientY,
+        trackElement,
       };
-      capturePointer(event.currentTarget, event.pointerId);
       removePointerListenersRef.current = addQuestCurrentPointerListeners(
         handlePointerMove,
         handlePointerUp,
@@ -2990,9 +3251,8 @@ const QuestCurrentCarousel = defineComponent(
       if (!swipe) return;
 
       swipe.animationFrame = 0;
-      setMotionProperty(
-        swipe.motion,
-        "x",
+      setQuestCurrentTrackX(
+        swipe.trackElement,
         getQuestCurrentCenterX(swipe.slideWidth) + swipe.latestDeltaX,
       );
     };
@@ -3007,8 +3267,31 @@ const QuestCurrentCarousel = defineComponent(
       const swipe = swipeRef.current;
       if (!swipe || event.pointerId !== swipe.pointerId) return;
 
+      const latestDeltaX = event.clientX - swipe.startClientX;
+      const latestDeltaY = event.clientY - swipe.startClientY;
+      if (!swipe.horizontalActive) {
+        const intent = getQuestCurrentSwipeIntent(latestDeltaX, latestDeltaY);
+        if (intent === "pending") return;
+        if (intent === "vertical") {
+          removePointerListenersRef.current?.();
+          removePointerListenersRef.current = null;
+          if (swipe.animationFrame !== 0) cancelAnimationFrame(swipe.animationFrame);
+          swipeRef.current = null;
+          if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
+            swipe.captureElement.releasePointerCapture(event.pointerId);
+          }
+          setQuestCurrentTrackX(swipe.trackElement, getQuestCurrentCenterX(swipe.slideWidth));
+          return;
+        }
+
+        swipe.horizontalActive = true;
+        if (!swipe.captureElement.hasPointerCapture(event.pointerId)) {
+          capturePointer(swipe.captureElement, event.pointerId);
+        }
+      }
+
       event.preventDefault();
-      swipe.latestDeltaX = event.clientX - swipe.startClientX;
+      swipe.latestDeltaX = latestDeltaX;
       queueDragPaint();
     };
 
@@ -3016,7 +3299,7 @@ const QuestCurrentCarousel = defineComponent(
       const swipe = swipeRef.current;
       if (!swipe || event.pointerId !== swipe.pointerId) return;
 
-      event.preventDefault();
+      if (swipe.horizontalActive) event.preventDefault();
       removePointerListenersRef.current?.();
       removePointerListenersRef.current = null;
       swipe.latestDeltaX = event.clientX - swipe.startClientX;
@@ -3026,7 +3309,14 @@ const QuestCurrentCarousel = defineComponent(
         paintDrag();
       }
 
-      const direction = getQuestCurrentSwipeDirection(swipe.latestDeltaX);
+      const releaseIntent = getQuestCurrentSwipeIntent(
+        swipe.latestDeltaX,
+        event.clientY - swipe.startClientY,
+      );
+      const direction =
+        swipe.horizontalActive || releaseIntent === "horizontal"
+          ? getQuestCurrentSwipeDirection(swipe.latestDeltaX)
+          : 0;
       swipeRef.current = null;
       if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
         swipe.captureElement.releasePointerCapture(event.pointerId);
@@ -3079,7 +3369,10 @@ const QuestCurrentCarousel = defineComponent(
     );
 
     return (
-      <section className="grid min-h-0 gap-1.5" aria-label="Selected quest">
+      <section
+        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1.5"
+        aria-label="Selected quest"
+      >
         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5">
           <button
             type="button"
@@ -3108,12 +3401,12 @@ const QuestCurrentCarousel = defineComponent(
         <div
           ref={viewportRef}
           data-board-section="quest-current-carousel"
-          className="min-h-0 touch-pan-y select-none overflow-hidden"
+          className="h-full min-h-0 touch-pan-y select-none overflow-hidden"
           onPointerDown={handlePointerDown}
         >
           <div
             ref={trackRef}
-            className="grid grid-flow-col auto-cols-[100%]"
+            className="grid h-full grid-flow-col auto-cols-[100%]"
             style={{ transform: "translateX(-33.333333%)" }}
           >
             {QUEST_CURRENT_SLIDE_OFFSETS.map((offset) => {
@@ -3125,12 +3418,13 @@ const QuestCurrentCarousel = defineComponent(
                 <div
                   key={`${quest.id}:${offset}`}
                   data-quest-current-slide={offset}
-                  className="min-w-0 px-0"
+                  className="h-full min-w-0 px-0"
                   aria-hidden={offset === 0 ? undefined : true}
                   inert={offset === 0 ? undefined : true}
                 >
                   <QuestBriefingCard
                     {...cardProps}
+                    completed={claimedQuestIdSet.has(quest.id)}
                     developerNotesVisible={developerNotesVisible}
                     {...(offset === 0 ? { onCarouselEdgeSwipe: animateToQuestDirection } : {})}
                     redacted={!isUnlocked}
@@ -5241,7 +5535,6 @@ const LeftModePanel = defineComponent(
 const CenterBoardPanelsPropsSchema = z.object({
   boardState: z.custom<AlchemistGuildBoardState>(),
   canTransmutePreview: z.boolean(),
-  gatheringConfirmKnobTravelPx: z.number().min(0),
   gatheringConfirmPadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
   gatheringConfirmSwipeProgress: z.number().min(0).max(1),
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
@@ -5249,11 +5542,16 @@ const CenterBoardPanelsPropsSchema = z.object({
   dropIntent: z.custom<DropIntent>(),
   gatheringDropChoiceIndex: z.int().min(0).nullable(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
+  gatheringLevelMastery: z.custom<GatheringLevelMasteryReport>(),
   isGatheringConfirmDragging: z.boolean(),
   isOutputAlreadyMade: z.boolean(),
   isGatheringMode: z.boolean(),
   isTransmuteDragging: z.boolean(),
+  nowMs: z.number().min(0),
   onGatheringAnswerPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  onGatheringBossAnswer: z.custom<GatheringBossAnswerHandler>(),
+  onGatheringBossFailureDismiss: z.custom<GatheringBossCommandHandler>(),
+  onGatheringBossRewardClaim: z.custom<GatheringBossCommandHandler>(),
   onGatheringConfirmPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
   onGatheringMovePointerDown: z.custom<GatheringMovePointerDownHandler>(),
   onGatheringRewardSelect: z.custom<GatheringRewardSelectHandler>(),
@@ -5275,7 +5573,6 @@ const CenterBoardPanels = defineComponent(
   ({
     boardState,
     canTransmutePreview,
-    gatheringConfirmKnobTravelPx,
     gatheringConfirmPadTrackRef,
     gatheringConfirmSwipeProgress,
     draggedCard,
@@ -5283,11 +5580,16 @@ const CenterBoardPanels = defineComponent(
     dropIntent,
     gatheringDropChoiceIndex,
     gatheringDropTarget,
+    gatheringLevelMastery,
     isGatheringConfirmDragging,
     isOutputAlreadyMade,
     isGatheringMode,
     isTransmuteDragging,
+    nowMs,
     onGatheringAnswerPointerDown,
+    onGatheringBossAnswer,
+    onGatheringBossFailureDismiss,
+    onGatheringBossRewardClaim,
     onGatheringConfirmPointerDown,
     onGatheringMovePointerDown,
     onGatheringRewardSelect,
@@ -5303,14 +5605,34 @@ const CenterBoardPanels = defineComponent(
     transmutePadTrackRef,
     transmuteSwipeProgress,
   }) => {
-    const isGatheringRewardMode = isGatheringMode && boardState.gathering.phase === "reward";
+    const gatheringBossPhase = boardState.gathering.boss.phase;
+    const isGatheringBossRewardMode = isGatheringMode && gatheringBossPhase === "reward";
+    const isGatheringRewardMode =
+      isGatheringMode && boardState.gathering.phase === "reward" && !isGatheringBossRewardMode;
     let primaryPanelContent: ReactNode;
-    if (isGatheringRewardMode) {
+    if (isGatheringBossRewardMode) {
+      primaryPanelContent = (
+        <GatheringBossRewardPanel
+          boss={boardState.gathering.boss}
+          onClaim={onGatheringBossRewardClaim}
+        />
+      );
+    } else if (isGatheringMode && gatheringBossPhase === "failed") {
+      primaryPanelContent = (
+        <GatheringBossFailurePanel
+          boss={boardState.gathering.boss}
+          onDismiss={onGatheringBossFailureDismiss}
+        />
+      );
+    } else if (isGatheringMode && gatheringBossPhase === "active") {
+      primaryPanelContent = (
+        <GatheringBossFightPanel boss={boardState.gathering.boss} nowMs={nowMs} />
+      );
+    } else if (isGatheringRewardMode) {
       primaryPanelContent = <GatheringRewardStagePanel gathering={boardState.gathering} />;
     } else if (isGatheringMode) {
       primaryPanelContent = (
         <GatheringGamePanel
-          confirmKnobTravelPx={gatheringConfirmKnobTravelPx}
           confirmPadTrackRef={gatheringConfirmPadTrackRef}
           confirmSwipeProgress={gatheringConfirmSwipeProgress}
           draggedGatheringCard={draggedGatheringCard}
@@ -5327,6 +5649,36 @@ const CenterBoardPanels = defineComponent(
           description={BOARD_DESCRIPTIONS.periodicTableVault}
           label="Periodic Table Vault"
           visible={showBoardDebugBadges}
+        />
+      );
+    }
+
+    let gatheringSecondaryContent: ReactNode;
+    if (gatheringBossPhase === "active") {
+      gatheringSecondaryContent = (
+        <GatheringBossAnswerPanel
+          boss={boardState.gathering.boss}
+          onAnswer={onGatheringBossAnswer}
+        />
+      );
+    } else if (gatheringBossPhase !== "idle") {
+      gatheringSecondaryContent = (
+        <GatheringBossStatusPanel
+          boss={boardState.gathering.boss}
+          mastery={gatheringLevelMastery}
+        />
+      );
+    } else {
+      gatheringSecondaryContent = (
+        <GatheringGameCardsPanel
+          draggedGatheringCard={draggedGatheringCard}
+          gathering={boardState.gathering}
+          gatheringDropChoiceIndex={gatheringDropChoiceIndex}
+          gatheringDropTarget={gatheringDropTarget}
+          onAnswerPointerDown={onGatheringAnswerPointerDown}
+          onMovePointerDown={onGatheringMovePointerDown}
+          onRewardSelect={onGatheringRewardSelect}
+          selectedRewardCardId={selectedGatheringRewardCardId}
         />
       );
     }
@@ -5356,16 +5708,7 @@ const CenterBoardPanels = defineComponent(
           className={getWorkbenchPanelClass(isGatheringMode)}
         >
           {isGatheringMode ? (
-            <GatheringGameCardsPanel
-              draggedGatheringCard={draggedGatheringCard}
-              gathering={boardState.gathering}
-              gatheringDropChoiceIndex={gatheringDropChoiceIndex}
-              gatheringDropTarget={gatheringDropTarget}
-              onAnswerPointerDown={onGatheringAnswerPointerDown}
-              onMovePointerDown={onGatheringMovePointerDown}
-              onRewardSelect={onGatheringRewardSelect}
-              selectedRewardCardId={selectedGatheringRewardCardId}
-            />
+            gatheringSecondaryContent
           ) : (
             <>
               <BoardDebugBadge
@@ -5484,11 +5827,9 @@ const CenterBoardPanels = defineComponent(
 
 const ExpeditionCanvasPanelPropsSchema = z.object({
   available: z.boolean(),
-  canClaimReward: z.boolean(),
   expedition: z.custom<AlchemistGuildExpeditionState>(),
   nowMs: z.number(),
   onCancel: z.custom<() => void>(),
-  onClaimReward: z.custom<() => void>(),
   onStart: z.custom<(cardId: string) => void>(),
   periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
   showBoardDebugBadges: z.boolean(),
@@ -5499,11 +5840,9 @@ const ExpeditionCanvasPanel = defineComponent(
   ExpeditionCanvasPanelPropsSchema,
   ({
     available,
-    canClaimReward,
     expedition,
     nowMs,
     onCancel,
-    onClaimReward,
     onStart,
     periodicTableViewportRef,
     showBoardDebugBadges,
@@ -5516,13 +5855,13 @@ const ExpeditionCanvasPanel = defineComponent(
     const remainingLabel = getExpeditionRemainingLabel(expedition, nowMs);
 
     return (
-      <section className="grid min-h-0">
+      <section className="pointer-events-auto grid min-h-0">
         <div
           ref={periodicTableViewportRef}
           data-board-section="expedition-canvas-panel"
           data-board-name="Expedition Canvas"
           data-board-description="Select a known or quest-needed element and send one fixed expedition."
-          className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS} relative overflow-hidden p-4`}
+          className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS} pointer-events-auto relative overflow-hidden p-4`}
         >
           <BoardDebugBadge
             description="Select a known or quest-needed element and send one fixed expedition."
@@ -5600,7 +5939,7 @@ const ExpeditionCanvasPanel = defineComponent(
                     </p>
                     <button
                       type="button"
-                      className="rounded-[5px] border border-rose-900/20 bg-rose-50 px-3 py-2 text-xs font-black uppercase leading-none text-rose-950 transition-colors hover:bg-rose-100"
+                      className="pointer-events-auto rounded-[5px] border border-rose-900/20 bg-rose-50 px-3 py-2 text-xs font-black uppercase leading-none text-rose-950 transition-colors hover:bg-rose-100"
                       onClick={onCancel}
                     >
                       Cancel Expedition
@@ -5614,15 +5953,6 @@ const ExpeditionCanvasPanel = defineComponent(
               </aside>
             </div>
           </div>
-
-          {rewardReady && targetCard ? (
-            <ExpeditionRewardModal
-              canClaim={canClaimReward}
-              card={targetCard}
-              onClaim={onClaimReward}
-              onReset={onCancel}
-            />
-          ) : null}
         </div>
       </section>
     );
@@ -5645,7 +5975,7 @@ const ExpeditionTargetButton = defineComponent(
       data-card-id={option.card.id}
       data-selected={selected ? "true" : undefined}
       disabled={disabled}
-      className={`grid min-h-24 grid-rows-[1fr_auto] gap-1 rounded-[6px] border p-2 text-left transition-[background-color,border-color,box-shadow,opacity] ${
+      className={`pointer-events-auto grid min-h-24 grid-rows-[1fr_auto] gap-1 rounded-[6px] border p-2 text-left transition-[background-color,border-color,box-shadow,opacity] ${
         selected
           ? "border-emerald-600/70 bg-emerald-50 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]"
           : "border-sky-950/15 bg-white/70 hover:bg-white/90"
@@ -5733,7 +6063,7 @@ const ExpeditionRewardModal = defineComponent(
           </p>
           <div
             data-board-section="expedition-reward-card"
-            className="mx-auto grid size-28 place-items-center rounded-[7px] border-2 border-emerald-600/55 bg-emerald-50"
+            className="expedition-reward-card-shader mx-auto grid size-28 place-items-center rounded-[7px] border-2 border-emerald-600/55 bg-emerald-50"
           >
             <img
               src={getAlchemyCardArtSrc(card)}
@@ -5790,6 +6120,7 @@ const RightModePanelsPropsSchema = z.object({
   gathering: z.custom<AlchemistGuildGatheringState>(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
   gatheringInfoPanelRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  gatheringLevelMastery: z.custom<GatheringLevelMasteryReport>(),
   hasEmergentRecipeNotifications: z.boolean(),
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
@@ -5825,6 +6156,7 @@ const RightModePanels = defineComponent(
     gathering,
     gatheringDropTarget,
     gatheringInfoPanelRef,
+    gatheringLevelMastery,
     hasEmergentRecipeNotifications,
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
@@ -5845,6 +6177,17 @@ const RightModePanels = defineComponent(
     rightPrimaryPanelRef,
     showBoardDebugBadges,
   }) => {
+    const masteryProgress = clamp(gatheringLevelMastery.progress, 0, 1);
+    const storedMasteryProgress = getStoredGatheringMasteryProgress(
+      gathering,
+      gatheringLevelMastery.currentLevel,
+    );
+    const masteryFrameStyle = getGatheringMasteryFrameStyle(masteryProgress, storedMasteryProgress);
+    const masteryFeedback = getGatheringMasteryFeedback(
+      gathering,
+      gatheringLevelMastery,
+      storedMasteryProgress,
+    );
     let primaryPanelContent: ReactNode;
     if (isGatheringMode) {
       primaryPanelContent = (
@@ -5853,6 +6196,7 @@ const RightModePanels = defineComponent(
           deathCompletedRound={deathCompletedRound}
           gathering={gathering}
           gatheringDropTarget={gatheringDropTarget}
+          mastery={gatheringLevelMastery}
           onDeathAnimationComplete={onDeathAnimationComplete}
         />
       );
@@ -5912,12 +6256,19 @@ const RightModePanels = defineComponent(
               ? "Gathering encounter monster slots."
               : BOARD_DESCRIPTIONS.alchemyWorkbenchInfo
           }
+          data-gathering-mastery-ready={
+            isGatheringMode && gatheringLevelMastery.bossReady ? "true" : undefined
+          }
+          data-gathering-mastery-feedback={isGatheringMode ? masteryFeedback : undefined}
           aria-hidden={isGatheringRewardMode ? true : undefined}
           className={`${getRightPrimaryPanelClass(isGatheringMode, infoPanelCollapsed)} ${
+            isGatheringMode ? "gathering-mastery-frame" : ""
+          } ${
             isGatheringRewardMode
               ? "pointer-events-none opacity-0 scale-[0.98]"
               : "opacity-100 scale-100"
           }`}
+          style={isGatheringMode ? masteryFrameStyle : undefined}
         >
           {primaryPanelContent}
         </div>
@@ -5982,9 +6333,18 @@ function getBoardCanvasName(isExpeditionMode: boolean): string {
   return isExpeditionMode ? "Expedition Pixi canvas" : "Periodic table Pixi canvas";
 }
 
+function getBoardCanvasClass(isGatheringMode: boolean, isExpeditionMode: boolean): string {
+  const baseClass =
+    "absolute inset-0 z-0 block size-full touch-none transition-opacity duration-300 motion-reduce:transition-none";
+  if (isGatheringMode) return `${baseClass} pointer-events-none opacity-0`;
+  if (isExpeditionMode) return `${baseClass} pointer-events-none opacity-100`;
+
+  return `${baseClass} opacity-100`;
+}
+
 function getBoardCanvasAriaLabel(isGatheringMode: boolean, isExpeditionMode: boolean): string {
   if (isGatheringMode) return "Board canvas hidden while gathering";
-  if (isExpeditionMode) return "Expedition pan and zoom Pixi canvas";
+  if (isExpeditionMode) return "Expedition visual backdrop canvas";
 
   return "Periodic table Pixi canvas";
 }
@@ -6076,7 +6436,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [transmuteTrackWidth, setTransmuteTrackWidth] = useState(0);
   const [gatheringConfirmSwipeProgress, setGatheringConfirmSwipeProgress] = useState(0);
   const [isGatheringConfirmDragging, setIsGatheringConfirmDragging] = useState(false);
-  const [gatheringConfirmTrackWidth, setGatheringConfirmTrackWidth] = useState(0);
   const [selectedGatheringRewardCardId, setSelectedGatheringRewardCardId] = useState<string | null>(
     null,
   );
@@ -6178,6 +6537,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     selectedQuestUnlocked && !claimedSelectedQuest ? selectedQuest : null,
   );
   const expeditionRewardReady = isExpeditionRewardReady(boardState.expedition, nowMs);
+  const expeditionRewardCard = getAlchemyCard(boardState.expedition.targetCardId);
+  const expeditionRewardModalCard = getExpeditionRewardModalCard({
+    card: expeditionRewardCard,
+    gatheringSessionReview,
+    gatheringWrongResetKey,
+    rewardReady: expeditionRewardReady,
+  });
   const canClaimExpeditionReward =
     expeditionRewardReady &&
     getInventoryDestinationSlotId(boardState, boardState.expedition.targetCardId ?? "") !== null;
@@ -6188,20 +6554,36 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     ((!hasWorkbenchCards && noAvailablePeriodicElements) ||
       (!canTransmutePreview && !canCompleteAnyPeriodicRecipe(boardState)));
   const gatheringNudgeKey = craftingNeedsGathering ? createGatheringNudgeKey(boardState) : null;
-  const gatheringNudgeActive =
-    activeBoardMode === "crafting" &&
-    gatheringNudgeKey !== null &&
-    gatheringNudgeDismissedKey !== gatheringNudgeKey;
+  const gatheringNudgeActive = shouldShowGatheringNudge({
+    activeBoardMode,
+    dismissedKey: gatheringNudgeDismissedKey,
+    gatheringNudgeKey,
+    gatheringUnlockSeen: boardState.gathering.unlockSeen,
+  });
   const transmuteKnobTravelPx = getTransmuteKnobTravelPx(transmuteTrackWidth);
-  const gatheringConfirmKnobTravelPx = getTransmuteKnobTravelPx(gatheringConfirmTrackWidth);
   const canConfirmGatheringAnswer =
     isGatheringMode &&
     boardState.gathering.phase === "solving" &&
     boardState.gathering.equation.selectedValue !== null &&
+    boardState.gathering.boss.phase === "idle" &&
     boardState.gathering.wrongAnswerStreak < 3 &&
     gatheringSessionReview === null &&
     gatheringWrongResetKey === null;
-  const isGatheringRewardMode = isGatheringMode && boardState.gathering.phase === "reward";
+  const gatheringLevelMastery = createGatheringLevelMasteryReport(boardState.gathering, nowMs);
+  const storedGatheringMasteryProgress = getStoredGatheringMasteryProgress(
+    boardState.gathering,
+    gatheringLevelMastery.currentLevel,
+  );
+  const gatheringBossPhase = boardState.gathering.boss.phase;
+  const gatheringBossProblemEndsAtMs = boardState.gathering.boss.problemEndsAtMs;
+  const gatheringBossReady =
+    isGatheringMode &&
+    boardState.gathering.phase !== "reward" &&
+    boardState.gathering.boss.phase === "idle" &&
+    isGatheringBossReady(boardState.gathering, nowMs);
+  const isGatheringRewardMode =
+    isGatheringMode &&
+    (boardState.gathering.phase === "reward" || boardState.gathering.boss.phase === "reward");
   const gatheringRewardAnimationKey = isGatheringRewardMode
     ? `${boardState.gathering.round}:${boardState.gathering.rewardOptionCardIds.join("|")}`
     : null;
@@ -6219,6 +6601,31 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   boardStateRef.current = boardState;
   extendedLedgerFilterCardIdsRef.current = extendedLedgerFilterCardIds;
   introZeroActiveRef.current = introZeroActive;
+
+  useEffect(() => {
+    const currentProgress = clamp(gatheringLevelMastery.progress, 0, 1);
+    if (Math.abs(storedGatheringMasteryProgress - currentProgress) < 0.000_1) return;
+
+    const delayMs = currentProgress < storedGatheringMasteryProgress ? 780 : 0;
+    const timeoutId = window.setTimeout(() => {
+      setBoardState((previous) => {
+        const nextGathering = recordGatheringMasteryProgress(
+          previous.gathering,
+          createGatheringLevelMasteryReport(previous.gathering, Date.now()),
+        );
+        return nextGathering === previous.gathering
+          ? previous
+          : {
+              ...previous,
+              gathering: nextGathering,
+            };
+      });
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [gatheringLevelMastery.progress, setBoardState, storedGatheringMasteryProgress]);
 
   useEffect(() => {
     if (activeBoardMode === boardState.activeBoardMode) return;
@@ -6616,6 +7023,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setBoardState((previous) => ({
       ...previous,
       activeBoardMode: gatheringSessionReview.targetTab,
+      gathering: {
+        ...previous.gathering,
+        unlockSeen: true,
+      },
     }));
     void sfx.play("board-mode.crafting");
     void sfx.play("transmute.complete", { delayMs: 70 });
@@ -6724,7 +7135,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           notifiedCooldownIdsRef.current?.add(cooldownId);
           return {
             ...previous,
-            gathering: nextGathering,
+            gathering: {
+              ...nextGathering,
+              unlockSeen: true,
+            },
             inventorySlots: addReadyInventoryCopy(
               previous.inventorySlots,
               destinationSlotId,
@@ -6739,7 +7153,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           ...previous,
           discoveredElementIds: appendUniqueId(previous.discoveredElementIds, cardId),
           elementQuantities: addElementQuantity(previous.elementQuantities, cardId, 1),
-          gathering: nextGathering,
+          gathering: {
+            ...nextGathering,
+            unlockSeen: true,
+          },
         };
       });
       if (newlyDiscoveredElementId) {
@@ -6754,6 +7171,72 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     setSelectedGatheringRewardCardId(cardId);
     void sfx.play("card.drop");
+  };
+
+  const handleGatheringBossAnswer = (value: number) => {
+    const currentBoss = boardStateRef.current.gathering.boss;
+    if (currentBoss.phase !== "active") return;
+
+    const answeredAtMs = Date.now();
+    const timedOut =
+      currentBoss.problemEndsAtMs !== null && answeredAtMs >= currentBoss.problemEndsAtMs;
+    const correct = !timedOut && value === currentBoss.equation.answer;
+    const rewardReady = correct && currentBoss.currentStreak + 1 >= GATHERING_BOSS_REQUIRED_STREAK;
+    const failed = !correct && currentBoss.misses + 1 > GATHERING_BOSS_ALLOWED_MISSES;
+
+    setBoardState((previous) => ({
+      ...previous,
+      gathering: answerGatheringBossChallenge(previous.gathering, value, answeredAtMs),
+    }));
+
+    if (rewardReady) {
+      void sfx.play("transmute.complete");
+      void sfx.play("gathering.rewardClaim", { delayMs: 120 });
+      return;
+    }
+    if (failed) {
+      void sfx.play("card.massDissolve");
+      return;
+    }
+    void sfx.play(correct ? "transmute.complete" : "gathering.answerWrong");
+  };
+
+  const handleGatheringBossFailureDismiss = () => {
+    setBoardState((previous) => ({
+      ...previous,
+      gathering: dismissGatheringBossFailure(previous.gathering),
+    }));
+    void sfx.play("card.drop");
+  };
+
+  const handleGatheringBossRewardClaim = () => {
+    const claimedAtMs = Date.now();
+    const currentBoss = boardStateRef.current.gathering.boss;
+    if (currentBoss.phase !== "reward") return;
+
+    const quantity = getGatheringBossRewardQuantity(currentBoss.level);
+    setPeriodicTableRevealElementIds(currentBoss.rewardCardIds);
+    setBoardState((previous) => {
+      if (previous.gathering.boss.phase !== "reward") return previous;
+
+      let elementQuantities = previous.elementQuantities;
+      let discoveredElementIds = previous.discoveredElementIds;
+      for (const cardId of previous.gathering.boss.rewardCardIds) {
+        elementQuantities = addElementQuantity(elementQuantities, cardId, quantity);
+        discoveredElementIds = appendUniqueId(discoveredElementIds, cardId);
+      }
+
+      return {
+        ...previous,
+        discoveredElementIds,
+        elementQuantities,
+        gathering: {
+          ...claimGatheringBossReward(previous.gathering, claimedAtMs),
+          unlockSeen: true,
+        },
+      };
+    });
+    void sfx.play("gathering.rewardClaim");
   };
 
   const handleQuestOpenFromLog = (questId: string) => {
@@ -7350,6 +7833,61 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (boardState.gathering.phase !== "reward") setSelectedGatheringRewardCardId(null);
   }, [boardState.gathering.phase]);
 
+  useEffect(() => {
+    if (!gatheringBossReady) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const startedAtMs = Date.now();
+      const currentGathering = boardStateRef.current.gathering;
+      if (currentGathering.phase === "reward") return;
+      if (currentGathering.boss.phase !== "idle") return;
+      if (!isGatheringBossReady(currentGathering, startedAtMs)) return;
+
+      setBoardState((previous) => ({
+        ...previous,
+        gathering: {
+          ...startGatheringBossFight(previous.gathering, startedAtMs),
+          unlockSeen: true,
+        },
+      }));
+      void sfx.play("board-mode.gathering");
+      void sfx.play("transmute.complete", { delayMs: 90 });
+    }, 620);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [gatheringBossReady, setBoardState]);
+
+  useEffect(() => {
+    if (
+      !isGatheringMode ||
+      gatheringBossPhase !== "active" ||
+      gatheringBossProblemEndsAtMs === null
+    ) {
+      return;
+    }
+
+    const delayMs = Math.max(0, gatheringBossProblemEndsAtMs - Date.now() + 20);
+    const timeoutId = window.setTimeout(() => {
+      const currentBoss = boardStateRef.current.gathering.boss;
+      if (currentBoss.phase !== "active") return;
+      if (currentBoss.problemEndsAtMs !== gatheringBossProblemEndsAtMs) return;
+
+      const answeredAtMs = Date.now();
+      const failed = currentBoss.misses + 1 > GATHERING_BOSS_ALLOWED_MISSES;
+      setBoardState((previous) => ({
+        ...previous,
+        gathering: answerGatheringBossChallenge(previous.gathering, null, answeredAtMs),
+      }));
+      void sfx.play(failed ? "card.massDissolve" : "gathering.answerWrong");
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [gatheringBossPhase, gatheringBossProblemEndsAtMs, isGatheringMode, setBoardState]);
+
   useBrowserLayoutEffect(() => {
     if (!gatheringRewardAnimationKey) {
       animatedGatheringRewardKeyRef.current = null;
@@ -7603,23 +8141,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     });
     void sfx.play("gathering.monsterDeath");
   }, [boardState.gathering, isGatheringMode]);
-
-  useEffect(() => {
-    if (!isGatheringMode) return;
-    const trackElement = gatheringConfirmPadTrackRef.current;
-    if (!trackElement) return;
-
-    const syncTrackWidth = () => {
-      setGatheringConfirmTrackWidth(trackElement.clientWidth);
-    };
-    syncTrackWidth();
-    const resizeObserver = new ResizeObserver(syncTrackWidth);
-    resizeObserver.observe(trackElement);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [isGatheringMode]);
 
   useBrowserLayoutEffect(() => {
     if (!isGatheringMode || prefersReducedMotion()) return;
@@ -8674,9 +9195,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         ref={periodicTableCanvasRef}
         data-board-section="periodic-table-canvas"
         data-board-name={getBoardCanvasName(isExpeditionMode)}
-        className={`absolute inset-0 z-0 block size-full touch-none transition-opacity duration-300 motion-reduce:transition-none ${
-          isGatheringMode ? "pointer-events-none opacity-0" : "opacity-100"
-        }`}
+        className={getBoardCanvasClass(isGatheringMode, isExpeditionMode)}
         aria-label={getBoardCanvasAriaLabel(isGatheringMode, isExpeditionMode)}
       >
         Alchemist Guild Pixi canvas
@@ -8764,14 +9283,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         {isExpeditionMode ? (
           <ExpeditionCanvasPanel
             available={expeditionAvailable}
-            canClaimReward={canClaimExpeditionReward}
             expedition={boardState.expedition}
             nowMs={nowMs}
             targetOptions={expeditionTargetOptions}
             periodicTableViewportRef={periodicTableViewportRef}
             showBoardDebugBadges={showBoardDebugBadges}
             onCancel={handleExpeditionCancel}
-            onClaimReward={handleExpeditionRewardClaim}
             onStart={handleExpeditionStart}
           />
         ) : (
@@ -8823,7 +9340,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             <CenterBoardPanels
               boardState={boardState}
               canTransmutePreview={canTransmutePreview}
-              gatheringConfirmKnobTravelPx={gatheringConfirmKnobTravelPx}
               gatheringConfirmPadTrackRef={gatheringConfirmPadTrackRef}
               gatheringConfirmSwipeProgress={gatheringConfirmSwipeProgress}
               draggedCard={draggedCard}
@@ -8831,11 +9347,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               dropIntent={dropIntent}
               gatheringDropChoiceIndex={gatheringDropChoiceIndex}
               gatheringDropTarget={gatheringDropTarget}
+              gatheringLevelMastery={gatheringLevelMastery}
               isGatheringConfirmDragging={isGatheringConfirmDragging}
               isOutputAlreadyMade={isOutputAlreadyMade}
               isGatheringMode={isGatheringMode}
               isTransmuteDragging={isTransmuteDragging}
+              nowMs={nowMs}
               onGatheringAnswerPointerDown={beginGatheringAnswerDrag}
+              onGatheringBossAnswer={handleGatheringBossAnswer}
+              onGatheringBossFailureDismiss={handleGatheringBossFailureDismiss}
+              onGatheringBossRewardClaim={handleGatheringBossRewardClaim}
               onGatheringConfirmPointerDown={handleGatheringConfirmSwipePointerDown}
               onGatheringMovePointerDown={beginGatheringMoveDrag}
               onGatheringRewardSelect={handleGatheringRewardSelect}
@@ -8864,6 +9385,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               gathering={boardState.gathering}
               gatheringDropTarget={gatheringDropTarget}
               gatheringInfoPanelRef={gatheringInfoPanelRef}
+              gatheringLevelMastery={gatheringLevelMastery}
               hasEmergentRecipeNotifications={pendingEmergentRecipeNotificationIds.length > 0}
               hasExtendedRecipeNotifications={pendingExtendedRecipeNotificationIds.length > 0}
               hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
@@ -8898,6 +9420,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           entries={[...gatheringSessionReview.entries]}
           onConfirm={handleGatheringSessionConfirm}
           onStay={handleGatheringSessionStay}
+        />
+      ) : null}
+      {expeditionRewardModalCard ? (
+        <ExpeditionRewardModal
+          canClaim={canClaimExpeditionReward}
+          card={expeditionRewardModalCard}
+          onClaim={handleExpeditionRewardClaim}
+          onReset={handleExpeditionCancel}
         />
       ) : null}
       {gatheringWrongResetKey !== null ? (
@@ -8948,17 +9478,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             ref={draggedGatheringCardElementRef}
             data-board-section="floating-gathering-card"
             data-board-name="Floating gathering card"
+            data-gathering-charge-move={
+              draggedGatheringCard.kind === "move" ? draggedGatheringCard.move.id : undefined
+            }
             className={getGatheringFloatingCardClass(
               draggedGatheringCard.kind,
               gatheringDropFeedback,
             )}
-            style={{
-              contain: "layout style paint",
-              fontFamily: "var(--font-sans)",
-              height: `${FLOATING_ELEMENT_CARD_HEIGHT}px`,
-              touchAction: "none",
-              width: `${FLOATING_ELEMENT_CARD_WIDTH}px`,
-            }}
+            style={getFloatingGatheringCardStyle(draggedGatheringCard)}
           >
             <FloatingGatheringCard card={draggedGatheringCard} />
           </div>
@@ -9352,12 +9879,6 @@ function getQuestCurrentTargetX(direction: -1 | 1, slideWidth: number): number {
   return -(QUEST_CURRENT_CENTER_SLIDE_INDEX + direction) * slideWidth;
 }
 
-function getQuestCurrentSwipeDirection(deltaX: number): -1 | 0 | 1 {
-  if (Math.abs(deltaX) < QUEST_CURRENT_SWIPE_MIN_PX) return 0;
-  if (deltaX < 0) return 1;
-  return -1;
-}
-
 function addQuestCurrentPointerListeners(
   onMove: (event: PointerEvent) => void,
   onRelease: (event: PointerEvent) => void,
@@ -9372,6 +9893,10 @@ function addQuestCurrentPointerListeners(
     window.removeEventListener("pointerup", onRelease, WINDOW_POINTER_LISTENER_CAPTURE);
     window.removeEventListener("pointercancel", onCancel, WINDOW_POINTER_LISTENER_CAPTURE);
   };
+}
+
+function setQuestCurrentTrackX(trackElement: HTMLElement, x: number): void {
+  trackElement.style.transform = `translateX(${x}px)`;
 }
 
 function isInsideQuestBriefingCarousel(target: EventTarget | null): boolean {
@@ -9883,12 +10408,78 @@ function formatExtendedRecipeLedgerFormula(recipe: StaticExtendedMoleculeRecipe)
 }
 
 function getGatheringGamePanelStatus(gathering: AlchemistGuildGatheringState): string {
+  if (gathering.boss.phase === "active")
+    return "Boss round active. Pick the answer before time runs out.";
+  if (gathering.boss.phase === "reward") return "Boss cleared. Claim the new element reward.";
+  if (gathering.boss.phase === "failed")
+    return "Boss streak broke. The level memory track restarted.";
   if (gathering.phase === "reward") return "Monster cleared. Pick one reward card.";
   if (gathering.phase === "move") return "Answer locked. Pick a move card to spend the math.";
   if (gathering.lastAnswerCorrect === false)
     return "That card missed. Drag it back or swap another sum.";
   if (gathering.equation.selectedValue !== null) return "Answer staged. Swipe to confirm it.";
   return "Choose the card that matches the addition equation.";
+}
+
+function getGatheringBossRemainingMs(
+  boss: AlchemistGuildGatheringBossState,
+  nowMs: number,
+): number {
+  if (boss.phase !== "active" || boss.problemEndsAtMs === null) return 0;
+  return Math.max(0, boss.problemEndsAtMs - nowMs);
+}
+
+function getGatheringBossStatusText(
+  boss: AlchemistGuildGatheringBossState,
+  mastery: GatheringLevelMasteryReport,
+): string {
+  if (boss.phase === "reward") return "Reward ready.";
+  if (boss.phase === "failed") return "Practice track restarted.";
+  if (mastery.bossReady) return "Ready to enter.";
+  return `${Math.round(mastery.progress * 100)}% mastered.`;
+}
+
+function getStoredGatheringMasteryProgress(
+  gathering: AlchemistGuildGatheringState,
+  level: number,
+): number {
+  return clamp(gathering.levelProgress.masteryProgressByLevel[String(level)] ?? 0, 0, 1);
+}
+
+function getGatheringMasteryFrameStyle(
+  masteryProgress: number,
+  storedMasteryProgress: number,
+): GatheringMasteryFrameStyle {
+  const currentProgress = clamp(masteryProgress, 0, 1);
+  const previousProgress = Math.max(currentProgress, clamp(storedMasteryProgress, 0, 1));
+
+  return {
+    "--gathering-mastery-angle": `${Math.round(currentProgress * 360)}deg`,
+    "--gathering-mastery-previous-angle": `${Math.round(previousProgress * 360)}deg`,
+  };
+}
+
+function getGatheringMasteryFeedback(
+  gathering: AlchemistGuildGatheringState,
+  mastery: GatheringLevelMasteryReport,
+  storedMasteryProgress: number,
+): GatheringMasteryFeedback {
+  if (gathering.lastAnswerCorrect === false) return "regressing";
+  if (storedMasteryProgress > mastery.progress + 0.000_1) return "regressing";
+  if (mastery.bossReady) return "ready";
+
+  return "steady";
+}
+
+function getGatheringMasteryFeedbackLabel(feedback: GatheringMasteryFeedback): string {
+  switch (feedback) {
+    case "ready":
+      return "Boss gate charged";
+    case "regressing":
+      return "Memory track damaged";
+    default:
+      return "Memory track";
+  }
 }
 
 function getGatheringConfirmPadStateClass(active: boolean, confirmed: boolean): string {
@@ -9933,6 +10524,17 @@ function getGatheringAnswerStateClass(lastAnswerCorrect: boolean | null): string
 }
 
 function getGatheringInfoTitle(gathering: AlchemistGuildGatheringState): string {
+  switch (gathering.boss.phase) {
+    case "active":
+      return "Boss Streak";
+    case "reward":
+      return "Level Cleared";
+    case "failed":
+      return "Memory Reset";
+    default:
+      break;
+  }
+
   switch (gathering.phase) {
     case "move":
       return "Move Ready";
@@ -9944,6 +10546,17 @@ function getGatheringInfoTitle(gathering: AlchemistGuildGatheringState): string 
 }
 
 function getGatheringInfoText(gathering: AlchemistGuildGatheringState): string {
+  switch (gathering.boss.phase) {
+    case "active":
+      return `Solve ${GATHERING_BOSS_REQUIRED_STREAK} in a row. More than ${GATHERING_BOSS_ALLOWED_MISSES} misses restarts this level.`;
+    case "reward":
+      return "The next gathering level unlocks after the element reward is claimed.";
+    case "failed":
+      return "Practice this level again until the mastery report reaches the boss threshold.";
+    default:
+      break;
+  }
+
   switch (gathering.phase) {
     case "move":
       return "The three move cards are the left addend, right addend, and full sum.";
@@ -10777,29 +11390,47 @@ function getQuestDeliveryStatusText(
   return `Deliver ${cardName} when it is ready.`;
 }
 
+function getQuestDeliveryClaimLabel(
+  isComplete: boolean,
+  claimed: boolean,
+  cardName: string,
+): string {
+  if (claimed) return `${cardName} claimed`;
+  if (isComplete) return `Swipe to claim ${cardName}`;
+  return `Drop ${cardName} here`;
+}
+
+function getQuestDeliveryClaimTrackClass(isComplete: boolean): string {
+  const base =
+    "relative h-12 overflow-hidden rounded-full border shadow-[inset_0_2px_8px_rgba(72,45,16,0.16)]";
+
+  if (isComplete) return `${base} border-emerald-900/20 bg-white/70`;
+  return `${base} border-dashed border-neutral-900/25 bg-white/45`;
+}
+
 function getQuestDeliverySlotClass(
   feedback: DropFeedback,
   isComplete: boolean,
   claimed: boolean,
 ): string {
   const base =
-    "relative rounded-[6px] border-2 border-dashed p-3 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-100";
+    "relative rounded-[6px] border p-1.5 shadow-[0_2px_0_rgba(72,45,16,0.12)] backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-100";
 
   if (claimed) {
     return `${base} border-emerald-700/70 bg-emerald-50/90 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]`;
   }
 
   if (isComplete) {
-    return `${base} border-emerald-600/70 bg-emerald-50/85 shadow-[0_0_0_4px_rgba(16,185,129,0.16)]`;
+    return `${base} border-emerald-600/70 bg-emerald-50/78 shadow-[0_0_0_4px_rgba(16,185,129,0.16)]`;
   }
 
   switch (feedback) {
     case "drop":
-      return `${base} border-emerald-500 bg-emerald-50/85 shadow-[0_0_0_4px_rgba(16,185,129,0.22)]`;
+      return `${base} border-dashed border-emerald-500 bg-emerald-50/85 shadow-[0_0_0_4px_rgba(16,185,129,0.22)]`;
     case "blocked":
-      return `${base} border-rose-500 bg-rose-50/85 shadow-[0_0_0_4px_rgba(244,63,94,0.18)]`;
+      return `${base} border-dashed border-rose-500 bg-rose-50/85 shadow-[0_0_0_4px_rgba(244,63,94,0.18)]`;
     default:
-      return `${base} border-amber-700/45 bg-white/65`;
+      return `${base} border-dashed border-amber-700/45 bg-white/65`;
   }
 }
 
@@ -10876,16 +11507,36 @@ function getGatheringFloatingCardClass(
   const base =
     "absolute left-0 top-0 select-none rounded-[3px] border-2 shadow-[0_14px_28px_rgba(0,0,0,0.26)] transition-[border-color,box-shadow] duration-100";
   const overflowClass = kind === "move" ? "overflow-visible" : "overflow-hidden";
+  const chargeClass = kind === "move" ? "gathering-attack-charge-card" : "";
 
   if (feedback === "drop") {
-    return `${base} ${overflowClass} border-emerald-500 bg-emerald-50 shadow-[inset_0_0_0_3px_rgba(16,185,129,0.24),0_14px_28px_rgba(0,0,0,0.26)]`;
+    return `${base} ${overflowClass} ${chargeClass} border-emerald-500 bg-emerald-50 shadow-[inset_0_0_0_3px_rgba(16,185,129,0.24),0_14px_28px_rgba(0,0,0,0.26)]`;
   }
   if (feedback === "blocked") {
-    return `${base} ${overflowClass} border-rose-500 bg-rose-50 shadow-[inset_0_0_0_3px_rgba(244,63,94,0.24),0_14px_28px_rgba(0,0,0,0.26)]`;
+    return `${base} ${overflowClass} ${chargeClass} border-rose-500 bg-rose-50 shadow-[inset_0_0_0_3px_rgba(244,63,94,0.24),0_14px_28px_rgba(0,0,0,0.26)]`;
   }
   if (kind === "answer") return `${base} ${overflowClass} border-[#888888] bg-white`;
-  if (kind === "move") return `${base} ${overflowClass} border-[#888888] bg-[#eeeeee]`;
+  if (kind === "move")
+    return `${base} ${overflowClass} ${chargeClass} border-[#888888] bg-[#eeeeee]`;
   return `${base} ${overflowClass} border-[#888888] bg-[#eeeeee]`;
+}
+
+function getFloatingGatheringCardStyle(card: DraggedGatheringCard): FloatingGatheringCardStyle {
+  const base = {
+    contain: "layout style paint",
+    fontFamily: "var(--font-sans)",
+    height: `${FLOATING_ELEMENT_CARD_HEIGHT}px`,
+    touchAction: "none",
+    width: `${FLOATING_ELEMENT_CARD_WIDTH}px`,
+  } satisfies FloatingGatheringCardStyle;
+
+  if (card.kind !== "move") return base;
+
+  return {
+    ...base,
+    "--gathering-charge-duration-ms": `${getGatheringAttackChargeProfile(card.move.id).rampCapMs}ms`,
+    contain: "layout style",
+  };
 }
 
 function getGatheringMoveVisual(moveId: GatheringMoveId): GatheringMoveVisual {

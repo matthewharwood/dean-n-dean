@@ -19,7 +19,7 @@ const meta = {
   parameters: { layout: "centered" },
   decorators: [
     (Story) => (
-      <div className="w-[20rem] bg-neutral-300 p-3">
+      <div className="h-[32rem] w-[20rem] bg-neutral-300 p-3">
         <Story />
       </div>
     ),
@@ -37,6 +37,13 @@ export const FirstWaterQuestWithDeveloperNotes: Story = {
   args: {
     ...FIRST_QUEST_BRIEFING_CARD_PROPS,
     developerNotesVisible: true,
+  },
+};
+
+export const CompletedFirstWaterQuest: Story = {
+  args: {
+    ...FIRST_QUEST_BRIEFING_CARD_PROPS,
+    completed: true,
   },
 };
 

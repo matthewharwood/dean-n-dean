@@ -210,6 +210,10 @@ export type AlchemistGuildGatheringPhase = z.infer<typeof AlchemistGuildGatherin
 export const AlchemistGuildGatheringEquationSchema = z.object({
   answer: z.int().min(0).max(40).default(9),
   choiceValues: z.array(z.int().min(0).max(40)).length(5).default([11, 8, 10, 12, 9]),
+  factId: z
+    .string()
+    .regex(/^addition:\d+\+\d+$/)
+    .default("addition:4+5"),
   id: z.string().min(1).default("gathering-equation:1:1"),
   left: z.int().min(0).max(20).default(5),
   right: z.int().min(0).max(20).default(4),
@@ -220,10 +224,20 @@ export const ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT: AlchemistGuildGathering
   AlchemistGuildGatheringEquationSchema.parse({});
 
 export const AlchemistGuildGatheringMonsterSchema = z.object({
-  hp: z.int().min(0).default(14),
-  id: z.literal("monster:hadal-tide-minnow-echo").default("monster:hadal-tide-minnow-echo"),
-  imagePath: z.string().min(1).default("enemies/hadal-tide-minnow-echo.png"),
-  maxHp: z.int().min(1).default(14),
+  hp: z.int().min(0).default(10),
+  id: z
+    .string()
+    .regex(/^monster:[a-z0-9-]+$/)
+    .default("monster:hadal-tide-minnow-echo"),
+  // Enemies cycle through a code-owned bestiary; the gathering loop derives the
+  // monster from the round. PNG-era saves heal to the committed WebP art (same
+  // basename) on hydration's re-parse.
+  imagePath: z
+    .string()
+    .regex(/^enemies\/[a-z0-9-]+\.(?:webp|png)$/)
+    .transform((path) => (path.endsWith(".png") ? path.replace(".png", ".webp") : path))
+    .default("enemies/hadal-tide-minnow-echo.webp"),
+  maxHp: z.int().min(1).default(10),
   name: z.string().min(1).default("Tide Minnow Echo"),
 });
 export type AlchemistGuildGatheringMonster = z.infer<typeof AlchemistGuildGatheringMonsterSchema>;
@@ -237,6 +251,94 @@ export const AlchemistGuildGatheringLogEntrySchema = z.object({
   round: z.int().min(1),
 });
 export type AlchemistGuildGatheringLogEntry = z.infer<typeof AlchemistGuildGatheringLogEntrySchema>;
+
+export const AlchemistGuildGatheringReviewResultSchema = z.enum(["correct", "wrong"]);
+export type AlchemistGuildGatheringReviewResult = z.infer<
+  typeof AlchemistGuildGatheringReviewResultSchema
+>;
+
+export const AlchemistGuildGatheringSpacedRepetitionFactSchema = z.object({
+  attempts: z.int().min(0).default(0),
+  correctCount: z.int().min(0).default(0),
+  currentStreak: z.int().min(0).default(0),
+  difficulty: z.number().min(1).max(10).default(5),
+  dueAtMs: z.number().min(0).default(0),
+  id: z.string().regex(/^addition:\d+\+\d+$/),
+  lapses: z.int().min(0).default(0),
+  lastResult: AlchemistGuildGatheringReviewResultSchema.nullable().default(null),
+  lastReviewedAtMs: z.number().min(0).nullable().default(null),
+  lastRetrievability: z.number().min(0).max(1).default(1),
+  left: z.int().min(0).max(20),
+  longestStreak: z.int().min(0).default(0),
+  right: z.int().min(0).max(20),
+  stabilityDays: z.number().min(0).max(365).default(0),
+  wrongCount: z.int().min(0).default(0),
+});
+export type AlchemistGuildGatheringSpacedRepetitionFact = z.infer<
+  typeof AlchemistGuildGatheringSpacedRepetitionFactSchema
+>;
+
+export const AlchemistGuildGatheringSpacedRepetitionSchema = z.object({
+  facts: z
+    .record(
+      z.string().regex(/^addition:\d+\+\d+$/),
+      AlchemistGuildGatheringSpacedRepetitionFactSchema,
+    )
+    .default({}),
+  lastUpdatedAtMs: z.number().min(0).nullable().default(null),
+});
+export type AlchemistGuildGatheringSpacedRepetition = z.infer<
+  typeof AlchemistGuildGatheringSpacedRepetitionSchema
+>;
+export const ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT: AlchemistGuildGatheringSpacedRepetition =
+  AlchemistGuildGatheringSpacedRepetitionSchema.parse({});
+
+export const AlchemistGuildGatheringLevelProgressSchema = z.object({
+  completedBossLevels: z.array(z.int().min(1).max(2)).default([]),
+  currentLevel: z.int().min(1).max(2).default(1),
+  highestUnlockedLevel: z.int().min(1).max(2).default(1),
+  masteryProgressByLevel: z
+    .record(z.string().regex(/^[1-2]$/), z.number().min(0).max(1))
+    .default({}),
+});
+export type AlchemistGuildGatheringLevelProgress = z.infer<
+  typeof AlchemistGuildGatheringLevelProgressSchema
+>;
+export const ALCHEMIST_GUILD_GATHERING_LEVEL_PROGRESS_DEFAULT: AlchemistGuildGatheringLevelProgress =
+  AlchemistGuildGatheringLevelProgressSchema.parse({});
+
+export const AlchemistGuildGatheringBossPhaseSchema = z.enum([
+  "idle",
+  "active",
+  "reward",
+  "failed",
+]);
+export type AlchemistGuildGatheringBossPhase = z.infer<
+  typeof AlchemistGuildGatheringBossPhaseSchema
+>;
+
+export const AlchemistGuildGatheringBossStateSchema = z.object({
+  completedAtMs: z.number().min(0).nullable().default(null),
+  currentStreak: z.int().min(0).max(20).default(0),
+  equation: AlchemistGuildGatheringEquationSchema.default(
+    ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT,
+  ),
+  failedAtMs: z.number().min(0).nullable().default(null),
+  lastAnswerCorrect: z.boolean().nullable().default(null),
+  level: z.int().min(1).max(2).default(1),
+  misses: z.int().min(0).max(4).default(0),
+  phase: AlchemistGuildGatheringBossPhaseSchema.default("idle"),
+  problemEndsAtMs: z.number().min(0).nullable().default(null),
+  problemIndex: z.int().min(1).default(1),
+  problemStartedAtMs: z.number().min(0).nullable().default(null),
+  rewardCardIds: z.array(AlchemistGuildCardIdSchema).max(8).default([]),
+  startedAtMs: z.number().min(0).nullable().default(null),
+});
+export type AlchemistGuildGatheringBossState = z.infer<
+  typeof AlchemistGuildGatheringBossStateSchema
+>;
+export const ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT: AlchemistGuildGatheringBossState =
+  AlchemistGuildGatheringBossStateSchema.parse({});
 
 export const AlchemistGuildGatheringTargetDropChancesSchema = z
   .record(AlchemistGuildCardIdSchema, z.int().min(0).max(10_000))
@@ -252,10 +354,17 @@ export const AlchemistGuildGatheringStateSchema = z.object({
   equationIndex: z.int().min(1).default(1),
   gatherLog: z.array(AlchemistGuildGatheringLogEntrySchema).default([]),
   lastAnswerCorrect: z.boolean().nullable().default(null),
+  levelProgress: AlchemistGuildGatheringLevelProgressSchema.default(
+    ALCHEMIST_GUILD_GATHERING_LEVEL_PROGRESS_DEFAULT,
+  ),
+  boss: AlchemistGuildGatheringBossStateSchema.default(ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT),
   monster: AlchemistGuildGatheringMonsterSchema.default(ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT),
   phase: AlchemistGuildGatheringPhaseSchema.default("solving"),
   rewardOptionCardIds: z.array(AlchemistGuildCardIdSchema).max(3).default([]),
   round: z.int().min(1).default(1),
+  spacedRepetition: AlchemistGuildGatheringSpacedRepetitionSchema.default(
+    ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
+  ),
   targetDropChances: AlchemistGuildGatheringTargetDropChancesSchema,
   unlockSeen: z.boolean().default(false),
   wrongAnswerStreak: z.int().min(0).max(3).default(0),

@@ -7,8 +7,10 @@ import {
   FIRST_QUEST_BRIEFING_CARD_PROPS,
   getQuestBriefingInitialSlideIndex,
   getQuestCarouselEdgeSwipeDirection,
+  getQuestCarouselSwipeDirection,
   getQuestCarouselSwipeIntent,
   QuestBriefingCardPropsSchema,
+  shouldUseRecipeDeckFractionPagination,
 } from "./quest-briefing-card";
 
 describe("QuestBriefingCard data projection", () => {
@@ -19,7 +21,9 @@ describe("QuestBriefingCard data projection", () => {
     expect(cardProps.title).toBe("Sir Bubbleton Needs Water");
     expect(cardProps.requesterName).toBe("Sir Bubbleton");
     expect(cardProps.requesterAvatarPath).toBe("alchemy-character-avatars/sir-bubbleton.webp");
+    expect(cardProps.requesterVoiceClipPath).toBe("alchemy-quest-voices/first-water.mp3");
     expect(cardProps.developerNotesVisible).toBe(false);
+    expect(cardProps.completed).toBeUndefined();
     expect(cardProps.redacted).toBe(false);
     expect(cardProps.recipeLabels).toContainEqual({
       formula: "2H + O",
@@ -37,6 +41,17 @@ describe("QuestBriefingCard data projection", () => {
       { icon: "discovery", label: "Discovery Token", value: "1" },
       { icon: "muddlefog", label: "Muddlefog Cleared", value: "3%" },
     ]);
+  });
+
+  test("marks a completed quest briefing without changing its review data", () => {
+    const cardProps = QuestBriefingCardPropsSchema.parse({
+      ...FIRST_QUEST_BRIEFING_CARD_PROPS,
+      completed: true,
+    });
+
+    expect(cardProps.completed).toBe(true);
+    expect(cardProps.title).toBe("Sir Bubbleton Needs Water");
+    expect(cardProps.recipeLabels.map((recipe) => recipe.name)).toContain("Water");
   });
 
   test("labels raw and crafted ingredients by full names instead of pseudo element symbols", () => {
@@ -99,5 +114,16 @@ describe("QuestBriefingCard carousel behavior", () => {
     expect(getQuestCarouselSwipeIntent(14, 4)).toBe("horizontal");
     expect(getQuestCarouselSwipeIntent(8, 22)).toBe("vertical");
     expect(getQuestCarouselSwipeIntent(18, 20)).toBe("pending");
+  });
+
+  test("maps committed inner recipe swipes to neighboring quest-detail slides", () => {
+    expect(getQuestCarouselSwipeDirection(-33)).toBe(0);
+    expect(getQuestCarouselSwipeDirection(-34)).toBe(1);
+    expect(getQuestCarouselSwipeDirection(34)).toBe(-1);
+  });
+
+  test("switches crowded vertical recipe steps from dots to a fraction", () => {
+    expect(shouldUseRecipeDeckFractionPagination(3)).toBe(false);
+    expect(shouldUseRecipeDeckFractionPagination(4)).toBe(true);
   });
 });
