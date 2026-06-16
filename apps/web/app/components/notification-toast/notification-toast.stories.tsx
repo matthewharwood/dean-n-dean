@@ -105,6 +105,14 @@ export const Tones: Story = {
   ),
 };
 
+// A monotonic counter for unique raised-notification ids — keeps time/random out
+// of the button JSX so the story stays hydration-clean.
+let raiseSeq = 0;
+const nextRaiseId = (prefix: string) => {
+  raiseSeq += 1;
+  return `${prefix}-${raiseSeq}`;
+};
+
 // The host + raise buttons — exercises the full bus → queue → stack → dismiss flow.
 function HostPlayground() {
   return (
@@ -117,7 +125,7 @@ function HostPlayground() {
           className="rounded-md bg-emerald-500 px-3 py-2 text-sm font-black text-emerald-950"
           onClick={() =>
             raiseNotification(
-              note(`s-${performance.now()}`, "success", "Expedition returned", "Cargo ready."),
+              note(nextRaiseId("s"), "success", "Expedition returned", "Cargo ready."),
             )
           }
         >
@@ -129,7 +137,7 @@ function HostPlayground() {
           className="rounded-md bg-fuchsia-500 px-3 py-2 text-sm font-black text-fuchsia-950"
           onClick={() =>
             raiseNotification(
-              note(`c-${performance.now()}`, "celebrate", "Upgrade unlocked!", "Visit Upgrades."),
+              note(nextRaiseId("c"), "celebrate", "Upgrade unlocked!", "Visit Upgrades."),
             )
           }
         >

@@ -101,7 +101,9 @@ export const OrbitForgeOverlay = defineComponent(
   OrbitForgeOverlayPropsSchema,
   ({ assist, ingredientCardIds, onComplete }) => {
     const socketCount = ingredientCardIds.length;
-    const reducedMotionRef = useRef(prefersReducedMotion());
+    // Lazy-init: read the media query once, not on every render.
+    const reducedMotionRef = useRef<boolean | null>(null);
+    if (reducedMotionRef.current === null) reducedMotionRef.current = prefersReducedMotion();
     const reducedMotion = reducedMotionRef.current;
     const [state, dispatch] = useReducer(forgeReducer, INITIAL_STATE);
     const [count, setCount] = useState(3);

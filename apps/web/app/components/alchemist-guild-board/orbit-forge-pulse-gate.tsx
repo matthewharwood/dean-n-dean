@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import * as z from "zod";
 
 import { defineComponent } from "~/lib/define-component";
@@ -58,7 +58,11 @@ const OrbitForgePulseGatePropsSchema = z.object({
 export const OrbitForgePulseGate = defineComponent(
   OrbitForgePulseGatePropsSchema,
   ({ active, assist, gemTiers, onTap, pulseDurationMs, socketCount }) => {
-    const [phase, setPhase] = useState<PulsePhase>("rest");
+    // The pulse phase is an explicit state machine advanced by the charge timeouts
+    // (a reducer, not stacked setStates). It only runs forward while `active`; the
+    // "rest" reset is DERIVED in render (displayPhase) rather than synced via an
+    // effect, so a prop change never schedules an extra render.
+    const [phase, dispatch] = useReducer((_current: PulsePhase, next: PulsePhase) => next, "rest");
     const greenCenterRef = useRef(0);
     const tappedRef = useRef(false);
     const onTapRef = useRef(onTap);
@@ -68,12 +72,8 @@ export const OrbitForgePulseGate = defineComponent(
     });
 
     useEffect(() => {
-      if (!active) {
-        setPhase("rest");
-        return;
-      }
+      if (!active) return;
       tappedRef.current = false;
-      setPhase("rest");
 
       const chargeAt = pulseDurationMs * 0.4;
       const readyAt = pulseDurationMs * 0.72;
@@ -81,11 +81,11 @@ export const OrbitForgePulseGate = defineComponent(
       // Use the same monotonic clock the tap reads, so the time error is honest.
       greenCenterRef.current = performance.now() + readyAt + readyWindowMs / 2;
 
-      const charge = setTimeout(() => setPhase("charge"), chargeAt);
-      const ready = setTimeout(() => setPhase("ready"), readyAt);
+      const charge = setTimeout(() => dispatch("charge"), chargeAt);
+      const ready = setTimeout(() => dispatch("ready"), readyAt);
       const close = setTimeout(
         () => {
-          setPhase("spent");
+          dispatch("spent");
           if (!tappedRef.current) {
             tappedRef.current = true;
             onTapRef.current({ deltaMs: Number.POSITIVE_INFINITY, tier: "graze" });
@@ -101,8 +101,11 @@ export const OrbitForgePulseGate = defineComponent(
       };
     }, [active, pulseDurationMs]);
 
+    // Inactive beats read "rest" without an effect writing state.
+    const displayPhase: PulsePhase = active ? phase : "rest";
+
     const handleTap = () => {
-      if (!active || tappedRef.current || phase === "rest") return;
+      if (!active || tappedRef.current || displayPhase === "rest") return;
       tappedRef.current = true;
       const deltaMs = performance.now() - greenCenterRef.current;
       const tier = classifyForgeTapByTime(deltaMs, assist);
@@ -117,12 +120,12 @@ export const OrbitForgePulseGate = defineComponent(
         <button
           type="button"
           data-board-section="orbit-forge-pulse-target"
-          data-pulse-phase={phase}
+          data-pulse-phase={displayPhase}
           aria-label="Tap when the core turns green"
-          className={`grid size-56 place-items-center rounded-full text-center text-sm font-black uppercase leading-tight text-white/90 ring-8 transition-colors duration-100 ${PULSE_PHASE_CLASS[phase]}`}
+          className={`grid size-56 place-items-center rounded-full text-center text-sm font-black uppercase leading-tight text-white/90 ring-8 transition-colors duration-100 ${PULSE_PHASE_CLASS[displayPhase]}`}
           onPointerDown={handleTap}
         >
-          {PULSE_PHASE_LABEL[phase]}
+          {PULSE_PHASE_LABEL[displayPhase]}
         </button>
         <div className="flex gap-2">
           {Array.from({ length: socketCount }, (_, index) => `pulse-socket-${index}`).map(

@@ -48,7 +48,7 @@ const NotificationToastPropsSchema = z.object({
 export const NotificationToast = defineComponent(
   NotificationToastPropsSchema,
   ({ durationMs, notification, onDismiss }) => {
-    const toastRef = useRef<HTMLDivElement | null>(null);
+    const toastRef = useRef<HTMLOutputElement | null>(null);
     const progressRef = useRef<HTMLDivElement | null>(null);
     const dismissedRef = useRef(false);
     const dragXRef = useRef(0);
@@ -112,7 +112,7 @@ export const NotificationToast = defineComponent(
       // dismiss is stable for this toast instance; durationMs is fixed per mount.
     }, [durationMs]);
 
-    const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const handlePointerDown = (event: React.PointerEvent<HTMLOutputElement>) => {
       if (dismissedRef.current) return;
       event.currentTarget.setPointerCapture(event.pointerId);
       dragXRef.current = 0;
@@ -152,9 +152,8 @@ export const NotificationToast = defineComponent(
     const ToneIcon = TONE_ICON[notification.tone];
 
     return (
-      <div
+      <output
         ref={toastRef}
-        role="status"
         aria-live="polite"
         data-board-section="notification-toast"
         data-notification-id={notification.id}
@@ -188,7 +187,7 @@ export const NotificationToast = defineComponent(
         <span className="pointer-events-none absolute inset-x-0 bottom-0 col-span-full h-1 bg-white/10">
           <span ref={progressRef} className="block h-full w-full bg-[var(--toast-accent)]" />
         </span>
-      </div>
+      </output>
     );
   },
 );
