@@ -502,6 +502,30 @@ export const ALCHEMY_RECIPES = [
     fantasy: request(["wizard", "druid"], ["starter", "powder"]),
   }),
   recipe({
+    // The deliverable for quest:kitchen-salt-and-fuel. Bundling salt + charcoal +
+    // ash into one terminal makes ALL THREE genuinely required to finish the quest
+    // (the quest's own need-line already asks for "salt, charcoal, and ash"). It
+    // also keeps the single-terminal shape the delivery system expects, so the
+    // quest no longer completes on a lone Salt card.
+    id: "alchemy:kitchen-stores",
+    name: "Kitchen Stores",
+    output: item("quest-item", "quest:kitchen-stores", "Kitchen Stores"),
+    arguments: [
+      arg("material:salt", 1, "finish"),
+      arg("material:charcoal", 1, "fuel"),
+      arg("material:ash", 1, "binder"),
+    ],
+    station: "workbench",
+    action: "assemble",
+    progression: progress(1, 4, 2, 0.12),
+    education: lesson(
+      ["bundling supplies", "kitchen stores"],
+      "Salt to season, charcoal to fire the oven, and ash for scrubbing lye — the kitchen and chapel want all three packed together.",
+      "game-only",
+    ),
+    fantasy: request(["cleric", "blacksmith"], ["starter", "kitchen"]),
+  }),
+  recipe({
     id: "alchemy:iron-ingot",
     name: "Iron Ingot",
     output: item("material", "material:iron-ingot", "Iron Ingot"),

@@ -25,7 +25,13 @@ export const SoundIdSchema = z.enum([
   "gathering.answerWrong",
   "gathering.monsterDeath",
   "gathering.rewardClaim",
+  "gathering.streak.ignite",
+  "gathering.streak.increment",
+  "gathering.streak.milestone",
+  "gathering.streak.break",
   "music.crownIn8Bit",
+  "notification.hide",
+  "notification.show",
   "transmute.complete",
   "transmute.failed",
 ]);

@@ -36,6 +36,29 @@ describe("quest assembly guide", () => {
     ]);
   });
 
+  test("Kitchen Stores bundles Salt, Charcoal, and Ash into the quest-2 deliverable", () => {
+    // Regression: quest:kitchen-salt-and-fuel used to complete on a lone Salt card
+    // because salt/charcoal/ash were three independent terminals (the engine fell
+    // back to recipes[0]=salt). The bundle makes all three genuinely required.
+    const kitchenQuest = getAlchemyQuestById("quest:kitchen-salt-and-fuel");
+    if (!kitchenQuest) throw new Error("Missing kitchen-salt-and-fuel quest");
+
+    const guide = createQuestAssemblyGuide(
+      ALCHEMIST_GUILD_BOARD_DEFAULT,
+      kitchenQuest,
+      READY_NOW_MS,
+    );
+
+    expect(guide?.terminalRecipeName).toBe("Kitchen Stores");
+    expect(guide?.terminalOutputCardId).toBe("quest:kitchen-stores");
+    expect(guide?.requiredCount).toBe(3);
+    expect(guide?.ingredients.map((ingredient) => ingredient.label)).toEqual([
+      "Salt",
+      "Charcoal",
+      "Ash",
+    ]);
+  });
+
   test("announces when all Glass Batch components are ready to combine", () => {
     const glassQuest = getAlchemyQuestById("quest:glass-minerals");
     if (!glassQuest) throw new Error("Missing glass minerals quest");

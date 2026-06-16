@@ -24,6 +24,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import {
+  Fragment,
   type MutableRefObject,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -35,6 +36,15 @@ import {
 import * as z from "zod";
 
 import { defineComponent } from "~/lib/define-component";
+
+import {
+  type CarouselSwipeIntent,
+  getCarouselSwipeCommitDirection,
+  getCarouselSwipeIntent,
+  getSwipeVelocityX,
+  pushSwipeSample,
+  type SwipePointerSample,
+} from "./carousel-swipe";
 
 const PRM = "(prefers-reduced-motion: reduce)";
 const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -48,21 +58,20 @@ const QUEST_CAROUSEL_INITIAL_INDEX = 1;
 const QUEST_CAROUSEL_FIRST_SLIDE_INDEX = 0;
 const QUEST_CAROUSEL_LAST_SLIDE_INDEX = QUEST_CAROUSEL_SLIDE_COUNT - 1;
 const QUEST_CAROUSEL_SWIPE_MIN_PX = 34;
-const QUEST_CAROUSEL_INTENT_MIN_PX = 8;
-const QUEST_CAROUSEL_VERTICAL_INTENT_MIN_PX = 10;
-const QUEST_CAROUSEL_VERTICAL_INTENT_RATIO = 1.15;
 const QUEST_CAROUSEL_EDGE_RESISTANCE = 0.32;
 const QUEST_CAROUSEL_SNAP_DURATION_MS = 230;
 
-type QuestCarouselSwipeIntent = "horizontal" | "pending" | "vertical";
+type QuestCarouselSwipeIntent = CarouselSwipeIntent;
 
 type QuestCarouselSwipe = {
   activeIndex: number;
   animationFrame: number;
   captureElement: HTMLDivElement;
   horizontalActive: boolean;
+  interceptDeltaX: number;
   latestDeltaX: number;
   pointerId: number;
+  samples: SwipePointerSample[];
   slideWidth: number;
   startClientX: number;
   startClientY: number;
@@ -127,6 +136,11 @@ export const QuestBriefingCardPropsSchema = z.object({
   title: z.string().min(1),
 });
 export type QuestBriefingCardProps = z.infer<typeof QuestBriefingCardPropsSchema>;
+
+// Quest data is static, so the projection is cached per quest id: the outer
+// carousel rebuilds three cards per render and the recursive recipe walk +
+// Zod parse would otherwise land exactly on the swipe-settle frame.
+const questBriefingCardPropsCache = new Map<string, QuestBriefingCardProps>();
 
 export const FIRST_QUEST_BRIEFING_CARD_PROPS = createFirstQuestBriefingCardProps();
 
@@ -193,20 +207,16 @@ export const QuestBriefingCard = defineComponent(
               {slotLabel}
             </span>
           </div>
-          <p className="truncate text-[11px] font-semibold uppercase leading-tight tracking-normal text-amber-950/75">
+          <p className="text-[11px] font-semibold uppercase leading-tight tracking-normal text-amber-950/75">
             {actLabel}
           </p>
-          <h2 id={`${id}-title`} className="font-serif text-lg leading-none text-amber-950">
+          <h2 id={`${id}-title`} className="font-serif text-lg leading-tight text-amber-950">
             {redacted ? "Redacted Quest" : title}
           </h2>
         </div>
       </header>
 
       {completed ? <QuestBriefingCompletedBanner /> : null}
-
-      <p className="text-xs font-semibold leading-snug text-neutral-900">
-        {redacted ? "Complete earlier guild work to reveal this request." : summary}
-      </p>
 
       <div className="min-h-0 flex-1">
         {redacted ? (
@@ -221,6 +231,7 @@ export const QuestBriefingCard = defineComponent(
             recipes={recipeLabels}
             requesterName={requesterName}
             requesterTitle={requesterTitle}
+            summary={summary}
             teachingFocus={teachingFocus}
           />
         )}
@@ -388,6 +399,7 @@ const QuestBriefingCarouselPropsSchema = z.object({
   recipes: z.array(QuestBriefingRecipeSchema).min(1),
   requesterName: z.string().min(1),
   requesterTitle: z.string().min(1),
+  summary: z.string().min(1),
   teachingFocus: z.array(z.string().min(1)).min(1),
 });
 
@@ -404,6 +416,9 @@ const QuestBriefingRedactedPanel = defineComponent(z.object({}), () => (
       <span className="h-2.5 w-5/6 rounded-full bg-neutral-900/14" />
       <span className="h-2.5 w-2/3 rounded-full bg-neutral-900/12" />
     </div>
+    <p className="text-center text-xs font-semibold leading-snug text-neutral-700">
+      Complete earlier guild work to reveal this request.
+    </p>
     <p className="text-center text-[10px] font-black uppercase leading-none tracking-normal text-neutral-700">
       Quest sealed
     </p>
@@ -421,6 +436,7 @@ const QuestBriefingCarousel = defineComponent(
     recipes,
     requesterName,
     requesterTitle,
+    summary,
     teachingFocus,
   }) => {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -445,7 +461,7 @@ const QuestBriefingCarousel = defineComponent(
     };
 
     const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) return;
+      if (event.button !== 0 || !event.isPrimary || swipeRef.current) return;
       const trackElement = trackRef.current;
       if (!trackElement) return;
 
@@ -465,8 +481,10 @@ const QuestBriefingCarousel = defineComponent(
         animationFrame: 0,
         captureElement: event.currentTarget,
         horizontalActive: false,
+        interceptDeltaX: 0,
         latestDeltaX: 0,
         pointerId: event.pointerId,
+        samples: [{ timeMs: event.timeStamp, x: event.clientX }],
         slideWidth,
         startClientX: event.clientX,
         startClientY: event.clientY,
@@ -476,6 +494,7 @@ const QuestBriefingCarousel = defineComponent(
         handlePointerMove,
         handlePointerUp,
         handlePointerCancel,
+        handleNativeTouchMove,
       );
     };
 
@@ -500,11 +519,16 @@ const QuestBriefingCarousel = defineComponent(
     const handlePointerMove = (event: PointerEvent) => {
       const swipe = swipeRef.current;
       if (!swipe || event.pointerId !== swipe.pointerId) return;
+      if (event.buttons === 0) {
+        handlePointerCancel(event);
+        return;
+      }
 
       const latestDeltaX = event.clientX - swipe.startClientX;
       const latestDeltaY = event.clientY - swipe.startClientY;
+      let justLockedHorizontal = false;
       if (!swipe.horizontalActive) {
-        const intent = getQuestCarouselSwipeIntent(latestDeltaX, latestDeltaY);
+        const intent = getQuestCarouselSwipeIntent(latestDeltaX, latestDeltaY, event.pointerType);
         if (intent === "pending") return;
         if (intent === "vertical") {
           removePointerListenersRef.current?.();
@@ -519,6 +543,8 @@ const QuestBriefingCarousel = defineComponent(
         }
 
         swipe.horizontalActive = true;
+        swipe.interceptDeltaX = latestDeltaX;
+        justLockedHorizontal = true;
         if (!swipe.captureElement.hasPointerCapture(event.pointerId)) {
           swipe.captureElement.setPointerCapture(event.pointerId);
         }
@@ -526,6 +552,11 @@ const QuestBriefingCarousel = defineComponent(
 
       event.preventDefault();
       swipe.latestDeltaX = latestDeltaX;
+      pushSwipeSample(swipe.samples, event.clientX, event.timeStamp);
+      if (justLockedHorizontal) {
+        paintDrag();
+        return;
+      }
       queueDragPaint();
     };
 
@@ -537,13 +568,22 @@ const QuestBriefingCarousel = defineComponent(
       removePointerListenersRef.current?.();
       removePointerListenersRef.current = null;
       swipe.latestDeltaX = event.clientX - swipe.startClientX;
+      pushSwipeSample(swipe.samples, event.clientX, event.timeStamp);
       if (swipe.animationFrame !== 0) {
         cancelAnimationFrame(swipe.animationFrame);
         swipe.animationFrame = 0;
         paintDrag();
       }
 
-      const direction = getQuestCarouselSwipeDirection(swipe.latestDeltaX);
+      const releaseIntent = getQuestCarouselSwipeIntent(
+        swipe.latestDeltaX,
+        event.clientY - swipe.startClientY,
+        event.pointerType,
+      );
+      const direction =
+        swipe.horizontalActive || releaseIntent === "horizontal"
+          ? getQuestCarouselSwipeDirection(swipe.latestDeltaX, getSwipeVelocityX(swipe.samples))
+          : 0;
       const edgeSwipeDirection = getQuestCarouselEdgeSwipeDirection(swipe.activeIndex, direction);
       const nextIndex = edgeSwipeDirection
         ? swipe.activeIndex
@@ -553,7 +593,7 @@ const QuestBriefingCarousel = defineComponent(
         swipe.captureElement.releasePointerCapture(event.pointerId);
       }
       if (edgeSwipeDirection && onEdgeSwipe) {
-        settleSlide(swipe.activeIndex, true);
+        settleSlide(swipe.activeIndex, false);
         onEdgeSwipe(edgeSwipeDirection);
         return;
       }
@@ -571,7 +611,24 @@ const QuestBriefingCarousel = defineComponent(
       if (swipe.captureElement.hasPointerCapture(event.pointerId)) {
         swipe.captureElement.releasePointerCapture(event.pointerId);
       }
-      settleSlide(swipe.activeIndex, true);
+
+      // The browser stole the gesture (native scroll). If the drag already
+      // travelled past the commit distance, honor the kid's intent instead of
+      // rubber-banding back. Velocity is unreliable on cancel — distance only.
+      const direction = swipe.horizontalActive
+        ? getQuestCarouselSwipeDirection(swipe.latestDeltaX)
+        : 0;
+      const edgeSwipeDirection = getQuestCarouselEdgeSwipeDirection(swipe.activeIndex, direction);
+      if (edgeSwipeDirection && onEdgeSwipe) {
+        settleSlide(swipe.activeIndex, false);
+        onEdgeSwipe(edgeSwipeDirection);
+        return;
+      }
+      settleSlide(clampCarouselIndex(swipe.activeIndex + direction), true);
+    };
+
+    const handleNativeTouchMove = (event: TouchEvent) => {
+      if (swipeRef.current?.horizontalActive && event.cancelable) event.preventDefault();
     };
 
     useBrowserLayoutEffect(() => {
@@ -614,12 +671,12 @@ const QuestBriefingCarousel = defineComponent(
       >
         <div
           ref={viewportRef}
-          className="h-full min-h-0 touch-pan-y select-none overflow-hidden"
+          className="h-full min-h-0 cursor-grab touch-pan-y select-none overflow-hidden active:cursor-grabbing"
           onPointerDown={handlePointerDown}
         >
           <div
             ref={trackRef}
-            className="grid h-full grid-flow-col auto-cols-[100%]"
+            className="grid h-full grid-flow-col auto-cols-[100%] grid-rows-[100%]"
             style={{
               transform: `translateX(-${(initialSlideIndex * 100) / QUEST_CAROUSEL_SLIDE_COUNT}%)`,
             }}
@@ -628,6 +685,7 @@ const QuestBriefingCarousel = defineComponent(
               eyebrow={`${requesterName} • ${requesterTitle}`}
               title="Training Knight"
             >
+              <p className="text-xs font-semibold leading-snug text-neutral-800">{summary}</p>
               <p className="text-sm font-semibold leading-snug text-neutral-950">{need}</p>
             </QuestBriefingInfoSlide>
 
@@ -649,25 +707,28 @@ const QuestBriefingCarousel = defineComponent(
           </div>
         </div>
 
-        <div className="grid h-5 place-items-center border-t border-amber-500/30 bg-white/45">
-          <div className="flex items-center justify-center gap-1.5">
-            {QUEST_CAROUSEL_DOTS.map((dot, index) => (
-              <button
-                key={dot}
-                type="button"
-                className={`block size-1.5 shrink-0 rounded-full p-0 leading-none transition-[background-color,transform] ${
+        <div className="grid h-5 grid-cols-3 border-t border-amber-500/30 bg-white/45">
+          {QUEST_CAROUSEL_DOTS.map((dot, index) => (
+            <button
+              key={dot}
+              type="button"
+              className="group grid place-items-center p-0 transition-colors hover:bg-amber-950/5"
+              aria-label={`Show quest detail ${index + 1}`}
+              aria-current={activeSlideIndex === index}
+              onClick={() => {
+                settleSlide(index, true);
+              }}
+            >
+              <span
+                aria-hidden="true"
+                className={`block size-1.5 rounded-full transition-[background-color,transform] ${
                   activeSlideIndex === index
                     ? "scale-125 bg-amber-950"
-                    : "bg-amber-950/30 hover:bg-amber-950/55"
+                    : "bg-amber-950/30 group-hover:bg-amber-950/55"
                 }`}
-                aria-label={`Show quest detail ${index + 1}`}
-                aria-current={activeSlideIndex === index}
-                onClick={() => {
-                  settleSlide(index, true);
-                }}
               />
-            ))}
-          </div>
+            </button>
+          ))}
         </div>
       </section>
     );
@@ -678,15 +739,25 @@ function addQuestCarouselPointerListeners(
   onMove: (event: PointerEvent) => void,
   onRelease: (event: PointerEvent) => void,
   onCancel: (event: PointerEvent) => void,
+  onNativeTouchMove: (event: TouchEvent) => void,
 ): () => void {
   window.addEventListener("pointermove", onMove, QUEST_CAROUSEL_POINTER_LISTENER_OPTIONS);
   window.addEventListener("pointerup", onRelease, QUEST_CAROUSEL_POINTER_LISTENER_OPTIONS);
   window.addEventListener("pointercancel", onCancel, QUEST_CAROUSEL_POINTER_LISTENER_OPTIONS);
+  // touch-action: pan-y cannot be revoked mid-gesture and preventDefault on
+  // pointermove never blocks native panning — only a cancelable touchmove
+  // preventDefault keeps WebKit from stealing a locked horizontal drag.
+  window.addEventListener("touchmove", onNativeTouchMove, QUEST_CAROUSEL_POINTER_LISTENER_OPTIONS);
 
   return () => {
     window.removeEventListener("pointermove", onMove, QUEST_CAROUSEL_POINTER_LISTENER_CAPTURE);
     window.removeEventListener("pointerup", onRelease, QUEST_CAROUSEL_POINTER_LISTENER_CAPTURE);
     window.removeEventListener("pointercancel", onCancel, QUEST_CAROUSEL_POINTER_LISTENER_CAPTURE);
+    window.removeEventListener(
+      "touchmove",
+      onNativeTouchMove,
+      QUEST_CAROUSEL_POINTER_LISTENER_CAPTURE,
+    );
   };
 }
 
@@ -729,43 +800,30 @@ function getQuestCarouselSnapX(index: number, slideWidth: number): number {
 }
 
 function getResistedCarouselDeltaX(swipe: QuestCarouselSwipe): number {
+  // Paint from the rebased origin (where horizontal locked) so the track
+  // doesn't jump the 8px intent slop on the first painted frame; commit math
+  // elsewhere keeps using the raw latestDeltaX.
+  const visualDeltaX = swipe.latestDeltaX - swipe.interceptDeltaX;
   if (
-    (swipe.activeIndex === QUEST_CAROUSEL_FIRST_SLIDE_INDEX && swipe.latestDeltaX > 0) ||
-    (swipe.activeIndex === QUEST_CAROUSEL_LAST_SLIDE_INDEX && swipe.latestDeltaX < 0)
+    (swipe.activeIndex === QUEST_CAROUSEL_FIRST_SLIDE_INDEX && visualDeltaX > 0) ||
+    (swipe.activeIndex === QUEST_CAROUSEL_LAST_SLIDE_INDEX && visualDeltaX < 0)
   ) {
-    return swipe.latestDeltaX * QUEST_CAROUSEL_EDGE_RESISTANCE;
+    return visualDeltaX * QUEST_CAROUSEL_EDGE_RESISTANCE;
   }
 
-  return swipe.latestDeltaX;
+  return visualDeltaX;
 }
 
-export function getQuestCarouselSwipeDirection(deltaX: number): -1 | 0 | 1 {
-  if (Math.abs(deltaX) < QUEST_CAROUSEL_SWIPE_MIN_PX) return 0;
-  if (deltaX < 0) return 1;
-  return -1;
+export function getQuestCarouselSwipeDirection(deltaX: number, velocityX = 0): -1 | 0 | 1 {
+  return getCarouselSwipeCommitDirection(deltaX, velocityX, QUEST_CAROUSEL_SWIPE_MIN_PX);
 }
 
 export function getQuestCarouselSwipeIntent(
   deltaX: number,
   deltaY: number,
+  pointerType?: string,
 ): QuestCarouselSwipeIntent {
-  const absX = Math.abs(deltaX);
-  const absY = Math.abs(deltaY);
-
-  if (absX < QUEST_CAROUSEL_INTENT_MIN_PX && absY < QUEST_CAROUSEL_INTENT_MIN_PX) {
-    return "pending";
-  }
-
-  if (
-    absY >= QUEST_CAROUSEL_VERTICAL_INTENT_MIN_PX &&
-    absY > absX * QUEST_CAROUSEL_VERTICAL_INTENT_RATIO
-  ) {
-    return "vertical";
-  }
-
-  if (absX >= QUEST_CAROUSEL_INTENT_MIN_PX && absX > absY) return "horizontal";
-
-  return "pending";
+  return getCarouselSwipeIntent(deltaX, deltaY, pointerType);
 }
 
 export function getQuestBriefingInitialSlideIndex(questId: string): number {
@@ -921,19 +979,19 @@ const QuestBriefingRecipeCard = defineComponent(
           draggable={false}
         />
         <div className="min-w-0">
-          <p className="text-[9px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
+          <p className="text-[10px] font-bold uppercase leading-none tracking-normal text-sky-950/65">
             Make
           </p>
-          <p className="font-serif text-lg leading-none text-sky-950">{recipe.name}</p>
+          <p className="font-serif text-lg leading-tight text-sky-950">{recipe.name}</p>
         </div>
         <span className="rounded-[3px] border border-sky-950/20 bg-white/75 px-1 py-0.5 font-mono text-[9px] font-black leading-none text-sky-950">
           {positionLabel}
         </span>
       </div>
 
-      <div className="grid min-h-0 place-items-center overflow-hidden rounded-[4px] border border-sky-950/20 bg-sky-50/90 px-1.5">
+      <div className="grid min-h-0 content-start overflow-y-auto rounded-[4px] border border-sky-950/20 bg-sky-50/90 p-2">
         <span className="sr-only">{recipe.formula}</span>
-        <QuestBriefingFormula ingredients={recipe.ingredients} />
+        <QuestBriefingFormula ingredients={recipe.ingredients} recipeName={recipe.name} />
       </div>
     </section>
   ),
@@ -951,58 +1009,65 @@ const QuestBriefingRecipeDeckRail = defineComponent(
     const showFractionPagination = shouldUseRecipeDeckFractionPagination(recipes.length);
 
     return (
-      <div className="grid h-full min-h-0 grid-rows-[1.75rem_minmax(0,1fr)_1.75rem] place-items-center border-l border-amber-500/30 bg-white/45">
+      <div className="grid h-full min-h-0 grid-rows-[2rem_minmax(0,1fr)_2rem] place-items-stretch border-l border-amber-500/30 bg-white/45">
         <button
           type="button"
-          className="grid size-5 place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"
+          className="grid place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"
           aria-label="Show previous quest recipe"
           disabled={activeIndex <= 0}
           onClick={() => {
             onSelect(activeIndex - 1);
           }}
         >
-          <ChevronUp aria-hidden="true" className="size-3.5" strokeWidth={2.6} />
+          <ChevronUp aria-hidden="true" className="size-4" strokeWidth={2.6} />
         </button>
 
         {showFractionPagination ? (
           <span
-            className="grid min-h-8 min-w-9 place-items-center rounded-[4px] border border-sky-950/15 bg-white/70 px-1 font-mono text-[10px] font-black leading-none text-sky-950"
+            className="grid place-items-center font-mono text-[10px] font-black leading-none text-sky-950"
             aria-live="polite"
           >
             <span className="sr-only">Quest recipe </span>
-            {activeIndex + 1}/{recipes.length}
+            <span className="grid min-h-8 min-w-6 place-items-center rounded-[4px] border border-sky-950/15 bg-white/70 px-1">
+              {activeIndex + 1}/{recipes.length}
+            </span>
           </span>
         ) : (
-          <div className="grid content-center gap-1">
+          <div className="grid content-center justify-items-stretch">
             {recipes.map((recipe, index) => (
               <button
                 key={recipe.name}
                 type="button"
-                className={`block size-1.5 rounded-full p-0 leading-none transition-[background-color,transform] ${
-                  activeIndex === index
-                    ? "scale-125 bg-sky-950"
-                    : "bg-sky-950/28 hover:bg-sky-950/50"
-                }`}
+                className="group grid h-6 place-items-center p-0 transition-colors hover:bg-sky-950/5"
                 aria-label={`Show ${recipe.name} recipe`}
                 aria-current={activeIndex === index}
                 onClick={() => {
                   onSelect(index);
                 }}
-              />
+              >
+                <span
+                  aria-hidden="true"
+                  className={`block size-1.5 rounded-full transition-[background-color,transform] ${
+                    activeIndex === index
+                      ? "scale-125 bg-sky-950"
+                      : "bg-sky-950/28 group-hover:bg-sky-950/50"
+                  }`}
+                />
+              </button>
             ))}
           </div>
         )}
 
         <button
           type="button"
-          className="grid size-5 place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"
+          className="grid place-items-center rounded-[3px] text-sky-950 transition-colors hover:bg-sky-950/10 disabled:opacity-30"
           aria-label="Show next quest recipe"
           disabled={activeIndex >= recipes.length - 1}
           onClick={() => {
             onSelect(activeIndex + 1);
           }}
         >
-          <ChevronDown aria-hidden="true" className="size-3.5" strokeWidth={2.6} />
+          <ChevronDown aria-hidden="true" className="size-4" strokeWidth={2.6} />
         </button>
       </div>
     );
@@ -1011,35 +1076,47 @@ const QuestBriefingRecipeDeckRail = defineComponent(
 
 const QuestBriefingFormulaPropsSchema = z.object({
   ingredients: z.array(QuestBriefingRecipeIngredientSchema).min(1),
+  recipeName: z.string().min(1),
 });
 
-const QuestBriefingFormula = defineComponent(QuestBriefingFormulaPropsSchema, ({ ingredients }) => {
-  const hasWordLabels = ingredients.some((ingredient) => ingredient.symbol.length > 2);
-
-  return (
+// One ingredient per row at a single readable scale: element rows pair the
+// big symbol with its full name; word ingredients (symbol === name) get one
+// full-width cell. No more 36px-vs-13px cliff between quests, and content
+// flows top-down instead of floating centered in leftover space.
+const QuestBriefingFormula = defineComponent(
+  QuestBriefingFormulaPropsSchema,
+  ({ ingredients, recipeName }) => (
     <span
-      className={`flex max-w-full items-baseline justify-center overflow-hidden font-serif font-bold leading-none tracking-normal text-sky-950 ${
-        hasWordLabels ? "flex-wrap gap-x-1 gap-y-0.5 text-[0.82rem]" : "whitespace-nowrap text-4xl"
-      }`}
+      className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 text-sky-950"
       aria-hidden="true"
     >
-      {ingredients.map((ingredient, index) => (
-        <span
-          key={`${ingredient.cardId}:${ingredient.quantity}`}
-          className="flex items-baseline leading-none"
-        >
-          {ingredient.quantity > 1 ? (
-            <span className="mr-0.5 text-[0.56em] leading-none">{ingredient.quantity}</span>
-          ) : null}
-          <span>{ingredient.symbol}</span>
-          {index < ingredients.length - 1 ? (
-            <span className="mx-1.5 text-[0.68em] font-normal leading-none">+</span>
-          ) : null}
-        </span>
-      ))}
+      {ingredients.map((ingredient) =>
+        ingredient.symbol === ingredient.name ? (
+          <span
+            key={`${ingredient.cardId}:${ingredient.quantity}`}
+            className="col-span-2 text-base font-bold leading-tight"
+          >
+            {ingredient.quantity > 1 ? `${ingredient.quantity} ` : ""}
+            {ingredient.name}
+          </span>
+        ) : (
+          <Fragment key={`${ingredient.cardId}:${ingredient.quantity}`}>
+            <span className="whitespace-nowrap font-serif text-2xl font-bold leading-none">
+              {ingredient.quantity > 1 ? (
+                <span className="text-[0.7em]">{ingredient.quantity}</span>
+              ) : null}
+              {ingredient.symbol}
+            </span>
+            <span className="text-sm font-semibold leading-tight">{ingredient.name}</span>
+          </Fragment>
+        ),
+      )}
+      <span className="col-span-2 mt-0.5 border-t border-sky-950/15 pt-1 text-sm font-bold leading-tight">
+        = {recipeName}
+      </span>
     </span>
-  );
-});
+  ),
+);
 
 function getRecipeAtIndex(
   recipeLabels: readonly z.infer<typeof QuestBriefingRecipeSchema>[],
@@ -1072,6 +1149,18 @@ function createFirstQuestBriefingCardProps(): QuestBriefingCardProps {
 }
 
 export function createQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBriefingCardProps {
+  const cachedCardProps = questBriefingCardPropsCache.get(quest.id);
+  if (cachedCardProps) return cachedCardProps;
+
+  const cardProps = buildQuestBriefingCardProps(quest);
+  const parsedCardProps = import.meta.env.DEV
+    ? QuestBriefingCardPropsSchema.parse(cardProps)
+    : cardProps;
+  questBriefingCardPropsCache.set(quest.id, parsedCardProps);
+  return parsedCardProps;
+}
+
+function buildQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBriefingCardProps {
   const requesterCharacter = getAlchemyCharactersByRequester(quest.narrative.requester)[0];
   const recipeLabels = getQuestBriefingRecipes(quest).map((recipe) => {
     return {
@@ -1082,7 +1171,7 @@ export function createQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBr
     };
   });
 
-  return QuestBriefingCardPropsSchema.parse({
+  return {
     actLabel: `Act ${quest.progression.act} • ${formatMinuteRange(quest.progression.suggestedMinutes)}`,
     developerNotesVisible: false,
     hint: quest.narrative.hint,
@@ -1111,9 +1200,9 @@ export function createQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBr
     slotLabel: `${formatTokenLabel(quest.progression.boardSlot)} path`,
     statusLabel: "Ready",
     summary: quest.narrative.summary,
-    teachingFocus: quest.teachingFocus,
+    teachingFocus: [...quest.teachingFocus],
     title: quest.narrative.title,
-  });
+  };
 }
 
 function getQuestBriefingRecipes(quest: StaticAlchemyQuest): StaticAlchemyRecipe[] {

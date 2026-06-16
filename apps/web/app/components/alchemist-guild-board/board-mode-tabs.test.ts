@@ -12,23 +12,42 @@ describe("board mode tutorial tabs", () => {
   test("hides gathering before the first Water quest is claimed", () => {
     expect(isGatheringAvailable([])).toBe(false);
     expect(
-      getVisibleBoardModeTabs({ expeditionAvailable: false, gatheringAvailable: false }),
+      getVisibleBoardModeTabs({
+        expeditionAvailable: false,
+        gatheringAvailable: false,
+        upgradesAvailable: false,
+      }),
     ).toEqual(["crafting"]);
   });
 
   test("reveals gathering after the first Water quest is claimed", () => {
     expect(isGatheringAvailable([ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID])).toBe(true);
     expect(
-      getVisibleBoardModeTabs({ expeditionAvailable: false, gatheringAvailable: true }),
+      getVisibleBoardModeTabs({
+        expeditionAvailable: false,
+        gatheringAvailable: true,
+        upgradesAvailable: false,
+      }),
     ).toEqual(["crafting", "gathering"]);
+  });
+
+  test("reveals the upgrades tab only once an upgrade is unlocked", () => {
+    expect(
+      getVisibleBoardModeTabs({
+        expeditionAvailable: true,
+        gatheringAvailable: true,
+        upgradesAvailable: true,
+      }),
+    ).toEqual(["crafting", "gathering", "expedition", "upgrades"]);
   });
 
   test("falls back to crafting if persisted state points at a hidden tab", () => {
     expect(
       resolveVisibleBoardMode({
-        activeBoardMode: "gathering",
+        activeBoardMode: "upgrades",
         expeditionAvailable: false,
         gatheringAvailable: false,
+        upgradesAvailable: false,
       }),
     ).toBe("crafting");
   });

@@ -29,6 +29,13 @@ import {
 } from "@dean-stack/schemas";
 
 import type { SoundId } from "~/sound/schema";
+import {
+  applyGatheringElementalDamage,
+  type GatheringElementType,
+  gatheringElementForRound,
+} from "./gathering-elements";
+import { advanceGatheringStreak } from "./gathering-streak";
+import { hasUpgrade, NEW_REWARD_SLOT_FOURTH_CHANCE, NEW_REWARD_SLOT_UPGRADE_ID } from "./upgrades";
 
 export const gatheringMoveIds = ["left-spark", "right-spark", "sum-strike"] as const;
 export type GatheringMoveId = (typeof gatheringMoveIds)[number];
@@ -40,6 +47,7 @@ type GatheringAttackSoundId = Extract<
 export type GatheringMove = {
   damage: number;
   detail: string;
+  element: GatheringElementType;
   id: GatheringMoveId;
   name: string;
   soundId: GatheringAttackSoundId;
@@ -86,6 +94,7 @@ export type GatheringRewardContext = Pick<
   | "inventorySlots"
   | "questDeliveries"
   | "selectedQuestId"
+  | "unlockedUpgradeIds"
 >;
 
 export type GatheringRewardPlan = {
@@ -180,6 +189,7 @@ export function createGatheringEquation(
 export function createGatheringMonsterForRound(round: number): AlchemistGuildGatheringMonster {
   const { enemy, loop } = getGatheringEnemyForRound(round);
   return {
+    elementType: gatheringElementForRound(round),
     hp: enemy.maxHp,
     id: `monster:${enemy.id}`,
     imagePath: getGatheringEnemyImagePath(enemy, loop),
@@ -216,6 +226,7 @@ export function getGatheringMoves(equation: AlchemistGuildGatheringEquation): Ga
     {
       damage: equation.left,
       detail: `${equation.left}`,
+      element: "lightning",
       id: "left-spark",
       name: "Left Spark",
       soundId: "gathering.attack.leftSpark",
@@ -223,6 +234,7 @@ export function getGatheringMoves(equation: AlchemistGuildGatheringEquation): Ga
     {
       damage: equation.right,
       detail: `${equation.right}`,
+      element: "water",
       id: "right-spark",
       name: "Right Spark",
       soundId: "gathering.attack.rightSpark",
@@ -230,6 +242,7 @@ export function getGatheringMoves(equation: AlchemistGuildGatheringEquation): Ga
     {
       damage: equation.answer,
       detail: `${equation.left} + ${equation.right}`,
+      element: "nature",
       id: "sum-strike",
       name: "Sum Strike",
       soundId: "gathering.attack.sumStrike",
@@ -479,6 +492,9 @@ export function claimGatheringBossReward(
       ...ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT,
       level: nextLevel,
     },
+    // A flawless run carries its streak through the boss into the next level —
+    // only a wrong answer breaks it (see claimGatheringReward for the rationale).
+    streak: state.streak,
     targetDropChances: state.targetDropChances,
   });
 }
@@ -836,12 +852,14 @@ export function confirmGatheringAnswer(
     correct,
     reviewedAtMs,
   );
+  const streak = advanceGatheringStreak(state.streak, correct, reviewedAtMs);
 
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
     lastAnswerCorrect: correct,
     phase: correct ? "move" : "solving",
     spacedRepetition,
+    streak,
     wrongAnswerStreak,
   });
 }
@@ -950,7 +968,13 @@ export function selectGatheringMove(
   const move = getGatheringMoves(state.equation).find((candidate) => candidate.id === moveId);
   if (!move) return state;
 
-  const nextHp = Math.max(0, state.monster.hp - move.damage);
+  // The elemental matchup scales the move's base damage (super/neutral/resisted).
+  const { damage } = applyGatheringElementalDamage(
+    move.damage,
+    move.element,
+    state.monster.elementType,
+  );
+  const nextHp = Math.max(0, state.monster.hp - damage);
   if (nextHp <= 0) {
     const rewardPlan = createGatheringRewardPlan(
       state.round,
@@ -1007,6 +1031,11 @@ export function claimGatheringReward(
       },
       ...state.gatherLog,
     ].slice(0, GATHERING_LOG_LIMIT),
+    // Carry the answer streak across the round transition — `createGatheringRound`
+    // resets it to the default, but a streak only breaks on a WRONG answer
+    // (advanceGatheringStreak), never on winning a fight. Without this the streak
+    // resets every kill and could never reach the 10/15/30 reward tiers.
+    streak: state.streak,
     targetDropChances: state.targetDropChances,
   });
 }
@@ -1068,6 +1097,25 @@ export function createGatheringRewardPlan(
         round,
         selectedCardIds,
         slotIndex,
+      }),
+    );
+  }
+
+  // New Reward Slot upgrade: once confirmed, a coin flip per kill adds a 4th
+  // reward option to pick from. (Confirm-gated, so it never fires unlocked.)
+  if (
+    hasUpgrade(context?.unlockedUpgradeIds ?? [], NEW_REWARD_SLOT_UPGRADE_ID) &&
+    Math.random() < NEW_REWARD_SLOT_FOURTH_CHANCE
+  ) {
+    selectedCardIds.push(
+      pickWeightedRewardCard({
+        demandScores,
+        excludedCardIds,
+        focusedCardIds: focusedDemandCardIds,
+        focused: false,
+        round,
+        selectedCardIds,
+        slotIndex: GATHERING_REWARD_OPTION_COUNT,
       }),
     );
   }

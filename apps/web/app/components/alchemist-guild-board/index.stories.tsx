@@ -13,6 +13,7 @@ import {
   createGatheringBossReadyState,
   GATHERING_BOSS_REQUIRED_STREAK,
 } from "./gathering-loop";
+import { EXPEDITION_QUEUE_UPGRADE_ID } from "./upgrades";
 
 const meta = {
   title: "Components/AlchemistGuildBoard",
@@ -84,12 +85,41 @@ const EXPEDITION_REWARD_READY_BOARD_STATE: AlchemistGuildBoardState = {
   },
 };
 
+// Expedition under way (~4 minutes out) while the player is on the Crafting tab —
+// the Expedition tab shows its live M:SS countdown so progress is glanceable from
+// any mode.
+const EXPEDITION_IN_PROGRESS_BOARD_STATE: AlchemistGuildBoardState = {
+  ...EXPEDITION_READY_BOARD_STATE,
+  activeBoardMode: "crafting",
+  expedition: {
+    ...EXPEDITION_READY_BOARD_STATE.expedition,
+    readyAtMs: Date.now() + 4 * 60 * 1000,
+    readyNotified: false,
+    startedAtMs: Date.now(),
+    targetCardId: "element:si",
+  },
+};
+
 const GATHERING_BOSS_READY_BOARD_STATE: AlchemistGuildBoardState = {
   ...GATHERING_READY_BOARD_STATE,
   activeBoardMode: "gathering",
   gathering: {
     ...createGatheringBossReadyState(1, Date.now()),
     unlockSeen: true,
+  },
+};
+
+// Reward phase reached on a hot streak (16 → Epic): the chest art is the Epic
+// geode vault and the demand-ordered options wear +N bonus badges.
+const GATHERING_REWARD_STREAK_BOARD_STATE: AlchemistGuildBoardState = {
+  ...GATHERING_READY_BOARD_STATE,
+  activeBoardMode: "gathering",
+  gathering: {
+    ...GATHERING_READY_BOARD_STATE.gathering,
+    monster: { ...GATHERING_READY_BOARD_STATE.gathering.monster, hp: 0 },
+    phase: "reward",
+    rewardOptionCardIds: ["element:h", "element:he", "element:li"],
+    streak: { current: 16, lastBrokenAtMs: null, lastIncrementAtMs: null, longest: 18 },
   },
 };
 
@@ -149,6 +179,10 @@ export const GatheringBossReward: Story = {
   render: () => <SeededBoardStory boardState={GATHERING_BOSS_REWARD_BOARD_STATE} />,
 };
 
+export const GatheringRewardStreak: Story = {
+  render: () => <SeededBoardStory boardState={GATHERING_REWARD_STREAK_BOARD_STATE} />,
+};
+
 export const GlassblowerQuestIpad: Story = {
   render: () => <SeededBoardStory boardState={GLASSBLOWER_QUEST_BOARD_STATE} />,
 };
@@ -159,4 +193,40 @@ export const ExpeditionReady: Story = {
 
 export const ExpeditionRewardReady: Story = {
   render: () => <SeededBoardStory boardState={EXPEDITION_REWARD_READY_BOARD_STATE} />,
+};
+
+export const ExpeditionInProgress: Story = {
+  render: () => <SeededBoardStory boardState={EXPEDITION_IN_PROGRESS_BOARD_STATE} />,
+};
+
+// The Expedition Queue upgrade is unlocked, so the Upgrades tab shows the shop:
+// one real upgrade (Active) plus the redacted "???" teasers.
+const UPGRADES_BOARD_STATE: AlchemistGuildBoardState = {
+  ...EXPEDITION_READY_BOARD_STATE,
+  activeBoardMode: "upgrades",
+  discoveredEmergentRecipes: ALCHEMIST_GUILD_BOARD_DEFAULT.discoveredEmergentRecipes,
+  unlockedUpgradeIds: [EXPEDITION_QUEUE_UPGRADE_ID],
+};
+
+export const UpgradesShop: Story = {
+  render: () => <SeededBoardStory boardState={UPGRADES_BOARD_STATE} />,
+};
+
+// Expedition Queue upgrade in action: an active run plus two more lined up that
+// auto-launch as each returns.
+const EXPEDITION_QUEUE_BOARD_STATE: AlchemistGuildBoardState = {
+  ...EXPEDITION_READY_BOARD_STATE,
+  activeBoardMode: "expedition",
+  unlockedUpgradeIds: [EXPEDITION_QUEUE_UPGRADE_ID],
+  expedition: {
+    ...EXPEDITION_READY_BOARD_STATE.expedition,
+    queuedTargetCardIds: ["element:fe", "element:cu"],
+    readyAtMs: Date.now() + 3 * 60 * 1000,
+    startedAtMs: Date.now(),
+    targetCardId: "element:si",
+  },
+};
+
+export const ExpeditionWithQueue: Story = {
+  render: () => <SeededBoardStory boardState={EXPEDITION_QUEUE_BOARD_STATE} />,
 };

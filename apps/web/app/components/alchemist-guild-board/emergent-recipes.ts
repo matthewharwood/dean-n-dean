@@ -4,6 +4,7 @@ import {
   ELEMENT_CARDS,
 } from "@dean-stack/schemas";
 
+import type { ForgeRoundResult } from "./orbit-forge-scoring";
 import {
   getAlchemyWorkbenchExtendedRecipePreview,
   getAlchemyWorkbenchRecipePreview,
@@ -81,7 +82,26 @@ export function createEmergentTransmutationResult(
   preview: AlchemyWorkbenchEmergentPreview,
   attemptedAtMs: number,
   random = Math.random,
+  skillResult?: ForgeRoundResult,
 ): EmergentTransmutationResult {
+  // Skill path (Orbit Forge): the mini-game already decided success + the
+  // per-ingredient syllable indexes, so skip BOTH the 82% roll and the weighted
+  // RNG word-index sampling. The legacy RNG path below is the fallback for any
+  // non-skill craft.
+  if (skillResult) {
+    if (!skillResult.success) {
+      return {
+        attemptedAtMs,
+        kind: "failure",
+        orderedIngredientCardIds: preview.orderedIngredientCardIds,
+      };
+    }
+    return {
+      discovery: buildEmergentDiscovery(preview, attemptedAtMs, skillResult.syllableIndexes),
+      kind: "success",
+    };
+  }
+
   if (random() > EMERGENT_TRANSMUTATION_SUCCESS_RATE) {
     return {
       attemptedAtMs,
@@ -91,6 +111,17 @@ export function createEmergentTransmutationResult(
   }
 
   const syllableIndexes = preview.orderedIngredientCardIds.map(() => pickEmergentWordIndex(random));
+  return {
+    discovery: buildEmergentDiscovery(preview, attemptedAtMs, syllableIndexes),
+    kind: "success",
+  };
+}
+
+function buildEmergentDiscovery(
+  preview: AlchemyWorkbenchEmergentPreview,
+  attemptedAtMs: number,
+  syllableIndexes: readonly number[],
+): AlchemistGuildEmergentRecipe {
   const syllables = preview.orderedIngredientCardIds.map((cardId, index) => {
     const words = EMERGENT_ELEMENT_WORDS.get(cardId);
     const syllableIndex = syllableIndexes[index];
@@ -98,7 +129,8 @@ export function createEmergentTransmutationResult(
     if (!syllable) throw new Error(`Missing emergent syllable for ${cardId}`);
     return syllable;
   });
-  const discovery: AlchemistGuildEmergentRecipe = {
+
+  return {
     count: 1,
     firstDiscoveredAtMs: attemptedAtMs,
     formula: syllables.join(" + "),
@@ -107,11 +139,9 @@ export function createEmergentTransmutationResult(
     lastDiscoveredAtMs: attemptedAtMs,
     name: formatEmergentRecipeName(syllables),
     rarity: getEmergentRecipeRarity(syllableIndexes),
-    syllableIndexes,
+    syllableIndexes: [...syllableIndexes],
     syllables,
   };
-
-  return { discovery, kind: "success" };
 }
 
 export function recordEmergentDiscovery(
@@ -146,7 +176,10 @@ export function recordEmergentDiscovery(
 export function getEmergentRecipeRarity(
   syllableIndexes: readonly number[],
 ): AlchemistGuildEmergentRecipeRarity {
-  if (syllableIndexes.length === 5 && syllableIndexes.every((index) => index === 4)) {
+  // A flawless run — every ingredient at the top index — forges a mythical at ANY
+  // craft size. Orbit Forge lets a kid earn this by skill (8 perfects), where the
+  // legacy RNG path made it ~1-in-millions and only ever on a 5-ingredient craft.
+  if (syllableIndexes.length > 0 && syllableIndexes.every((index) => index === 4)) {
     return "mythical";
   }
 

@@ -271,8 +271,8 @@ export const ALCHEMY_QUESTS = [
       requester: "cleric",
       summary:
         "The town learns that simple element pairs and raw materials become useful supplies.",
-      need: "The kitchen and chapel both need clean salt, charcoal, and ash.",
-      hint: "Salt uses Sodium and Chlorine. Wood can become either Charcoal or Ash.",
+      need: "The kitchen and chapel need a crate of Kitchen Stores: clean salt, charcoal, and ash.",
+      hint: "Salt uses Sodium and Chlorine, and Wood becomes Charcoal and Ash. Bundle all three into Kitchen Stores to deliver.",
       completion:
         "The pantry labels make sense again, and the Muddlefog thins over the market shelf.",
     },
@@ -284,14 +284,14 @@ export const ALCHEMY_QUESTS = [
       suggestedMinutes: [5, 12],
     },
     prerequisites: prerequisites(["quest:first-water"]),
-    recipeIds: ["alchemy:salt", "alchemy:charcoal", "alchemy:ash"],
+    recipeIds: ["alchemy:salt", "alchemy:charcoal", "alchemy:ash", "alchemy:kitchen-stores"],
     teachingFocus: ["binary compounds", "raw material transforms", "same input different output"],
     unlocks: unlocks({
       elementCardIds: ["element:na", "element:cl"],
       rawCardIds: ["raw:wood"],
       requesters: ["cleric", "blacksmith"],
       zones: ["zone:market-shelf"],
-      recipeIds: ["alchemy:salt", "alchemy:charcoal", "alchemy:ash"],
+      recipeIds: ["alchemy:salt", "alchemy:charcoal", "alchemy:ash", "alchemy:kitchen-stores"],
       knowledgeBadges: ["badge:first-salt"],
     }),
     rewards: rewards(18, 18, 0, 3),

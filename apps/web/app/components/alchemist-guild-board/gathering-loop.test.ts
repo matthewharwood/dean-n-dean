@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALCHEMIST_GUILD_BOARD_DEFAULT,
+  ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES,
   ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT,
   ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
   ALCHEMY_GATHERING_ENEMIES,
@@ -8,6 +9,7 @@ import {
   getGatheringEnemyImagePath,
 } from "@dean-stack/schemas";
 
+import type { GatheringElementType } from "./gathering-elements";
 import {
   answerGatheringBossChallenge,
   claimGatheringBossReward,
@@ -36,6 +38,7 @@ import {
   swapGatheringAnswerWithChoice,
   swapGatheringChoices,
 } from "./gathering-loop";
+import { NEW_REWARD_SLOT_UPGRADE_ID } from "./upgrades";
 
 describe("gathering loop", () => {
   test("deals addition equations with the correct answer in the choices", () => {
@@ -253,6 +256,28 @@ describe("gathering loop", () => {
     expect(rewarded.rewardOptionCardIds).toHaveLength(3);
   });
 
+  test("the elemental matchup scales the damage a move deals", () => {
+    const round = createGatheringRound(1);
+    const solved = confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer));
+    const leftSpark = getGatheringMoves(solved.equation).find((move) => move.id === "left-spark");
+    if (!leftSpark) throw new Error("expected left-spark move");
+
+    // left-spark is lightning: super (1.5×) vs water, resisted (0.5×) vs nature.
+    const highHp = 200;
+    const withEnemyElement = (elementType: GatheringElementType) => ({
+      ...solved,
+      monster: { ...solved.monster, elementType, hp: highHp, maxHp: highHp },
+    });
+
+    const superHit = selectGatheringMove(withEnemyElement("water"), "left-spark");
+    const resistHit = selectGatheringMove(withEnemyElement("nature"), "left-spark");
+    const neutralHit = selectGatheringMove(withEnemyElement("lightning"), "left-spark");
+
+    expect(highHp - superHit.monster.hp).toBe(Math.max(1, Math.round(leftSpark.damage * 1.5)));
+    expect(highHp - resistHit.monster.hp).toBe(Math.max(1, Math.round(leftSpark.damage * 0.5)));
+    expect(highHp - neutralHit.monster.hp).toBe(leftSpark.damage);
+  });
+
   test("three wrong gathering answers reset the equation and hand", () => {
     let state = createGatheringRound(1);
     const firstEquationId = state.equation.id;
@@ -286,6 +311,53 @@ describe("gathering loop", () => {
     expect(options).toHaveLength(3);
     expect(new Set(options).size).toBe(3);
     expect(focusedNeedCount).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the New Reward Slot upgrade can add a 4th reward option after a kill", () => {
+    const withUpgrade = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      unlockedUpgradeIds: [NEW_REWARD_SLOT_UPGRADE_ID],
+    };
+    const lengths = new Set<number>();
+    for (let round = 1; round <= 60; round += 1) {
+      lengths.add(createGatheringRewardPlan(round, withUpgrade).cardIds.length);
+    }
+    // The 50% coin flip yields both 3- and 4-option plans over many rounds.
+    expect(lengths.has(3)).toBe(true);
+    expect(lengths.has(4)).toBe(true);
+  });
+
+  test("without the New Reward Slot upgrade the reward plan stays at 3 options", () => {
+    for (let round = 1; round <= 30; round += 1) {
+      expect(createGatheringRewardPlan(round, ALCHEMIST_GUILD_BOARD_DEFAULT).cardIds).toHaveLength(
+        3,
+      );
+    }
+  });
+
+  test("a New Reward Slot 4th option survives selectGatheringMove's schema parse", () => {
+    // Regression guard: the reward-plan unit tests above only build the plan in
+    // isolation. The real kill path runs the plan through
+    // AlchemistGuildGatheringStateSchema.parse in selectGatheringMove, which capped
+    // rewardOptionCardIds at 3 — so a 4-option plan threw on the killing blow.
+    const context = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      unlockedUpgradeIds: [NEW_REWARD_SLOT_UPGRADE_ID],
+    };
+    const lengths = new Set<number>();
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const round = createGatheringRound(1);
+      const almostDefeated = {
+        ...confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer)),
+        monster: { ...round.monster, hp: 1 },
+      };
+      // Must not throw, and the reward phase must hold the (up to 4) options.
+      const rewarded = selectGatheringMove(almostDefeated, "sum-strike", context);
+      expect(rewarded.phase).toBe("reward");
+      lengths.add(rewarded.rewardOptionCardIds.length);
+    }
+    // Over 200 kills the 50% flip lands at least one 4-option plan through the parse.
+    expect(lengths.has(4)).toBe(true);
   });
 
   test("raises selected quest target drop chance by five points per defeated enemy", () => {
@@ -533,7 +605,15 @@ describe("gathering loop", () => {
 
 describe("gathering enemy cycle", () => {
   test("round 1 monster matches the persisted default", () => {
-    expect(createGatheringMonsterForRound(1)).toEqual(ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT);
+    const monster = createGatheringMonsterForRound(1);
+    // The element is round-derived (round 1 → tide); the rest of the identity
+    // must still match the committed default monster.
+    expect(monster).toEqual({
+      ...ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT,
+      elementType: monster.elementType,
+    });
+    expect(ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES).toContain(monster.elementType);
+    expect(monster.elementType).toBe("water");
   });
 
   test("walks the bestiary ladder in tier order, one enemy per round", () => {

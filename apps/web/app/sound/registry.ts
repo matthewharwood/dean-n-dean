@@ -76,6 +76,37 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     volume: 0.72,
   },
   {
+    bus: "ui",
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.86, holdMs: 90, releaseMs: 180 },
+      { attackMs: 8, bus: "ambience", gain: 0.92, holdMs: 70, releaseMs: 150 },
+    ],
+    // PLACEHOLDER audio (copy of expedition-unlocked.mp3) — regenerate via /sfx
+    // from this prompt once the ElevenLabs MCP is connected.
+    generatorPrompt:
+      "Soft notification arrival chime for a toast popping in, two quick warm glass bell taps with a gentle upward sparkle, dry close-miked mobile UI, 0.5s one-shot, friendly and inviting.",
+    id: "notification.show",
+    interruptFadeMs: 12,
+    maxVoices: 3,
+    replay: "restart",
+    url: "/sfx/ui/notification-show.mp3",
+    volume: 0.7,
+  },
+  {
+    bus: "ui",
+    ducking: [{ attackMs: 8, bus: "ambience", gain: 0.94, holdMs: 30, releaseMs: 110 }],
+    // PLACEHOLDER audio (copy of card-drop.mp3) — regenerate via /sfx from this
+    // prompt once the ElevenLabs MCP is connected.
+    generatorPrompt:
+      "Soft notification dismiss for a toast sliding away, a short downward felt swipe with a tiny paper slide, dry centered mobile UI, 0.35s one-shot, gentle and unobtrusive.",
+    id: "notification.hide",
+    interruptFadeMs: 14,
+    maxVoices: 3,
+    replay: "overlap",
+    url: "/sfx/ui/notification-hide.mp3",
+    volume: 0.6,
+  },
+  {
     bus: "sfx",
     ducking: [
       { attackMs: 12, bus: "music", gain: 0.82, holdMs: 40, releaseMs: 120 },
@@ -329,5 +360,58 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     replay: "restart",
     url: "/sfx/combat/gathering-monster-death.mp3",
     volume: 0.84,
+  },
+  {
+    bus: "sfx",
+    detuneCents: 0,
+    generatorPrompt:
+      "Short crisp ascending streak tick, a single bright marimba-like pluck with a tiny crystalline shimmer on top, dry centered mobile game UI, 0.25 second one-shot, satisfying and clean — designed to be pitched up as a streak climbs.",
+    id: "gathering.streak.increment",
+    interruptFadeMs: 6,
+    maxVoices: 6,
+    replay: "overlap",
+    url: "/sfx/ui/gathering-streak-increment.mp3",
+    volume: 0.55,
+  },
+  {
+    bus: "ui",
+    detuneCents: 0,
+    generatorPrompt:
+      "Warm magical ignite swell as a streak catches fire, a soft rising whoosh blooming into a bright friendly bell, dry centered mobile game UI, 0.6 second one-shot with a gentle tail, exciting and encouraging for a young child.",
+    id: "gathering.streak.ignite",
+    interruptFadeMs: 12,
+    maxVoices: 2,
+    replay: "restart",
+    url: "/sfx/ui/gathering-streak-ignite.mp3",
+    volume: 0.7,
+  },
+  {
+    bus: "ui",
+    detuneCents: 0,
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.82, holdMs: 90, releaseMs: 170 },
+      { attackMs: 8, bus: "ambience", gain: 0.9, holdMs: 80, releaseMs: 150 },
+    ],
+    generatorPrompt:
+      "Triumphant streak milestone fanfare, an ascending sparkling arpeggio of glass bells over a warm brass underpin, proud and celebratory, dry centered mobile game UI, 0.9 second one-shot with a shimmering tail.",
+    id: "gathering.streak.milestone",
+    interruptFadeMs: 10,
+    maxVoices: 3,
+    replay: "restart",
+    url: "/sfx/ui/gathering-streak-milestone.mp3",
+    volume: 0.8,
+  },
+  {
+    bus: "sfx",
+    detuneCents: 0,
+    ducking: [{ attackMs: 12, bus: "music", gain: 0.8, holdMs: 120, releaseMs: 220 }],
+    generatorPrompt:
+      "Streak-break glass shatter, a crisp crystalline crack splintering into falling shards with a soft disappointed downward whoosh, dry close-miked mobile game event, 0.7 second one-shot with a short debris tail, clean and not harsh for a child.",
+    id: "gathering.streak.break",
+    interruptFadeMs: 16,
+    maxVoices: 2,
+    replay: "restart",
+    url: "/sfx/combat/gathering-streak-break.mp3",
+    volume: 0.72,
   },
 ]);
