@@ -306,18 +306,21 @@ const WINDOW_POINTER_LISTENER_OPTIONS = {
 } satisfies AddEventListenerOptions;
 const WINDOW_POINTER_LISTENER_CAPTURE = true;
 const BOARD_DOT_GRID_STYLE = {
-  backgroundColor: "#f7f7f7",
-  backgroundImage: "radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.22) 1px, transparent 0)",
-  backgroundSize: "12px 12px",
+  backgroundColor: "#f4f6f4",
+  backgroundImage:
+    "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(235,241,239,0.58) 54%, rgba(224,242,254,0.38)), radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.18) 1px, transparent 0)",
+  backgroundSize: "100% 100%, 12px 12px",
 } satisfies CSSProperties;
 const GLASS_PANEL_CLASS =
-  "pointer-events-auto relative min-h-0 min-w-0 rounded-[8px] border border-white/50 bg-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)] backdrop-blur-md backdrop-saturate-150";
+  "pointer-events-auto relative min-h-0 min-w-0 rounded-[12px] border border-[#6b4a2b]/18 bg-[linear-gradient(135deg,rgba(255,255,255,0.74),rgba(255,255,255,0.46)_48%,rgba(224,242,254,0.22))] shadow-[inset_0_1px_0_rgba(255,255,255,0.86),inset_0_0_0_1px_rgba(255,255,255,0.38),0_1px_0_rgba(107,74,43,0.14),0_18px_36px_rgba(15,23,42,0.14)] backdrop-blur-xl backdrop-saturate-150";
+const GLASS_CONTROL_CLASS =
+  "pointer-events-auto rounded-[10px] border border-[#6b4a2b]/18 bg-white/68 shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_8px_18px_rgba(15,23,42,0.1)] backdrop-blur-md backdrop-saturate-150";
 const HIDDEN_SCROLL_CLASS =
   "overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const CLEAR_TABLE_WINDOW_CLASS =
-  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[8px] border border-white/40 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-[linear-gradient(135deg,rgba(255,255,255,0.22),rgba(255,255,255,0.08)_50%,rgba(14,165,233,0.06))] shadow-[inset_0_1px_0_rgba(255,255,255,0.56),inset_0_0_0_1px_rgba(255,255,255,0.22),0_12px_28px_rgba(15,23,42,0.1)] backdrop-blur-sm backdrop-saturate-150";
 const GATHERING_PANEL_LABEL_CLASS =
-  "pointer-events-none absolute left-3 top-3 z-20 text-xs font-black uppercase leading-none tracking-[-0.02em] text-neutral-950";
+  "pointer-events-none absolute left-3 top-3 z-20 rounded-full border border-[#6b4a2b]/18 bg-white/62 px-2 py-1 text-[10px] font-black uppercase leading-none tracking-normal text-[#3c2819] shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_5px_12px_rgba(15,23,42,0.08)] backdrop-blur-md";
 const GATHERING_PANEL_TRANSITION_CLASS =
   "transition-[grid-template-rows,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 const BOARD_MAIN_GRID_TRANSITION_CLASS =
@@ -3738,7 +3741,7 @@ const BoardModeTabs = defineComponent(
         data-board-section="board-mode-tabs"
         data-board-name="Board Mode Tabs"
         data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
-        className="pointer-events-auto inline-flex min-h-10 w-fit max-w-full items-center gap-1 justify-self-center rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+        className={`${GLASS_CONTROL_CLASS} inline-flex min-h-10 w-fit max-w-full items-center gap-1 justify-self-center px-2 py-1.5`}
         role="tablist"
         aria-label="Board modes"
       >
@@ -3800,10 +3803,7 @@ const BoardControlRow = defineComponent(
     const showInfoPanelToggle = activeTab === "crafting";
 
     return (
-      <div
-        data-board-section="board-control-row"
-        className="grid min-h-10 min-w-0 gap-2.5 lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]"
-      >
+      <div data-board-section="board-control-row" className={getBoardControlRowClass(activeTab)}>
         <div className="flex min-w-0 items-center gap-1 justify-self-start lg:col-span-2">
           <QuestPanelCollapseButton collapsed={questPanelCollapsed} onClick={onQuestPanelToggle} />
           <BoardModeTabs
@@ -3846,7 +3846,7 @@ const QuestPanelCollapseButton = defineComponent(
       type="button"
       data-board-section="quest-panel-collapse-button"
       data-board-name={collapsed ? "Open quest briefing" : "Collapse quest briefing"}
-      className="pointer-events-auto grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/50 bg-white/70 text-amber-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition-[background-color,transform] hover:bg-white/85 active:translate-y-px"
+      className={`${GLASS_CONTROL_CLASS} grid size-10 shrink-0 place-items-center text-amber-950 transition-[background-color,transform] hover:bg-white/85 active:translate-y-px`}
       aria-label={collapsed ? "Open quest briefing panel" : "Collapse quest briefing panel"}
       aria-expanded={!collapsed}
       onClick={onClick}
@@ -3874,7 +3874,7 @@ const AlchemyWorkbenchInfoCollapseButton = defineComponent(
       data-board-name={
         collapsed ? "Open alchemy workbench info" : "Collapse alchemy workbench info"
       }
-      className="pointer-events-auto grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/50 bg-white/70 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition-[background-color,transform] hover:bg-white/85 active:translate-y-px"
+      className={`${GLASS_CONTROL_CLASS} grid size-10 shrink-0 place-items-center text-sky-950 transition-[background-color,transform] hover:bg-white/85 active:translate-y-px`}
       aria-label={
         collapsed ? "Open alchemy workbench info panel" : "Collapse alchemy workbench info panel"
       }
@@ -3988,7 +3988,7 @@ function getBoardModeTabClass(
 
   if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
 
-  return `${baseClass} border-amber-900/20 bg-white/60 text-amber-950/70 hover:bg-white/85`;
+  return `${baseClass} border-[#6b4a2b]/18 bg-white/52 text-[#3c2819]/72 hover:bg-white/82`;
 }
 
 function getBoardModeRevealKey(
@@ -7468,7 +7468,7 @@ const RightModePanels = defineComponent(
 );
 
 function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
-  const baseClass = `grid min-h-0 min-w-0 gap-2.5 ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  const baseClass = `grid min-h-0 min-w-0 gap-3 ${GATHERING_PANEL_TRANSITION_CLASS}`;
   if (isGatheringMode) {
     return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
   }
@@ -7479,7 +7479,16 @@ function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
 function getBoardChromeClass(): string {
   const baseClass =
     "pointer-events-none relative z-10 mx-auto grid h-full min-h-0 min-w-0 max-w-[1332px]";
-  return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
+  return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-3 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
+}
+
+function getBoardControlRowClass(activeTab: BoardModeTab): string {
+  const baseClass = "grid min-h-10 min-w-0 gap-3";
+  if (activeTab === "gathering") {
+    return `${baseClass} lg:grid-cols-[11rem_minmax(0,1fr)_13.25rem] xl:grid-cols-[14rem_minmax(36rem,1fr)_15rem]`;
+  }
+
+  return `${baseClass} lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]`;
 }
 
 function getBoardCanvasName(isExpeditionMode: boolean): string {
@@ -7668,7 +7677,7 @@ function getWorkbenchPanelClass(
       return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(auto-fit,minmax(105px,105px))] grid-rows-[minmax(0,1fr)] justify-center gap-5 overflow-visible p-4 pt-10`;
     }
 
-    return `${GLASS_PANEL_CLASS} grid grid-cols-5 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 pt-10`;
+    return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(5,105px)] grid-rows-[minmax(0,1fr)] justify-center gap-2 overflow-hidden p-4 pt-10 xl:gap-3`;
   }
 
   return `${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-3 sm:grid-rows-none lg:gap-5 xl:grid-cols-5 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:gap-8`;
@@ -7677,7 +7686,7 @@ function getWorkbenchPanelClass(
 function getRightModePanelsClass(isGatheringMode: boolean): string {
   const baseClass = `hidden min-h-0 min-w-0 overflow-hidden lg:grid ${GATHERING_PANEL_TRANSITION_CLASS}`;
   if (isGatheringMode) {
-    return `${baseClass} gap-2.5 lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
+    return `${baseClass} gap-3 lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
   }
 
   return `${baseClass} gap-0 lg:grid-rows-[minmax(0,1fr)_minmax(0,0px)]`;
@@ -7692,8 +7701,14 @@ function getRightPrimaryPanelClass(isGatheringMode: boolean, infoPanelCollapsed:
   return baseClass;
 }
 
-function getMainBoardGridClass(questPanelCollapsed: boolean): string {
-  const baseClass = `grid min-h-0 min-w-0 gap-2.5 ${BOARD_MAIN_GRID_TRANSITION_CLASS}`;
+function getMainBoardGridClass(questPanelCollapsed: boolean, isGatheringMode: boolean): string {
+  const baseClass = `grid min-h-0 min-w-0 gap-3 ${BOARD_MAIN_GRID_TRANSITION_CLASS}`;
+  if (isGatheringMode) {
+    return questPanelCollapsed
+      ? `${baseClass} lg:grid-cols-[3.75rem_minmax(0,1fr)_13.25rem] xl:grid-cols-[3.75rem_minmax(36rem,1fr)_15rem]`
+      : `${baseClass} lg:grid-cols-[11rem_minmax(0,1fr)_13.25rem] xl:grid-cols-[14rem_minmax(36rem,1fr)_15rem]`;
+  }
+
   return questPanelCollapsed
     ? `${baseClass} lg:grid-cols-[3.75rem_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[3.75rem_minmax(30rem,1fr)_minmax(14rem,316px)]`
     : `${baseClass} lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]`;
@@ -10832,7 +10847,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           data-board-section="top-inventory-panel"
           data-board-name="Inventory"
           data-board-description={BOARD_DESCRIPTIONS.inventory}
-          className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)_2.5rem] items-center gap-3 py-2 pl-3 pr-16`}
+          className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)_2.5rem] items-center gap-3 px-3 py-2`}
           aria-label="Inventory"
         >
           <BoardDebugBadge
@@ -10841,16 +10856,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             visible={showBoardDebugBadges}
           />
           <div
-            className="grid size-10 place-items-center justify-self-start rounded-[6px] border border-sky-950/20 bg-white/40 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)]"
+            className={`${GLASS_CONTROL_CLASS} grid size-10 place-items-center justify-self-start text-sky-950`}
             aria-hidden="true"
           >
             <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
           </div>
-          <span className="h-10 w-px bg-neutral-950/25" aria-hidden="true" />
+          <span className="h-10 w-px bg-[#6b4a2b]/22" aria-hidden="true" />
           <div
             data-board-section="inventory-shelf"
             data-board-name="Inventory shelf"
-            className="grid min-h-14 min-w-0 grid-cols-[repeat(8,minmax(0,1fr))] items-center gap-1.5 pb-1 pr-1 sm:gap-2"
+            className="grid min-h-14 min-w-0 grid-cols-[repeat(8,minmax(0,1fr))] items-center gap-1.5 rounded-[8px] border border-[#6b4a2b]/12 bg-white/22 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.52)] sm:gap-2"
           >
             {inventorySlots.map((slot) => {
               const item = boardState.inventorySlots[slot.id];
@@ -10906,7 +10921,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         />
 
         {modeBoardPanel ?? (
-          <section className={getMainBoardGridClass(questPanelCollapsed)}>
+          <section className={getMainBoardGridClass(questPanelCollapsed, isGatheringMode)}>
             <aside className="hidden min-h-0 min-w-0 lg:grid">
               {questPanelCollapsed ? null : (
                 <LeftModePanel
