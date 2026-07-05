@@ -319,6 +319,8 @@ const HIDDEN_SCROLL_CLASS =
   "overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const CLEAR_TABLE_WINDOW_CLASS =
   "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-[linear-gradient(135deg,rgba(255,255,255,0.22),rgba(255,255,255,0.08)_50%,rgba(14,165,233,0.06))] shadow-[inset_0_1px_0_rgba(255,255,255,0.56),inset_0_0_0_1px_rgba(255,255,255,0.22),0_12px_28px_rgba(15,23,42,0.1)] backdrop-blur-sm backdrop-saturate-150";
+const PERIODIC_TABLE_WINDOW_CLASS =
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-transparent shadow-[inset_0_1px_0_rgba(255,255,255,0.48),inset_0_0_0_1px_rgba(255,255,255,0.18),0_12px_28px_rgba(15,23,42,0.08)]";
 const GATHERING_PANEL_LABEL_CLASS =
   "pointer-events-none absolute left-3 top-3 z-20 rounded-full border border-[#6b4a2b]/18 bg-white/62 px-2 py-1 text-[10px] font-black uppercase leading-none tracking-normal text-[#3c2819] shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_5px_12px_rgba(15,23,42,0.08)] backdrop-blur-md";
 const GATHERING_PANEL_TRANSITION_CLASS =
@@ -6806,7 +6808,9 @@ const CenterBoardPanels = defineComponent(
           data-board-description={
             isGatheringMode ? "Primary gathering playfield." : BOARD_DESCRIPTIONS.periodicTableVault
           }
-          className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS}`}
+          className={`${
+            isGatheringMode ? CLEAR_TABLE_WINDOW_CLASS : PERIODIC_TABLE_WINDOW_CLASS
+          } ${GATHERING_PANEL_TRANSITION_CLASS}`}
         >
           {primaryPanelContent}
         </div>
