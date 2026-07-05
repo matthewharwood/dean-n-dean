@@ -332,6 +332,36 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     volume: 0.82,
   },
   {
+    bus: "sfx",
+    ducking: [
+      { attackMs: 12, bus: "music", gain: 0.72, holdMs: 120, releaseMs: 210 },
+      { attackMs: 10, bus: "ambience", gain: 0.84, holdMs: 100, releaseMs: 180 },
+    ],
+    generatorPrompt:
+      "Ember Burst attack, small ceramic fire bead popping from a card, crisp flame puff with warm crackle and soft brass tick, dry centered mobile game combat UI, 0.8 second one-shot with quick ember tail, lively.",
+    id: "gathering.attack.emberBurst",
+    interruptFadeMs: 12,
+    maxVoices: 6,
+    replay: "overlap",
+    url: "/sfx/combat/gathering-ember-burst.mp3",
+    volume: 0.8,
+  },
+  {
+    bus: "sfx",
+    ducking: [
+      { attackMs: 14, bus: "music", gain: 0.7, holdMs: 140, releaseMs: 230 },
+      { attackMs: 12, bus: "ambience", gain: 0.82, holdMs: 120, releaseMs: 200 },
+    ],
+    generatorPrompt:
+      "Stone Crash attack, smooth river stones clacking into a heavy card impact, low pebble thud with tiny grit scatter and muted crystal ring, dry centered mobile game combat UI, 0.9 second one-shot with short dust tail, sturdy.",
+    id: "gathering.attack.stoneCrash",
+    interruptFadeMs: 14,
+    maxVoices: 5,
+    replay: "overlap",
+    url: "/sfx/combat/gathering-stone-crash.mp3",
+    volume: 0.82,
+  },
+  {
     bus: "ui",
     ducking: [
       { attackMs: 8, bus: "music", gain: 0.84, holdMs: 70, releaseMs: 150 },

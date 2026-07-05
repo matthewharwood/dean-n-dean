@@ -127,7 +127,7 @@ import {
   GatheringDamageFloaterTierSchema,
   resolveGatheringDamageFloaterTier,
 } from "./gathering-damage-floater";
-import type { GatheringElementType } from "./gathering-elements";
+import { type GatheringElementType, gatheringCounterElementFor } from "./gathering-elements";
 import {
   answerGatheringBossChallenge,
   claimGatheringBossReward,
@@ -142,10 +142,11 @@ import {
   type GatheringMove,
   type GatheringMoveId,
   getGatheringBossRewardQuantity,
-  getGatheringMoves,
+  getGatheringMoveLadder,
   isGatheringBossReady,
   recordGatheringMasteryProgress,
   resetGatheringEquationAfterWrongStreak,
+  resolveGatheringMoveDamage,
   selectGatheringAnswer,
   selectGatheringMove,
   startGatheringBossFight,
@@ -426,11 +427,29 @@ const gatheringMoveVisuals = {
     iconPath: "gathering-attack-icons/sum-strike.png",
     nameClass: "text-fuchsia-950",
   },
+  "ember-burst": {
+    arcColor: 0xf97316,
+    arcGlowAlpha: 0.46,
+    auraClass: "bg-[radial-gradient(circle_at_50%_18%,rgba(251,146,60,0.26),transparent_52%)]",
+    cardClass:
+      "border-orange-500 bg-orange-50 hover:border-orange-500 hover:shadow-[inset_0_0_0_3px_rgba(249,115,22,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
+    detailClass: "border-orange-200 bg-orange-50/90 text-orange-950",
+    iconPath: "gathering-attack-icons/ember-burst.png",
+    nameClass: "text-orange-950",
+  },
+  "stone-crash": {
+    arcColor: 0x78716c,
+    arcGlowAlpha: 0.4,
+    auraClass: "bg-[radial-gradient(circle_at_50%_18%,rgba(168,162,158,0.3),transparent_54%)]",
+    cardClass:
+      "border-stone-500 bg-stone-50 hover:border-stone-500 hover:shadow-[inset_0_0_0_3px_rgba(120,113,108,0.22),0_8px_18px_rgba(0,0,0,0.18)]",
+    detailClass: "border-stone-200 bg-stone-50/90 text-stone-950",
+    iconPath: "gathering-attack-icons/stone-crash.png",
+    nameClass: "text-stone-950",
+  },
 } satisfies Record<GatheringMoveId, GatheringMoveVisual>;
 
-// Per-element presentation for the ENEMY type badge only — the player's attacks
-// stay deliberately unlabeled so the counter is discovered by playing. glyph is
-// a kid-readable emoji; colors echo the element's nature.
+// Per-element presentation shared by enemy badges and attack cards.
 type GatheringElementUi = {
   badgeClass: string;
   glyph: string;
@@ -442,10 +461,20 @@ const gatheringElementUi = {
     glyph: "⚡",
     label: "Lightning",
   },
+  fire: {
+    badgeClass: "border-orange-400/80 bg-orange-100 text-orange-800",
+    glyph: "🔥",
+    label: "Fire",
+  },
   nature: {
     badgeClass: "border-emerald-400/80 bg-emerald-100 text-emerald-800",
     glyph: "🌿",
     label: "Nature",
+  },
+  stone: {
+    badgeClass: "border-stone-400/80 bg-stone-100 text-stone-800",
+    glyph: "◆",
+    label: "Stone",
   },
   water: {
     badgeClass: "border-sky-400/80 bg-sky-100 text-sky-800",
@@ -688,6 +717,7 @@ type GatheringAnswerPointerDownHandler = (
 ) => void;
 type GatheringMovePointerDownHandler = (
   move: GatheringMove,
+  sourceChoiceIndex: number,
   event: ReactPointerEvent<HTMLButtonElement>,
 ) => void;
 type GatheringRewardSelectHandler = (cardId: string) => void;
@@ -715,8 +745,10 @@ type DraggedGatheringCard =
       value: number;
     })
   | (DraggedGatheringCardBase & {
+      enemyElement: GatheringElementType;
       kind: "move";
       move: GatheringMove;
+      sourceChoiceIndex: number;
     });
 
 // The id of the move being held/charged, or null. Module-scoped so the board
@@ -746,12 +778,6 @@ type GatheringAnswerSlotGhost = {
   feedback: DropFeedback;
   value: number;
 };
-
-const gatheringMoveSourceChoiceIndexes = {
-  "left-spark": 1,
-  "right-spark": 2,
-  "sum-strike": 3,
-} satisfies Record<GatheringMoveId, number>;
 
 type SlotHitRect = SlotRect & {
   slotId: AlchemistGuildReagentSlotId;
@@ -1444,10 +1470,24 @@ const GatheringGameCardsPanel = defineComponent(
         ),
       );
     } else if (gathering.phase === "move") {
-      const moveCards = getGatheringMoves(gathering.equation).map((move) => (
-        <GatheringMoveCard key={move.id} move={move} onPointerDown={onMovePointerDown} />
-      ));
-      occupiedCards = [null, ...moveCards, null];
+      const moveCards = getGatheringMoveLadder(gathering.streak.current).map((move, index) =>
+        move.locked ? (
+          <GatheringLockedMoveCard
+            key={move.id}
+            enemyElement={gathering.monster.elementType}
+            move={move}
+          />
+        ) : (
+          <GatheringMoveCard
+            key={move.id}
+            enemyElement={gathering.monster.elementType}
+            move={move}
+            sourceChoiceIndex={index}
+            onPointerDown={onMovePointerDown}
+          />
+        ),
+      );
+      occupiedCards = moveCards;
     } else {
       occupiedCards = gathering.rewardOptionCardIds.map((cardId, optionIndex) => (
         <GatheringRewardCard
@@ -1601,14 +1641,17 @@ const GatheringAnswerSlotCard = defineComponent(
 );
 
 const GatheringMoveCardPropsSchema = z.object({
+  enemyElement: z.custom<GatheringElementType>(),
   move: z.custom<GatheringMove>(),
   onPointerDown: z.custom<GatheringMovePointerDownHandler>(),
+  sourceChoiceIndex: z.int().min(0),
 });
 
 const GatheringMoveCard = defineComponent(
   GatheringMoveCardPropsSchema,
-  ({ move, onPointerDown }) => {
+  ({ enemyElement, move, onPointerDown, sourceChoiceIndex }) => {
     const visual = getGatheringMoveVisual(move.id);
+    const preview = resolveGatheringMoveDamage(move, enemyElement);
 
     return (
       <button
@@ -1616,48 +1659,107 @@ const GatheringMoveCard = defineComponent(
         data-board-section="gathering-move-card"
         data-board-name={move.name}
         className={`absolute inset-0 z-10 cursor-grab touch-none select-none overflow-hidden rounded-[3px] border-2 text-left text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,transform] duration-150 active:cursor-grabbing active:scale-[0.98] ${visual.cardClass}`}
-        aria-label={`Drag ${move.name} attack`}
-        onPointerDown={(event) => onPointerDown(move, event)}
+        aria-label={`Drag ${move.name} attack, level ${move.level}, ${preview.damage} damage`}
+        onPointerDown={(event) => onPointerDown(move, sourceChoiceIndex, event)}
       >
-        <GatheringMoveCardFace move={move} />
+        <GatheringMoveCardFace enemyElement={enemyElement} move={move} />
       </button>
     );
   },
 );
 
-const GatheringMoveCardFacePropsSchema = z.object({
+const GatheringLockedMoveCardPropsSchema = z.object({
+  enemyElement: z.custom<GatheringElementType>(),
   move: z.custom<GatheringMove>(),
 });
 
-// The attack cards stay deliberately bare — just their elemental art + name. No
-// damage number, no element label: the lightning/water/nature counters are for
-// the player to discover by playing against the enemy's shown type.
-const GatheringMoveCardFace = defineComponent(GatheringMoveCardFacePropsSchema, ({ move }) => {
-  const visual = getGatheringMoveVisual(move.id);
-
-  return (
-    <span className="absolute inset-0 grid grid-rows-[1fr_auto] overflow-hidden rounded-[2px] bg-white">
-      <span className={`pointer-events-none absolute inset-0 ${visual.auraClass}`} />
-      <span className="relative m-1.5 min-h-0 overflow-hidden rounded-[4px] border border-white/70 bg-neutral-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
-        <img
-          data-board-section="gathering-move-card-icon"
-          src={resolvePublicAssetPath(visual.iconPath)}
-          alt=""
-          draggable={false}
-          className="h-full w-full object-cover"
-        />
+const GatheringLockedMoveCard = defineComponent(
+  GatheringLockedMoveCardPropsSchema,
+  ({ enemyElement, move }) => (
+    <div
+      data-board-section="gathering-locked-move-card"
+      data-board-name={`${move.name} locked until streak ${move.unlockStreak}`}
+      className="absolute inset-0 overflow-hidden rounded-[3px] border-2 border-neutral-900/25 bg-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)]"
+    >
+      <span className="sr-only">
+        {move.name} unlocks at streak {move.unlockStreak}
       </span>
-      <span className="relative grid min-h-8 place-items-center px-1.5 pb-1.5 text-center">
-        <span
-          data-board-section="gathering-move-card-name"
-          className={`truncate text-[12px] font-black uppercase leading-none ${visual.nameClass}`}
-        >
-          {move.name}
+      <span className="absolute inset-0 grayscale">
+        <GatheringMoveCardFace enemyElement={enemyElement} move={move} />
+      </span>
+      <span className="absolute inset-0 grid place-items-center bg-neutral-950/54 px-2 text-center">
+        <span className="rounded-[5px] border border-white/50 bg-white/90 px-2 py-1.5 text-[11px] font-black uppercase leading-tight text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.2)]">
+          Streak {move.unlockStreak}
         </span>
       </span>
-    </span>
-  );
+    </div>
+  ),
+);
+
+const GatheringMoveCardFacePropsSchema = z.object({
+  enemyElement: z.custom<GatheringElementType>(),
+  move: z.custom<GatheringMove>(),
 });
+
+const GatheringMoveCardFace = defineComponent(
+  GatheringMoveCardFacePropsSchema,
+  ({ enemyElement, move }) => {
+    const visual = getGatheringMoveVisual(move.id);
+    const elementUi = gatheringElementUi[move.element];
+    const preview = resolveGatheringMoveDamage(move, enemyElement);
+    const counterLabel =
+      preview.effectiveness === "counter" ? "Counters +50%" : `${elementUi.label} hit`;
+
+    return (
+      <span className="absolute inset-0 grid grid-rows-[1fr_auto] overflow-hidden rounded-[2px] bg-white">
+        <span className={`pointer-events-none absolute inset-0 ${visual.auraClass}`} />
+        <span className="absolute left-1 top-1 z-20 rounded-[4px] border border-white/70 bg-neutral-950/78 px-1.5 py-1 text-[10px] font-black uppercase leading-none text-white shadow-[0_3px_8px_rgba(15,23,42,0.24)]">
+          Lv {move.level}
+        </span>
+        <span
+          data-board-section="gathering-move-card-damage"
+          className="absolute right-1 top-1 z-20 rounded-[4px] border border-neutral-950/10 bg-white/92 px-1.5 py-1 text-[11px] font-black uppercase leading-none text-neutral-950 shadow-[0_3px_8px_rgba(15,23,42,0.18)]"
+        >
+          {preview.damage} dmg
+        </span>
+        <span className="relative m-1.5 min-h-0 overflow-hidden rounded-[4px] border border-white/70 bg-neutral-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
+          <img
+            data-board-section="gathering-move-card-icon"
+            src={resolvePublicAssetPath(visual.iconPath)}
+            alt=""
+            draggable={false}
+            className="h-full w-full object-cover"
+          />
+        </span>
+        <span className="relative grid min-h-14 gap-1 px-1.5 pb-1.5 text-center">
+          <span
+            data-board-section="gathering-move-card-name"
+            className={`truncate text-[12px] font-black uppercase leading-none ${visual.nameClass}`}
+          >
+            {move.name}
+          </span>
+          <span
+            data-board-section="gathering-move-card-base-damage"
+            className={`rounded-[4px] border px-1.5 py-1 text-[10px] font-black uppercase leading-none ${visual.detailClass}`}
+          >
+            {elementUi.label} · {move.damage} base
+          </span>
+          <span
+            data-board-section="gathering-move-card-counter"
+            data-gathering-effectiveness={preview.effectiveness}
+            className={`rounded-[4px] border px-1.5 py-1 text-[10px] font-black uppercase leading-none ${
+              preview.effectiveness === "counter"
+                ? "border-emerald-500 bg-emerald-100 text-emerald-900"
+                : "border-neutral-300 bg-neutral-100 text-neutral-700"
+            }`}
+          >
+            {counterLabel}
+          </span>
+        </span>
+      </span>
+    );
+  },
+);
 
 const GatheringAttackArcCanvasPropsSchema = z.object({
   cardRef: z.custom<RefObject<HTMLDivElement | null>>(),
@@ -1821,7 +1923,7 @@ const FloatingGatheringCard = defineComponent(FloatingGatheringCardPropsSchema, 
   if (card.kind === "move") {
     return (
       <span className="absolute inset-0 overflow-hidden rounded-[2px]">
-        <GatheringMoveCardFace move={card.move} />
+        <GatheringMoveCardFace enemyElement={card.enemyElement} move={card.move} />
       </span>
     );
   }
@@ -2208,6 +2310,9 @@ const GatheringMonsterPanel = defineComponent(
   }) => {
     const hpPercent = Math.round((gathering.monster.hp / gathering.monster.maxHp) * 100);
     const monsterDropActive = gatheringDropTarget === "monster-panel";
+    const monsterElementUi = gatheringElementUi[gathering.monster.elementType];
+    const weaknessElement = gatheringCounterElementFor(gathering.monster.elementType);
+    const weaknessElementUi = gatheringElementUi[weaknessElement];
     const chargeGlowStyle: FloatingGatheringCardStyle | undefined = chargingMoveId
       ? {
           "--gathering-charge-duration-ms": `${getGatheringAttackChargeProfile(chargingMoveId).rampCapMs}ms`,
@@ -2438,6 +2543,12 @@ const GatheringMonsterPanel = defineComponent(
               <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
                 {gathering.monster.name}
               </h3>
+              <p
+                data-board-section="gathering-monster-weakness"
+                className="text-center text-[11px] font-black uppercase leading-tight text-neutral-700"
+              >
+                {monsterElementUi.label} enemy · weak to {weaknessElementUi.label}
+              </p>
               <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
                 <div
                   className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
@@ -7906,6 +8017,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   const beginGatheringMoveDrag = (
     move: GatheringMove,
+    sourceChoiceIndex: number,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
     if (gatheringSessionReview !== null || gatheringWrongResetKey !== null) return;
@@ -7922,6 +8034,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setGatheringDropChoiceIndex(null);
     setGatheringDropFeedback("none");
     setDraggedGatheringCard({
+      enemyElement: boardStateRef.current.gathering.monster.elementType,
       grabOffsetX: grabOffset.x,
       grabOffsetY: grabOffset.y,
       id: `gathering-move:${move.id}:${gatheringDragSequenceRef.current}`,
@@ -7929,6 +8042,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       move,
       pointerId: event.pointerId,
       source: { kind: "move-cards" },
+      sourceChoiceIndex,
       startClientX: event.clientX,
       startClientY: event.clientY,
     });
@@ -11759,9 +11873,7 @@ function resolveGatheringDropTarget(
   if (draggedCard.kind === "move") {
     if (gathering.phase !== "move") return "none";
     if (target === "cards-panel") {
-      return targetChoiceIndex === getGatheringMoveSourceChoiceIndex(draggedCard.move.id)
-        ? "cards-panel"
-        : "action-zone";
+      return targetChoiceIndex === draggedCard.sourceChoiceIndex ? "cards-panel" : "action-zone";
     }
     return "action-zone";
   }
@@ -11775,10 +11887,6 @@ function getGatheringDropFeedback(
 ): GatheringDropFeedback {
   if (rawTarget === "none") return resolvedTarget === "none" ? "none" : "drop";
   return resolvedTarget === "none" ? "blocked" : "drop";
-}
-
-function getGatheringMoveSourceChoiceIndex(moveId: GatheringMoveId): number {
-  return gatheringMoveSourceChoiceIndexes[moveId];
 }
 
 function getElementRect(selector: string): SlotRect | null {

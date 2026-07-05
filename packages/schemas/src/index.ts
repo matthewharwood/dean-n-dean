@@ -228,10 +228,15 @@ export type AlchemistGuildGatheringEquation = z.infer<typeof AlchemistGuildGathe
 export const ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT: AlchemistGuildGatheringEquation =
   AlchemistGuildGatheringEquationSchema.parse({});
 
-// Gathering combat is a 3-way elemental rock-paper-scissors. Each enemy carries
-// one type (shown on its card); the player's three attacks are typed too, but the
-// counter is left for the player to discover by playing. lightning/water/nature.
-export const ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES = ["lightning", "water", "nature"] as const;
+// Gathering combat uses a five-element counter wheel. Each enemy and attack card
+// exposes its type so the weakness and exact damage are visible before attacking.
+export const ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES = [
+  "lightning",
+  "water",
+  "fire",
+  "nature",
+  "stone",
+] as const;
 export const AlchemistGuildGatheringElementTypeSchema = z.enum(
   ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES,
 );

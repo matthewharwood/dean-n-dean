@@ -39,7 +39,12 @@ type TransmuteRampNodes = {
   gritGain: GainNode;
 };
 
-type GatheringAttackChargeId = "left-spark" | "right-spark" | "sum-strike";
+type GatheringAttackChargeId =
+  | "left-spark"
+  | "right-spark"
+  | "sum-strike"
+  | "ember-burst"
+  | "stone-crash";
 
 type GatheringAttackChargeProfile = {
   accentEndRatio: number;
@@ -227,6 +232,36 @@ const GATHERING_ATTACK_CHARGE_PROFILES = {
     musicDuckGain: 0.78,
     rampCapMs: 2400,
     startGain: 0.07,
+  },
+  "ember-burst": {
+    accentEndRatio: 2.34,
+    accentGain: 0.13,
+    accentStartRatio: 1.84,
+    accentType: "sawtooth",
+    bodyEndHz: 540,
+    bodyStartHz: 96,
+    bodyType: "sawtooth",
+    lfoDepth: 0.032,
+    lfoHz: 7.4,
+    maxGain: 0.32,
+    musicDuckGain: 0.78,
+    rampCapMs: 2200,
+    startGain: 0.065,
+  },
+  "stone-crash": {
+    accentEndRatio: 1.42,
+    accentGain: 0.16,
+    accentStartRatio: 1.12,
+    accentType: "triangle",
+    bodyEndHz: 220,
+    bodyStartHz: 48,
+    bodyType: "square",
+    lfoDepth: 0.014,
+    lfoHz: 3.2,
+    maxGain: 0.36,
+    musicDuckGain: 0.74,
+    rampCapMs: 2600,
+    startGain: 0.075,
   },
 } satisfies Record<GatheringAttackChargeId, GatheringAttackChargeProfile>;
 const noop = (): void => undefined;

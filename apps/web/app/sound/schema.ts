@@ -22,6 +22,8 @@ export const SoundIdSchema = z.enum([
   "gathering.attack.leftSpark",
   "gathering.attack.rightSpark",
   "gathering.attack.sumStrike",
+  "gathering.attack.emberBurst",
+  "gathering.attack.stoneCrash",
   "gathering.answerWrong",
   "gathering.monsterDeath",
   "gathering.rewardClaim",

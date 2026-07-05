@@ -29,9 +29,11 @@ import {
   GATHERING_BOSS_REQUIRED_STREAK,
   GATHERING_LEVEL_MASTERY_THRESHOLD,
   getGatheringFactRetrievability,
+  getGatheringMoveLadder,
   getGatheringMoves,
   recordGatheringMasteryProgress,
   resetGatheringEquationAfterWrongStreak,
+  resolveGatheringMoveDamage,
   reviewGatheringSpacedRepetitionFact,
   selectGatheringAnswer,
   selectGatheringMove,
@@ -93,8 +95,9 @@ describe("gathering loop", () => {
     expect(solved.lastAnswerCorrect).toBe(true);
     expect(solved.wrongAnswerStreak).toBe(0);
 
-    const sumStrike = getGatheringMoves(solved.equation).find((move) => move.id === "sum-strike");
-    expect(sumStrike?.damage).toBe(round.equation.answer);
+    const starterMoves = getGatheringMoves(solved.equation, solved.streak.current);
+    expect(starterMoves.map((move) => move.id)).toEqual(["left-spark"]);
+    expect(starterMoves[0]?.damage).toBe(4);
   });
 
   test("slotting an answer waits for confirmation before unlocking attacks", () => {
@@ -233,14 +236,66 @@ describe("gathering loop", () => {
 
   test("each attack move declares its own sound effect", () => {
     const round = createGatheringRound(1);
-    const soundIds = getGatheringMoves(round.equation).map((move) => move.soundId);
+    const soundIds = getGatheringMoves(round.equation, 20).map((move) => move.soundId);
 
     expect(soundIds).toEqual([
       "gathering.attack.leftSpark",
       "gathering.attack.rightSpark",
       "gathering.attack.sumStrike",
+      "gathering.attack.emberBurst",
+      "gathering.attack.stoneCrash",
     ]);
     expect(new Set(soundIds).size).toBe(soundIds.length);
+  });
+
+  test("streak unlocks attack cards up to five options", () => {
+    const round = createGatheringRound(1);
+
+    expect(getGatheringMoves(round.equation, 0).map((move) => move.id)).toEqual(["left-spark"]);
+    expect(getGatheringMoves(round.equation, 5).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+    ]);
+    expect(getGatheringMoves(round.equation, 10).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+      "sum-strike",
+    ]);
+    expect(getGatheringMoves(round.equation, 15).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+      "sum-strike",
+      "ember-burst",
+    ]);
+    expect(getGatheringMoves(round.equation, 20).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+      "sum-strike",
+      "ember-burst",
+      "stone-crash",
+    ]);
+  });
+
+  test("streak group six upgrades the first attack to level 2", () => {
+    const round = createGatheringRound(1);
+    const levelOneMoves = getGatheringMoves(round.equation, 20);
+    const levelTwoMoves = getGatheringMoves(round.equation, 30);
+    const strongestLevelOne = Math.max(...levelOneMoves.map((move) => move.damage));
+    const levelTwoStarter = levelTwoMoves.find((move) => move.id === "left-spark");
+
+    expect(levelTwoStarter).toMatchObject({ damage: 13, level: 2 });
+    expect(levelTwoStarter?.damage).toBeGreaterThan(strongestLevelOne);
+  });
+
+  test("the attack ladder exposes locked and unlocked card slots", () => {
+    expect(getGatheringMoveLadder(0).map((move) => [move.id, move.locked])).toEqual([
+      ["left-spark", false],
+      ["right-spark", true],
+      ["sum-strike", true],
+      ["ember-burst", true],
+      ["stone-crash", true],
+    ]);
+    expect(getGatheringMoveLadder(20).every((move) => !move.locked)).toBe(true);
   });
 
   test("moves damage the monster until a reward choice appears", () => {
@@ -250,7 +305,7 @@ describe("gathering loop", () => {
       monster: { ...round.monster, hp: 1 },
     };
 
-    const rewarded = selectGatheringMove(almostDefeated, "sum-strike");
+    const rewarded = selectGatheringMove(almostDefeated, "left-spark");
     expect(rewarded.phase).toBe("reward");
     expect(rewarded.monster.hp).toBe(0);
     expect(rewarded.rewardOptionCardIds).toHaveLength(3);
@@ -259,22 +314,28 @@ describe("gathering loop", () => {
   test("the elemental matchup scales the damage a move deals", () => {
     const round = createGatheringRound(1);
     const solved = confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer));
-    const leftSpark = getGatheringMoves(solved.equation).find((move) => move.id === "left-spark");
+    const leftSpark = getGatheringMoves(solved.equation, solved.streak.current).find(
+      (move) => move.id === "left-spark",
+    );
     if (!leftSpark) throw new Error("expected left-spark move");
 
-    // left-spark is lightning: super (1.5×) vs water, resisted (0.5×) vs nature.
+    // left-spark is lightning: counter (1.5x) vs water, neutral otherwise.
     const highHp = 200;
     const withEnemyElement = (elementType: GatheringElementType) => ({
       ...solved,
       monster: { ...solved.monster, elementType, hp: highHp, maxHp: highHp },
     });
 
-    const superHit = selectGatheringMove(withEnemyElement("water"), "left-spark");
-    const resistHit = selectGatheringMove(withEnemyElement("nature"), "left-spark");
+    const counterHit = selectGatheringMove(withEnemyElement("water"), "left-spark");
+    const natureHit = selectGatheringMove(withEnemyElement("nature"), "left-spark");
     const neutralHit = selectGatheringMove(withEnemyElement("lightning"), "left-spark");
 
-    expect(highHp - superHit.monster.hp).toBe(Math.max(1, Math.round(leftSpark.damage * 1.5)));
-    expect(highHp - resistHit.monster.hp).toBe(Math.max(1, Math.round(leftSpark.damage * 0.5)));
+    expect(resolveGatheringMoveDamage(leftSpark, "water")).toMatchObject({
+      damage: Math.round(leftSpark.damage * 1.5),
+      effectiveness: "counter",
+    });
+    expect(highHp - counterHit.monster.hp).toBe(Math.round(leftSpark.damage * 1.5));
+    expect(highHp - natureHit.monster.hp).toBe(leftSpark.damage);
     expect(highHp - neutralHit.monster.hp).toBe(leftSpark.damage);
   });
 
@@ -352,7 +413,7 @@ describe("gathering loop", () => {
         monster: { ...round.monster, hp: 1 },
       };
       // Must not throw, and the reward phase must hold the (up to 4) options.
-      const rewarded = selectGatheringMove(almostDefeated, "sum-strike", context);
+      const rewarded = selectGatheringMove(almostDefeated, "left-spark", context);
       expect(rewarded.phase).toBe("reward");
       lengths.add(rewarded.rewardOptionCardIds.length);
     }
@@ -495,7 +556,7 @@ describe("gathering loop", () => {
         ...confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer)),
         monster: { ...round.monster, hp: 1 },
       },
-      "sum-strike",
+      "left-spark",
     );
     const cardId = rewarded.rewardOptionCardIds[0];
     if (cardId === undefined) throw new Error("expected a reward card");
@@ -659,7 +720,7 @@ describe("gathering enemy cycle", () => {
     const inMove = confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer));
     const atReward = selectGatheringMove(
       { ...inMove, monster: { ...inMove.monster, hp: 1 } },
-      "sum-strike",
+      "left-spark",
     );
     expect(atReward.phase).toBe("reward");
 

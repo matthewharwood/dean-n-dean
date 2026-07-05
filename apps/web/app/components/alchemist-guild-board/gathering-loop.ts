@@ -32,25 +32,48 @@ import type { SoundId } from "~/sound/schema";
 import {
   applyGatheringElementalDamage,
   type GatheringElementType,
-  gatheringElementForRound,
+  gatheringElementForEnemy,
 } from "./gathering-elements";
 import { advanceGatheringStreak } from "./gathering-streak";
 import { hasUpgrade, NEW_REWARD_SLOT_FOURTH_CHANCE, NEW_REWARD_SLOT_UPGRADE_ID } from "./upgrades";
 
-export const gatheringMoveIds = ["left-spark", "right-spark", "sum-strike"] as const;
+export const gatheringMoveIds = [
+  "left-spark",
+  "right-spark",
+  "sum-strike",
+  "ember-burst",
+  "stone-crash",
+] as const;
 export type GatheringMoveId = (typeof gatheringMoveIds)[number];
 type GatheringAttackSoundId = Extract<
   SoundId,
-  "gathering.attack.leftSpark" | "gathering.attack.rightSpark" | "gathering.attack.sumStrike"
+  | "gathering.attack.leftSpark"
+  | "gathering.attack.rightSpark"
+  | "gathering.attack.sumStrike"
+  | "gathering.attack.emberBurst"
+  | "gathering.attack.stoneCrash"
 >;
 
 export type GatheringMove = {
+  baseDamage: number;
   damage: number;
   detail: string;
   element: GatheringElementType;
   id: GatheringMoveId;
+  level: number;
   name: string;
   soundId: GatheringAttackSoundId;
+  unlockStreak: number;
+};
+
+export type GatheringMoveDamagePreview = {
+  damage: number;
+  effectiveness: ReturnType<typeof applyGatheringElementalDamage>["effectiveness"];
+  multiplier: number;
+};
+
+export type GatheringMoveLadderEntry = GatheringMove & {
+  locked: boolean;
 };
 
 const GATHERING_LOG_LIMIT = 24;
@@ -86,6 +109,69 @@ const GATHERING_FACT_MASTERY_MIN_ATTEMPTS = 3;
 const GATHERING_FACT_MASTERY_MIN_ACCURACY = 0.9;
 const GATHERING_FACT_MASTERY_MIN_STREAK = 2;
 const GATHERING_BOSS_REWARD_CARD_COUNT = 6;
+const GATHERING_ATTACK_LEVEL_TWO_DAMAGE_BONUS = 9;
+
+const GATHERING_MOVE_DEFINITIONS = [
+  {
+    baseDamage: 4,
+    detail: "Fast spark",
+    element: "lightning",
+    id: "left-spark",
+    levelTwoAt: 30,
+    name: "Left Spark",
+    soundId: "gathering.attack.leftSpark",
+    unlockStreak: 0,
+  },
+  {
+    baseDamage: 5,
+    detail: "Tide hit",
+    element: "water",
+    id: "right-spark",
+    levelTwoAt: 50,
+    name: "Right Spark",
+    soundId: "gathering.attack.rightSpark",
+    unlockStreak: 5,
+  },
+  {
+    baseDamage: 6,
+    detail: "Wild growth",
+    element: "nature",
+    id: "sum-strike",
+    levelTwoAt: 100,
+    name: "Sum Strike",
+    soundId: "gathering.attack.sumStrike",
+    unlockStreak: 10,
+  },
+  {
+    baseDamage: 7,
+    detail: "Warm blast",
+    element: "fire",
+    id: "ember-burst",
+    levelTwoAt: null,
+    name: "Ember Burst",
+    soundId: "gathering.attack.emberBurst",
+    unlockStreak: 15,
+  },
+  {
+    baseDamage: 8,
+    detail: "Ground slam",
+    element: "stone",
+    id: "stone-crash",
+    levelTwoAt: null,
+    name: "Stone Crash",
+    soundId: "gathering.attack.stoneCrash",
+    unlockStreak: 20,
+  },
+] as const satisfies ReadonlyArray<{
+  baseDamage: number;
+  detail: string;
+  element: GatheringElementType;
+  id: GatheringMoveId;
+  levelTwoAt: number | null;
+  name: string;
+  soundId: GatheringAttackSoundId;
+  unlockStreak: number;
+}>;
 
 export type GatheringRewardContext = Pick<
   AlchemistGuildBoardState,
@@ -189,7 +275,7 @@ export function createGatheringEquation(
 export function createGatheringMonsterForRound(round: number): AlchemistGuildGatheringMonster {
   const { enemy, loop } = getGatheringEnemyForRound(round);
   return {
-    elementType: gatheringElementForRound(round),
+    elementType: gatheringElementForEnemy(enemy),
     hp: enemy.maxHp,
     id: `monster:${enemy.id}`,
     imagePath: getGatheringEnemyImagePath(enemy, loop),
@@ -221,33 +307,75 @@ export function createGatheringRound(
   });
 }
 
-export function getGatheringMoves(equation: AlchemistGuildGatheringEquation): GatheringMove[] {
-  return [
-    {
-      damage: equation.left,
-      detail: `${equation.left}`,
-      element: "lightning",
-      id: "left-spark",
-      name: "Left Spark",
-      soundId: "gathering.attack.leftSpark",
-    },
-    {
-      damage: equation.right,
-      detail: `${equation.right}`,
-      element: "water",
-      id: "right-spark",
-      name: "Right Spark",
-      soundId: "gathering.attack.rightSpark",
-    },
-    {
-      damage: equation.answer,
-      detail: `${equation.left} + ${equation.right}`,
-      element: "nature",
-      id: "sum-strike",
-      name: "Sum Strike",
-      soundId: "gathering.attack.sumStrike",
-    },
-  ];
+function getGatheringMoveLevel(
+  move: (typeof GATHERING_MOVE_DEFINITIONS)[number],
+  streak: number,
+): number {
+  return move.levelTwoAt !== null && streak >= move.levelTwoAt ? 2 : 1;
+}
+
+function createGatheringMove(
+  move: (typeof GATHERING_MOVE_DEFINITIONS)[number],
+  streak: number,
+): GatheringMove {
+  const level = getGatheringMoveLevel(move, streak);
+  const damage = move.baseDamage + (level - 1) * GATHERING_ATTACK_LEVEL_TWO_DAMAGE_BONUS;
+  return {
+    baseDamage: move.baseDamage,
+    damage,
+    detail: move.detail,
+    element: move.element,
+    id: move.id,
+    level,
+    name: move.name,
+    soundId: move.soundId,
+    unlockStreak: move.unlockStreak,
+  };
+}
+
+export function getGatheringMoveUnlockCount(streak: number): number {
+  return GATHERING_MOVE_DEFINITIONS.filter((move) => streak >= move.unlockStreak).length;
+}
+
+export function getGatheringMoveLadder(streak: number): GatheringMoveLadderEntry[] {
+  return GATHERING_MOVE_DEFINITIONS.map((move) => ({
+    ...createGatheringMove(move, streak),
+    locked: streak < move.unlockStreak,
+  }));
+}
+
+export function getGatheringNextMoveUnlock(streak: number): {
+  moveId: GatheringMoveId;
+  name: string;
+  unlockStreak: number;
+} | null {
+  const next = GATHERING_MOVE_DEFINITIONS.find((move) => streak < move.unlockStreak);
+  return next ? { moveId: next.id, name: next.name, unlockStreak: next.unlockStreak } : null;
+}
+
+export function resolveGatheringMoveDamage(
+  move: GatheringMove,
+  enemyElement: GatheringElementType,
+): GatheringMoveDamagePreview {
+  const { damage, effectiveness } = applyGatheringElementalDamage(
+    move.damage,
+    move.element,
+    enemyElement,
+  );
+  return {
+    damage,
+    effectiveness,
+    multiplier: damage / move.damage,
+  };
+}
+
+export function getGatheringMoves(
+  _equation: AlchemistGuildGatheringEquation,
+  streak = 0,
+): GatheringMove[] {
+  return GATHERING_MOVE_DEFINITIONS.filter((move) => streak >= move.unlockStreak).map((move) =>
+    createGatheringMove(move, streak),
+  );
 }
 
 export function reviewGatheringSpacedRepetitionFact(
@@ -965,15 +1093,12 @@ export function selectGatheringMove(
 ): AlchemistGuildGatheringState {
   if (state.phase !== "move") return state;
 
-  const move = getGatheringMoves(state.equation).find((candidate) => candidate.id === moveId);
+  const move = getGatheringMoves(state.equation, state.streak.current).find(
+    (candidate) => candidate.id === moveId,
+  );
   if (!move) return state;
 
-  // The elemental matchup scales the move's base damage (super/neutral/resisted).
-  const { damage } = applyGatheringElementalDamage(
-    move.damage,
-    move.element,
-    state.monster.elementType,
-  );
+  const { damage } = resolveGatheringMoveDamage(move, state.monster.elementType);
   const nextHp = Math.max(0, state.monster.hp - damage);
   if (nextHp <= 0) {
     const rewardPlan = createGatheringRewardPlan(
