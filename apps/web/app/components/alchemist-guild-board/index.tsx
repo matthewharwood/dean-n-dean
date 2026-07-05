@@ -347,6 +347,10 @@ type GatheringMoveVisual = {
   auraClass: string;
   cardClass: string;
   detailClass: string;
+  frameFill: string;
+  frameStroke: string;
+  gemFill: string;
+  gemStroke: string;
   iconPath: string;
   nameClass: string;
 };
@@ -404,6 +408,10 @@ const gatheringMoveVisuals = {
     cardClass:
       "border-amber-500 bg-amber-50 hover:border-amber-500 hover:shadow-[inset_0_0_0_3px_rgba(245,158,11,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
     detailClass: "bg-amber-50/90 text-amber-950",
+    frameFill: "#f6d28a",
+    frameStroke: "#92400e",
+    gemFill: "#f59e0b",
+    gemStroke: "#78350f",
     iconPath: "gathering-attack-icons/left-spark.png",
     nameClass: "text-amber-950",
   },
@@ -414,6 +422,10 @@ const gatheringMoveVisuals = {
     cardClass:
       "border-cyan-500 bg-cyan-50 hover:border-cyan-500 hover:shadow-[inset_0_0_0_3px_rgba(6,182,212,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
     detailClass: "bg-cyan-50/90 text-cyan-950",
+    frameFill: "#a5f3fc",
+    frameStroke: "#155e75",
+    gemFill: "#06b6d4",
+    gemStroke: "#164e63",
     iconPath: "gathering-attack-icons/right-spark.png",
     nameClass: "text-cyan-950",
   },
@@ -424,6 +436,10 @@ const gatheringMoveVisuals = {
     cardClass:
       "border-fuchsia-500 bg-fuchsia-50 hover:border-fuchsia-500 hover:shadow-[inset_0_0_0_3px_rgba(168,85,247,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
     detailClass: "bg-fuchsia-50/90 text-fuchsia-950",
+    frameFill: "#e9d5ff",
+    frameStroke: "#6b21a8",
+    gemFill: "#a855f7",
+    gemStroke: "#581c87",
     iconPath: "gathering-attack-icons/sum-strike.png",
     nameClass: "text-fuchsia-950",
   },
@@ -434,6 +450,10 @@ const gatheringMoveVisuals = {
     cardClass:
       "border-orange-500 bg-orange-50 hover:border-orange-500 hover:shadow-[inset_0_0_0_3px_rgba(249,115,22,0.2),0_8px_18px_rgba(0,0,0,0.18)]",
     detailClass: "border-orange-200 bg-orange-50/90 text-orange-950",
+    frameFill: "#fed7aa",
+    frameStroke: "#9a3412",
+    gemFill: "#f97316",
+    gemStroke: "#7c2d12",
     iconPath: "gathering-attack-icons/ember-burst.png",
     nameClass: "text-orange-950",
   },
@@ -444,6 +464,10 @@ const gatheringMoveVisuals = {
     cardClass:
       "border-stone-500 bg-stone-50 hover:border-stone-500 hover:shadow-[inset_0_0_0_3px_rgba(120,113,108,0.22),0_8px_18px_rgba(0,0,0,0.18)]",
     detailClass: "border-stone-200 bg-stone-50/90 text-stone-950",
+    frameFill: "#d6d3d1",
+    frameStroke: "#57534e",
+    gemFill: "#78716c",
+    gemStroke: "#44403c",
     iconPath: "gathering-attack-icons/stone-crash.png",
     nameClass: "text-stone-950",
   },
@@ -1652,14 +1676,18 @@ const GatheringMoveCard = defineComponent(
   ({ enemyElement, move, onPointerDown, sourceChoiceIndex }) => {
     const visual = getGatheringMoveVisual(move.id);
     const preview = resolveGatheringMoveDamage(move, enemyElement);
+    const counterPhrase =
+      preview.effectiveness === "counter"
+        ? "counters this enemy for plus fifty percent"
+        : "neutral hit";
 
     return (
       <button
         type="button"
         data-board-section="gathering-move-card"
         data-board-name={move.name}
-        className={`absolute inset-0 z-10 cursor-grab touch-none select-none overflow-hidden rounded-[3px] border-2 text-left text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,transform] duration-150 active:cursor-grabbing active:scale-[0.98] ${visual.cardClass}`}
-        aria-label={`Drag ${move.name} attack, level ${move.level}, ${preview.damage} damage`}
+        className={`absolute inset-0 z-10 cursor-grab touch-none select-none overflow-visible rounded-[8px] border-2 text-left text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,transform] duration-150 active:cursor-grabbing active:scale-[0.98] ${visual.cardClass}`}
+        aria-label={`Drag ${move.name} attack, level ${move.level}, ${preview.damage} damage, ${counterPhrase}`}
         onPointerDown={(event) => onPointerDown(move, sourceChoiceIndex, event)}
       >
         <GatheringMoveCardFace enemyElement={enemyElement} move={move} />
@@ -1679,21 +1707,79 @@ const GatheringLockedMoveCard = defineComponent(
     <div
       data-board-section="gathering-locked-move-card"
       data-board-name={`${move.name} locked until streak ${move.unlockStreak}`}
-      className="absolute inset-0 overflow-hidden rounded-[3px] border-2 border-neutral-900/25 bg-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)]"
+      className="absolute inset-0 overflow-visible rounded-[8px] border-2 border-neutral-900/25 bg-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)]"
     >
       <span className="sr-only">
         {move.name} unlocks at streak {move.unlockStreak}
       </span>
-      <span className="absolute inset-0 grayscale">
+      <span className="absolute inset-0 overflow-visible grayscale">
         <GatheringMoveCardFace enemyElement={enemyElement} move={move} />
       </span>
-      <span className="absolute inset-0 grid place-items-center bg-neutral-950/54 px-2 text-center">
+      <span className="absolute -inset-1 grid place-items-center rounded-[8px] bg-neutral-950/54 px-2 text-center">
         <span className="rounded-[5px] border border-white/50 bg-white/90 px-2 py-1.5 text-[11px] font-black uppercase leading-tight text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.2)]">
           Streak {move.unlockStreak}
         </span>
       </span>
     </div>
   ),
+);
+
+const GatheringMoveCardStatBadgeVariantSchema = z.enum(["attack", "counter", "level"]);
+type GatheringMoveCardStatBadgeVariant = z.infer<typeof GatheringMoveCardStatBadgeVariantSchema>;
+
+const GatheringMoveCardStatBadgePropsSchema = z.object({
+  className: z.string(),
+  dataBoardSection: z.string().optional(),
+  dataGatheringEffectiveness: z.string().optional(),
+  fill: z.string(),
+  label: z.string(),
+  stroke: z.string(),
+  value: z.string(),
+  variant: GatheringMoveCardStatBadgeVariantSchema,
+});
+
+const GatheringMoveCardStatBadge = defineComponent(
+  GatheringMoveCardStatBadgePropsSchema,
+  ({
+    className,
+    dataBoardSection,
+    dataGatheringEffectiveness,
+    fill,
+    label,
+    stroke,
+    value,
+    variant,
+  }) => {
+    const shapePath = getGatheringMoveCardStatBadgePath(variant);
+    const highlightPath = getGatheringMoveCardStatBadgeHighlightPath(variant);
+    const labelClass = "text-[7px] leading-none";
+    const valueClass =
+      variant === "counter" ? "text-[9px] leading-none" : "font-mono text-[18px] leading-none";
+
+    return (
+      <span
+        aria-hidden="true"
+        data-board-section={dataBoardSection}
+        data-gathering-effectiveness={dataGatheringEffectiveness}
+        className={`grid place-items-center ${className}`}
+      >
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 size-full drop-shadow-[0_3px_3px_rgba(15,23,42,0.45)]"
+          viewBox="0 0 48 48"
+        >
+          <path d={shapePath} fill="#251b14" />
+          <path d={shapePath} fill={fill} stroke={stroke} strokeWidth="2.8" />
+          <path d={highlightPath} fill="rgba(255,255,255,0.42)" />
+          <path d={shapePath} fill="none" stroke="rgba(255,255,255,0.44)" strokeWidth="1" />
+        </svg>
+        <span className="gathering-move-card-stat-text relative z-10 grid place-items-center text-center font-black uppercase text-white">
+          <span className={labelClass}>{label}</span>
+          <span className={valueClass}>{value}</span>
+        </span>
+      </span>
+    );
+  },
 );
 
 const GatheringMoveCardFacePropsSchema = z.object({
@@ -1707,55 +1793,112 @@ const GatheringMoveCardFace = defineComponent(
     const visual = getGatheringMoveVisual(move.id);
     const elementUi = gatheringElementUi[move.element];
     const preview = resolveGatheringMoveDamage(move, enemyElement);
-    const counterLabel =
-      preview.effectiveness === "counter" ? "Counters +50%" : `${elementUi.label} hit`;
+    const counterActive = preview.effectiveness === "counter";
+    const counterFill = counterActive ? "#10b981" : "#a8a29e";
+    const counterStroke = counterActive ? "#065f46" : "#44403c";
+    const counterLabel = counterActive ? "Counter" : "Neutral";
+    const counterValue = counterActive ? "+50%" : "Hit";
 
     return (
-      <span className="absolute inset-0 grid grid-rows-[1fr_auto] overflow-hidden rounded-[2px] bg-white">
-        <span className={`pointer-events-none absolute inset-0 ${visual.auraClass}`} />
-        <span className="absolute left-1 top-1 z-20 rounded-[4px] border border-white/70 bg-neutral-950/78 px-1.5 py-1 text-[10px] font-black uppercase leading-none text-white shadow-[0_3px_8px_rgba(15,23,42,0.24)]">
-          Lv {move.level}
-        </span>
-        <span
-          data-board-section="gathering-move-card-damage"
-          className="absolute right-1 top-1 z-20 rounded-[4px] border border-neutral-950/10 bg-white/92 px-1.5 py-1 text-[11px] font-black uppercase leading-none text-neutral-950 shadow-[0_3px_8px_rgba(15,23,42,0.18)]"
+      <span className="absolute inset-0 block overflow-visible rounded-[8px] bg-transparent">
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 size-full"
+          preserveAspectRatio="none"
+          viewBox="0 0 105 148"
         >
-          {preview.damage} dmg
-        </span>
-        <span className="relative m-1.5 min-h-0 overflow-hidden rounded-[4px] border border-white/70 bg-neutral-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]">
+          <path
+            d="M15 2 H90 C99 2 103 9 103 19 V129 C103 140 97 146 86 146 H19 C8 146 2 140 2 129 V19 C2 9 7 2 15 2Z"
+            fill="#2f241d"
+          />
+          <path
+            d="M17 6 H88 C95 6 99 12 99 20 V126 C99 136 94 142 84 142 H21 C11 142 6 136 6 126 V20 C6 12 10 6 17 6Z"
+            fill={visual.frameFill}
+            stroke={visual.frameStroke}
+            strokeWidth="2"
+          />
+          <path
+            d="M14 92 C25 101 80 101 91 92 V127 C91 134 87 138 80 138 H25 C18 138 14 134 14 127Z"
+            fill="#d9c49f"
+            stroke="#6b4a2b"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M18 10 H87 C92 10 95 14 95 20 V36 C76 26 29 26 10 36 V20 C10 14 13 10 18 10Z"
+            fill="rgba(255,255,255,0.3)"
+          />
+        </svg>
+        <span
+          className={`pointer-events-none absolute inset-1.5 rounded-[7px] ${visual.auraClass}`}
+        />
+        <span className="absolute left-[13px] right-[13px] top-[13px] h-[68px] overflow-hidden rounded-t-full rounded-b-[13px] border-[3px] border-neutral-700 bg-neutral-950 shadow-[inset_0_2px_0_rgba(255,255,255,0.26),0_3px_7px_rgba(15,23,42,0.38)]">
           <img
             data-board-section="gathering-move-card-icon"
             src={resolvePublicAssetPath(visual.iconPath)}
             alt=""
             draggable={false}
-            className="h-full w-full object-cover"
+            className="size-full object-cover"
           />
+          <span className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.2),transparent_38%),linear-gradient(to_bottom,transparent_58%,rgba(0,0,0,0.36))]" />
         </span>
-        <span className="relative grid min-h-14 gap-1 px-1.5 pb-1.5 text-center">
-          <span
-            data-board-section="gathering-move-card-name"
-            className={`truncate text-[12px] font-black uppercase leading-none ${visual.nameClass}`}
-          >
-            {move.name}
-          </span>
-          <span
-            data-board-section="gathering-move-card-base-damage"
-            className={`rounded-[4px] border px-1.5 py-1 text-[10px] font-black uppercase leading-none ${visual.detailClass}`}
-          >
-            {elementUi.label} · {move.damage} base
-          </span>
-          <span
-            data-board-section="gathering-move-card-counter"
-            data-gathering-effectiveness={preview.effectiveness}
-            className={`rounded-[4px] border px-1.5 py-1 text-[10px] font-black uppercase leading-none ${
-              preview.effectiveness === "counter"
-                ? "border-emerald-500 bg-emerald-100 text-emerald-900"
-                : "border-neutral-300 bg-neutral-100 text-neutral-700"
-            }`}
-          >
-            {counterLabel}
-          </span>
+        <svg
+          aria-hidden="true"
+          className="absolute left-1.5 right-1.5 top-[77px] h-[28px] drop-shadow-[0_3px_3px_rgba(15,23,42,0.28)]"
+          preserveAspectRatio="none"
+          viewBox="0 0 93 28"
+        >
+          <path
+            d="M5 7 C18 2 75 2 88 7 L82 22 C64 26 29 26 11 22Z"
+            fill="#c9a36d"
+            stroke="#5a371d"
+            strokeWidth="2"
+          />
+          <path
+            d="M10 8 C28 5 66 5 84 8 L80 13 C60 10 33 10 13 13Z"
+            fill="rgba(255,255,255,0.34)"
+          />
+        </svg>
+        <span
+          data-board-section="gathering-move-card-name"
+          className="gathering-move-card-title-text absolute left-3 right-3 top-[84px] z-20 truncate text-center text-[10px] font-black uppercase leading-none text-neutral-950"
+        >
+          {move.name}
         </span>
+        <span
+          data-board-section="gathering-move-card-base-damage"
+          className={`absolute left-[30px] right-[30px] top-[103px] z-20 grid place-items-center text-center text-[8px] font-black uppercase leading-none ${visual.nameClass}`}
+        >
+          <span>{elementUi.label}</span>
+          <span>{move.damage} base</span>
+        </span>
+        <GatheringMoveCardStatBadge
+          className="absolute -left-1 -top-1 z-30 size-9"
+          dataBoardSection="gathering-move-card-level"
+          fill={visual.gemFill}
+          label="Lv"
+          stroke={visual.gemStroke}
+          value={String(move.level)}
+          variant="level"
+        />
+        <GatheringMoveCardStatBadge
+          className="absolute -bottom-2 -left-2 z-30 size-11"
+          dataBoardSection="gathering-move-card-damage"
+          fill={visual.gemFill}
+          label="Dmg"
+          stroke={visual.gemStroke}
+          value={String(preview.damage)}
+          variant="attack"
+        />
+        <GatheringMoveCardStatBadge
+          className="absolute -bottom-1.5 -right-2 z-30 h-10 w-12"
+          dataBoardSection="gathering-move-card-counter"
+          dataGatheringEffectiveness={preview.effectiveness}
+          fill={counterFill}
+          label={counterLabel}
+          stroke={counterStroke}
+          value={counterValue}
+          variant="counter"
+        />
       </span>
     );
   },
@@ -1922,7 +2065,7 @@ const FloatingGatheringCard = defineComponent(FloatingGatheringCardPropsSchema, 
 
   if (card.kind === "move") {
     return (
-      <span className="absolute inset-0 overflow-hidden rounded-[2px]">
+      <span className="absolute inset-0 overflow-visible rounded-[8px]">
         <GatheringMoveCardFace enemyElement={card.enemyElement} move={card.move} />
       </span>
     );
@@ -12600,6 +12743,34 @@ function getFloatingGatheringCardStyle(card: DraggedGatheringCard): FloatingGath
     "--gathering-charge-duration-ms": `${getGatheringAttackChargeProfile(card.move.id).rampCapMs}ms`,
     contain: "layout style",
   };
+}
+
+function getGatheringMoveCardStatBadgePath(variant: GatheringMoveCardStatBadgeVariant): string {
+  switch (variant) {
+    case "level":
+      return "M24 2 L38 8 L46 22 L40 40 L24 46 L8 40 L2 22 L10 8 Z";
+    case "counter":
+      return "M5 10 C14 4 34 4 43 10 L45 26 C39 38 32 44 24 46 C16 44 9 38 3 26 Z";
+    case "attack":
+      return "M24 2 C35 7 43 17 43 28 C43 39 35 46 24 46 C13 46 5 39 5 28 C5 17 13 7 24 2Z";
+    default:
+      return "M24 2 C35 7 43 17 43 28 C43 39 35 46 24 46 C13 46 5 39 5 28 C5 17 13 7 24 2Z";
+  }
+}
+
+function getGatheringMoveCardStatBadgeHighlightPath(
+  variant: GatheringMoveCardStatBadgeVariant,
+): string {
+  switch (variant) {
+    case "level":
+      return "M13 10 L24 6 L35 10 L31 16 C25 13 19 13 13 16Z";
+    case "counter":
+      return "M9 12 C18 8 30 8 39 12 L37 17 C28 14 20 14 11 17Z";
+    case "attack":
+      return "M13 13 C19 7 30 7 36 13 C29 11 20 11 13 13Z";
+    default:
+      return "M13 13 C19 7 30 7 36 13 C29 11 20 11 13 13Z";
+  }
 }
 
 function getGatheringMoveVisual(moveId: GatheringMoveId): GatheringMoveVisual {
