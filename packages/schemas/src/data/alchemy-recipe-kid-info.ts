@@ -221,6 +221,16 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     ["source:ash"],
   ),
   kidInfo(
+    "alchemy:kitchen-stores",
+    "Kitchen Stores",
+    [
+      "Kitchen Stores is a supply bundle that packs Salt, Charcoal, and Ash together for a busy kitchen and chapel.",
+      "Salt seasons and preserves food, Charcoal fuels the ovens, and Ash helps scrub pots and make soap.",
+      "It matters because some jobs need a whole little kit, not just one ingredient — so you must make all three first.",
+    ],
+    ["source:sodium-chloride", "source:charcoal", "source:ash"],
+  ),
+  kidInfo(
     "alchemy:iron-ingot",
     "Iron Ingot",
     [

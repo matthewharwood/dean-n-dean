@@ -29,20 +29,51 @@ import {
 } from "@dean-stack/schemas";
 
 import type { SoundId } from "~/sound/schema";
+import {
+  applyGatheringElementalDamage,
+  type GatheringElementType,
+  gatheringElementForEnemy,
+} from "./gathering-elements";
+import { advanceGatheringStreak } from "./gathering-streak";
+import { hasUpgrade, NEW_REWARD_SLOT_FOURTH_CHANCE, NEW_REWARD_SLOT_UPGRADE_ID } from "./upgrades";
 
-export const gatheringMoveIds = ["left-spark", "right-spark", "sum-strike"] as const;
+export const gatheringMoveIds = [
+  "left-spark",
+  "right-spark",
+  "sum-strike",
+  "ember-burst",
+  "stone-crash",
+] as const;
 export type GatheringMoveId = (typeof gatheringMoveIds)[number];
 type GatheringAttackSoundId = Extract<
   SoundId,
-  "gathering.attack.leftSpark" | "gathering.attack.rightSpark" | "gathering.attack.sumStrike"
+  | "gathering.attack.leftSpark"
+  | "gathering.attack.rightSpark"
+  | "gathering.attack.sumStrike"
+  | "gathering.attack.emberBurst"
+  | "gathering.attack.stoneCrash"
 >;
 
 export type GatheringMove = {
+  baseDamage: number;
   damage: number;
   detail: string;
+  element: GatheringElementType;
   id: GatheringMoveId;
+  level: number;
   name: string;
   soundId: GatheringAttackSoundId;
+  unlockStreak: number;
+};
+
+export type GatheringMoveDamagePreview = {
+  damage: number;
+  effectiveness: ReturnType<typeof applyGatheringElementalDamage>["effectiveness"];
+  multiplier: number;
+};
+
+export type GatheringMoveLadderEntry = GatheringMove & {
+  locked: boolean;
 };
 
 const GATHERING_LOG_LIMIT = 24;
@@ -78,6 +109,69 @@ const GATHERING_FACT_MASTERY_MIN_ATTEMPTS = 3;
 const GATHERING_FACT_MASTERY_MIN_ACCURACY = 0.9;
 const GATHERING_FACT_MASTERY_MIN_STREAK = 2;
 const GATHERING_BOSS_REWARD_CARD_COUNT = 6;
+const GATHERING_ATTACK_LEVEL_TWO_DAMAGE_BONUS = 9;
+
+const GATHERING_MOVE_DEFINITIONS = [
+  {
+    baseDamage: 4,
+    detail: "Fast spark",
+    element: "lightning",
+    id: "left-spark",
+    levelTwoAt: 30,
+    name: "Left Spark",
+    soundId: "gathering.attack.leftSpark",
+    unlockStreak: 0,
+  },
+  {
+    baseDamage: 5,
+    detail: "Tide hit",
+    element: "water",
+    id: "right-spark",
+    levelTwoAt: 50,
+    name: "Right Spark",
+    soundId: "gathering.attack.rightSpark",
+    unlockStreak: 5,
+  },
+  {
+    baseDamage: 6,
+    detail: "Wild growth",
+    element: "nature",
+    id: "sum-strike",
+    levelTwoAt: 100,
+    name: "Sum Strike",
+    soundId: "gathering.attack.sumStrike",
+    unlockStreak: 10,
+  },
+  {
+    baseDamage: 7,
+    detail: "Warm blast",
+    element: "fire",
+    id: "ember-burst",
+    levelTwoAt: null,
+    name: "Ember Burst",
+    soundId: "gathering.attack.emberBurst",
+    unlockStreak: 15,
+  },
+  {
+    baseDamage: 8,
+    detail: "Ground slam",
+    element: "stone",
+    id: "stone-crash",
+    levelTwoAt: null,
+    name: "Stone Crash",
+    soundId: "gathering.attack.stoneCrash",
+    unlockStreak: 20,
+  },
+] as const satisfies ReadonlyArray<{
+  baseDamage: number;
+  detail: string;
+  element: GatheringElementType;
+  id: GatheringMoveId;
+  levelTwoAt: number | null;
+  name: string;
+  soundId: GatheringAttackSoundId;
+  unlockStreak: number;
+}>;
 
 export type GatheringRewardContext = Pick<
   AlchemistGuildBoardState,
@@ -86,6 +180,7 @@ export type GatheringRewardContext = Pick<
   | "inventorySlots"
   | "questDeliveries"
   | "selectedQuestId"
+  | "unlockedUpgradeIds"
 >;
 
 export type GatheringRewardPlan = {
@@ -180,6 +275,7 @@ export function createGatheringEquation(
 export function createGatheringMonsterForRound(round: number): AlchemistGuildGatheringMonster {
   const { enemy, loop } = getGatheringEnemyForRound(round);
   return {
+    elementType: gatheringElementForEnemy(enemy),
     hp: enemy.maxHp,
     id: `monster:${enemy.id}`,
     imagePath: getGatheringEnemyImagePath(enemy, loop),
@@ -211,30 +307,75 @@ export function createGatheringRound(
   });
 }
 
-export function getGatheringMoves(equation: AlchemistGuildGatheringEquation): GatheringMove[] {
-  return [
-    {
-      damage: equation.left,
-      detail: `${equation.left}`,
-      id: "left-spark",
-      name: "Left Spark",
-      soundId: "gathering.attack.leftSpark",
-    },
-    {
-      damage: equation.right,
-      detail: `${equation.right}`,
-      id: "right-spark",
-      name: "Right Spark",
-      soundId: "gathering.attack.rightSpark",
-    },
-    {
-      damage: equation.answer,
-      detail: `${equation.left} + ${equation.right}`,
-      id: "sum-strike",
-      name: "Sum Strike",
-      soundId: "gathering.attack.sumStrike",
-    },
-  ];
+function getGatheringMoveLevel(
+  move: (typeof GATHERING_MOVE_DEFINITIONS)[number],
+  streak: number,
+): number {
+  return move.levelTwoAt !== null && streak >= move.levelTwoAt ? 2 : 1;
+}
+
+function createGatheringMove(
+  move: (typeof GATHERING_MOVE_DEFINITIONS)[number],
+  streak: number,
+): GatheringMove {
+  const level = getGatheringMoveLevel(move, streak);
+  const damage = move.baseDamage + (level - 1) * GATHERING_ATTACK_LEVEL_TWO_DAMAGE_BONUS;
+  return {
+    baseDamage: move.baseDamage,
+    damage,
+    detail: move.detail,
+    element: move.element,
+    id: move.id,
+    level,
+    name: move.name,
+    soundId: move.soundId,
+    unlockStreak: move.unlockStreak,
+  };
+}
+
+export function getGatheringMoveUnlockCount(streak: number): number {
+  return GATHERING_MOVE_DEFINITIONS.filter((move) => streak >= move.unlockStreak).length;
+}
+
+export function getGatheringMoveLadder(streak: number): GatheringMoveLadderEntry[] {
+  return GATHERING_MOVE_DEFINITIONS.map((move) => ({
+    ...createGatheringMove(move, streak),
+    locked: streak < move.unlockStreak,
+  }));
+}
+
+export function getGatheringNextMoveUnlock(streak: number): {
+  moveId: GatheringMoveId;
+  name: string;
+  unlockStreak: number;
+} | null {
+  const next = GATHERING_MOVE_DEFINITIONS.find((move) => streak < move.unlockStreak);
+  return next ? { moveId: next.id, name: next.name, unlockStreak: next.unlockStreak } : null;
+}
+
+export function resolveGatheringMoveDamage(
+  move: GatheringMove,
+  enemyElement: GatheringElementType,
+): GatheringMoveDamagePreview {
+  const { damage, effectiveness } = applyGatheringElementalDamage(
+    move.damage,
+    move.element,
+    enemyElement,
+  );
+  return {
+    damage,
+    effectiveness,
+    multiplier: damage / move.damage,
+  };
+}
+
+export function getGatheringMoves(
+  _equation: AlchemistGuildGatheringEquation,
+  streak = 0,
+): GatheringMove[] {
+  return GATHERING_MOVE_DEFINITIONS.filter((move) => streak >= move.unlockStreak).map((move) =>
+    createGatheringMove(move, streak),
+  );
 }
 
 export function reviewGatheringSpacedRepetitionFact(
@@ -479,6 +620,9 @@ export function claimGatheringBossReward(
       ...ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT,
       level: nextLevel,
     },
+    // A flawless run carries its streak through the boss into the next level —
+    // only a wrong answer breaks it (see claimGatheringReward for the rationale).
+    streak: state.streak,
     targetDropChances: state.targetDropChances,
   });
 }
@@ -836,12 +980,14 @@ export function confirmGatheringAnswer(
     correct,
     reviewedAtMs,
   );
+  const streak = advanceGatheringStreak(state.streak, correct, reviewedAtMs);
 
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
     lastAnswerCorrect: correct,
     phase: correct ? "move" : "solving",
     spacedRepetition,
+    streak,
     wrongAnswerStreak,
   });
 }
@@ -947,10 +1093,13 @@ export function selectGatheringMove(
 ): AlchemistGuildGatheringState {
   if (state.phase !== "move") return state;
 
-  const move = getGatheringMoves(state.equation).find((candidate) => candidate.id === moveId);
+  const move = getGatheringMoves(state.equation, state.streak.current).find(
+    (candidate) => candidate.id === moveId,
+  );
   if (!move) return state;
 
-  const nextHp = Math.max(0, state.monster.hp - move.damage);
+  const { damage } = resolveGatheringMoveDamage(move, state.monster.elementType);
+  const nextHp = Math.max(0, state.monster.hp - damage);
   if (nextHp <= 0) {
     const rewardPlan = createGatheringRewardPlan(
       state.round,
@@ -1007,6 +1156,11 @@ export function claimGatheringReward(
       },
       ...state.gatherLog,
     ].slice(0, GATHERING_LOG_LIMIT),
+    // Carry the answer streak across the round transition — `createGatheringRound`
+    // resets it to the default, but a streak only breaks on a WRONG answer
+    // (advanceGatheringStreak), never on winning a fight. Without this the streak
+    // resets every kill and could never reach the 10/15/30 reward tiers.
+    streak: state.streak,
     targetDropChances: state.targetDropChances,
   });
 }
@@ -1068,6 +1222,25 @@ export function createGatheringRewardPlan(
         round,
         selectedCardIds,
         slotIndex,
+      }),
+    );
+  }
+
+  // New Reward Slot upgrade: once confirmed, a coin flip per kill adds a 4th
+  // reward option to pick from. (Confirm-gated, so it never fires unlocked.)
+  if (
+    hasUpgrade(context?.unlockedUpgradeIds ?? [], NEW_REWARD_SLOT_UPGRADE_ID) &&
+    Math.random() < NEW_REWARD_SLOT_FOURTH_CHANCE
+  ) {
+    selectedCardIds.push(
+      pickWeightedRewardCard({
+        demandScores,
+        excludedCardIds,
+        focusedCardIds: focusedDemandCardIds,
+        focused: false,
+        round,
+        selectedCardIds,
+        slotIndex: GATHERING_REWARD_OPTION_COUNT,
       }),
     );
   }

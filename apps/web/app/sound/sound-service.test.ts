@@ -57,12 +57,16 @@ describe("sound service", () => {
     const leftSpark = getGatheringAttackChargeProfile("left-spark");
     const rightSpark = getGatheringAttackChargeProfile("right-spark");
     const sumStrike = getGatheringAttackChargeProfile("sum-strike");
+    const emberBurst = getGatheringAttackChargeProfile("ember-burst");
+    const stoneCrash = getGatheringAttackChargeProfile("stone-crash");
 
     expect(leftSpark.rampCapMs).not.toBe(rightSpark.rampCapMs);
     expect(rightSpark.rampCapMs).not.toBe(sumStrike.rampCapMs);
+    expect(emberBurst.rampCapMs).not.toBe(stoneCrash.rampCapMs);
     expect(getGatheringAttackChargeProgress("sum-strike", -120)).toBe(0);
     expect(getGatheringAttackChargeProgress("sum-strike", sumStrike.rampCapMs / 2)).toBe(0.5);
     expect(getGatheringAttackChargeProgress("sum-strike", sumStrike.rampCapMs * 3)).toBe(1);
+    expect(getGatheringAttackChargeProgress("stone-crash", stoneCrash.rampCapMs)).toBe(1);
   });
 
   test("defines the intro ambience as a low sine hum", () => {

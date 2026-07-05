@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALCHEMIST_GUILD_BOARD_DEFAULT,
+  ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES,
   ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT,
   ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
   ALCHEMY_GATHERING_ENEMIES,
@@ -8,6 +9,7 @@ import {
   getGatheringEnemyImagePath,
 } from "@dean-stack/schemas";
 
+import type { GatheringElementType } from "./gathering-elements";
 import {
   answerGatheringBossChallenge,
   claimGatheringBossReward,
@@ -27,15 +29,18 @@ import {
   GATHERING_BOSS_REQUIRED_STREAK,
   GATHERING_LEVEL_MASTERY_THRESHOLD,
   getGatheringFactRetrievability,
+  getGatheringMoveLadder,
   getGatheringMoves,
   recordGatheringMasteryProgress,
   resetGatheringEquationAfterWrongStreak,
+  resolveGatheringMoveDamage,
   reviewGatheringSpacedRepetitionFact,
   selectGatheringAnswer,
   selectGatheringMove,
   swapGatheringAnswerWithChoice,
   swapGatheringChoices,
 } from "./gathering-loop";
+import { NEW_REWARD_SLOT_UPGRADE_ID } from "./upgrades";
 
 describe("gathering loop", () => {
   test("deals addition equations with the correct answer in the choices", () => {
@@ -90,8 +95,9 @@ describe("gathering loop", () => {
     expect(solved.lastAnswerCorrect).toBe(true);
     expect(solved.wrongAnswerStreak).toBe(0);
 
-    const sumStrike = getGatheringMoves(solved.equation).find((move) => move.id === "sum-strike");
-    expect(sumStrike?.damage).toBe(round.equation.answer);
+    const starterMoves = getGatheringMoves(solved.equation, solved.streak.current);
+    expect(starterMoves.map((move) => move.id)).toEqual(["left-spark"]);
+    expect(starterMoves[0]?.damage).toBe(4);
   });
 
   test("slotting an answer waits for confirmation before unlocking attacks", () => {
@@ -230,14 +236,66 @@ describe("gathering loop", () => {
 
   test("each attack move declares its own sound effect", () => {
     const round = createGatheringRound(1);
-    const soundIds = getGatheringMoves(round.equation).map((move) => move.soundId);
+    const soundIds = getGatheringMoves(round.equation, 20).map((move) => move.soundId);
 
     expect(soundIds).toEqual([
       "gathering.attack.leftSpark",
       "gathering.attack.rightSpark",
       "gathering.attack.sumStrike",
+      "gathering.attack.emberBurst",
+      "gathering.attack.stoneCrash",
     ]);
     expect(new Set(soundIds).size).toBe(soundIds.length);
+  });
+
+  test("streak unlocks attack cards up to five options", () => {
+    const round = createGatheringRound(1);
+
+    expect(getGatheringMoves(round.equation, 0).map((move) => move.id)).toEqual(["left-spark"]);
+    expect(getGatheringMoves(round.equation, 5).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+    ]);
+    expect(getGatheringMoves(round.equation, 10).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+      "sum-strike",
+    ]);
+    expect(getGatheringMoves(round.equation, 15).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+      "sum-strike",
+      "ember-burst",
+    ]);
+    expect(getGatheringMoves(round.equation, 20).map((move) => move.id)).toEqual([
+      "left-spark",
+      "right-spark",
+      "sum-strike",
+      "ember-burst",
+      "stone-crash",
+    ]);
+  });
+
+  test("streak group six upgrades the first attack to level 2", () => {
+    const round = createGatheringRound(1);
+    const levelOneMoves = getGatheringMoves(round.equation, 20);
+    const levelTwoMoves = getGatheringMoves(round.equation, 30);
+    const strongestLevelOne = Math.max(...levelOneMoves.map((move) => move.damage));
+    const levelTwoStarter = levelTwoMoves.find((move) => move.id === "left-spark");
+
+    expect(levelTwoStarter).toMatchObject({ damage: 13, level: 2 });
+    expect(levelTwoStarter?.damage).toBeGreaterThan(strongestLevelOne);
+  });
+
+  test("the attack ladder exposes locked and unlocked card slots", () => {
+    expect(getGatheringMoveLadder(0).map((move) => [move.id, move.locked])).toEqual([
+      ["left-spark", false],
+      ["right-spark", true],
+      ["sum-strike", true],
+      ["ember-burst", true],
+      ["stone-crash", true],
+    ]);
+    expect(getGatheringMoveLadder(20).every((move) => !move.locked)).toBe(true);
   });
 
   test("moves damage the monster until a reward choice appears", () => {
@@ -247,10 +305,38 @@ describe("gathering loop", () => {
       monster: { ...round.monster, hp: 1 },
     };
 
-    const rewarded = selectGatheringMove(almostDefeated, "sum-strike");
+    const rewarded = selectGatheringMove(almostDefeated, "left-spark");
     expect(rewarded.phase).toBe("reward");
     expect(rewarded.monster.hp).toBe(0);
     expect(rewarded.rewardOptionCardIds).toHaveLength(3);
+  });
+
+  test("the elemental matchup scales the damage a move deals", () => {
+    const round = createGatheringRound(1);
+    const solved = confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer));
+    const leftSpark = getGatheringMoves(solved.equation, solved.streak.current).find(
+      (move) => move.id === "left-spark",
+    );
+    if (!leftSpark) throw new Error("expected left-spark move");
+
+    // left-spark is lightning: counter (1.5x) vs water, neutral otherwise.
+    const highHp = 200;
+    const withEnemyElement = (elementType: GatheringElementType) => ({
+      ...solved,
+      monster: { ...solved.monster, elementType, hp: highHp, maxHp: highHp },
+    });
+
+    const counterHit = selectGatheringMove(withEnemyElement("water"), "left-spark");
+    const natureHit = selectGatheringMove(withEnemyElement("nature"), "left-spark");
+    const neutralHit = selectGatheringMove(withEnemyElement("lightning"), "left-spark");
+
+    expect(resolveGatheringMoveDamage(leftSpark, "water")).toMatchObject({
+      damage: Math.round(leftSpark.damage * 1.5),
+      effectiveness: "counter",
+    });
+    expect(highHp - counterHit.monster.hp).toBe(Math.round(leftSpark.damage * 1.5));
+    expect(highHp - natureHit.monster.hp).toBe(leftSpark.damage);
+    expect(highHp - neutralHit.monster.hp).toBe(leftSpark.damage);
   });
 
   test("three wrong gathering answers reset the equation and hand", () => {
@@ -286,6 +372,53 @@ describe("gathering loop", () => {
     expect(options).toHaveLength(3);
     expect(new Set(options).size).toBe(3);
     expect(focusedNeedCount).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the New Reward Slot upgrade can add a 4th reward option after a kill", () => {
+    const withUpgrade = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      unlockedUpgradeIds: [NEW_REWARD_SLOT_UPGRADE_ID],
+    };
+    const lengths = new Set<number>();
+    for (let round = 1; round <= 60; round += 1) {
+      lengths.add(createGatheringRewardPlan(round, withUpgrade).cardIds.length);
+    }
+    // The 50% coin flip yields both 3- and 4-option plans over many rounds.
+    expect(lengths.has(3)).toBe(true);
+    expect(lengths.has(4)).toBe(true);
+  });
+
+  test("without the New Reward Slot upgrade the reward plan stays at 3 options", () => {
+    for (let round = 1; round <= 30; round += 1) {
+      expect(createGatheringRewardPlan(round, ALCHEMIST_GUILD_BOARD_DEFAULT).cardIds).toHaveLength(
+        3,
+      );
+    }
+  });
+
+  test("a New Reward Slot 4th option survives selectGatheringMove's schema parse", () => {
+    // Regression guard: the reward-plan unit tests above only build the plan in
+    // isolation. The real kill path runs the plan through
+    // AlchemistGuildGatheringStateSchema.parse in selectGatheringMove, which capped
+    // rewardOptionCardIds at 3 — so a 4-option plan threw on the killing blow.
+    const context = {
+      ...ALCHEMIST_GUILD_BOARD_DEFAULT,
+      unlockedUpgradeIds: [NEW_REWARD_SLOT_UPGRADE_ID],
+    };
+    const lengths = new Set<number>();
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const round = createGatheringRound(1);
+      const almostDefeated = {
+        ...confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer)),
+        monster: { ...round.monster, hp: 1 },
+      };
+      // Must not throw, and the reward phase must hold the (up to 4) options.
+      const rewarded = selectGatheringMove(almostDefeated, "left-spark", context);
+      expect(rewarded.phase).toBe("reward");
+      lengths.add(rewarded.rewardOptionCardIds.length);
+    }
+    // Over 200 kills the 50% flip lands at least one 4-option plan through the parse.
+    expect(lengths.has(4)).toBe(true);
   });
 
   test("raises selected quest target drop chance by five points per defeated enemy", () => {
@@ -423,7 +556,7 @@ describe("gathering loop", () => {
         ...confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer)),
         monster: { ...round.monster, hp: 1 },
       },
-      "sum-strike",
+      "left-spark",
     );
     const cardId = rewarded.rewardOptionCardIds[0];
     if (cardId === undefined) throw new Error("expected a reward card");
@@ -533,7 +666,15 @@ describe("gathering loop", () => {
 
 describe("gathering enemy cycle", () => {
   test("round 1 monster matches the persisted default", () => {
-    expect(createGatheringMonsterForRound(1)).toEqual(ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT);
+    const monster = createGatheringMonsterForRound(1);
+    // The element is round-derived (round 1 → tide); the rest of the identity
+    // must still match the committed default monster.
+    expect(monster).toEqual({
+      ...ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT,
+      elementType: monster.elementType,
+    });
+    expect(ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES).toContain(monster.elementType);
+    expect(monster.elementType).toBe("water");
   });
 
   test("walks the bestiary ladder in tier order, one enemy per round", () => {
@@ -579,7 +720,7 @@ describe("gathering enemy cycle", () => {
     const inMove = confirmGatheringAnswer(selectGatheringAnswer(round, round.equation.answer));
     const atReward = selectGatheringMove(
       { ...inMove, monster: { ...inMove.monster, hp: 1 } },
-      "sum-strike",
+      "left-spark",
     );
     expect(atReward.phase).toBe("reward");
 

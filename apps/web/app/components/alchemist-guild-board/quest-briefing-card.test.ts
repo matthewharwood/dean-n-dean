@@ -116,10 +116,22 @@ describe("QuestBriefingCard carousel behavior", () => {
     expect(getQuestCarouselSwipeIntent(18, 20)).toBe("pending");
   });
 
+  test("never abandons a mouse drag as vertical — mice have no native pan", () => {
+    expect(getQuestCarouselSwipeIntent(8, 22, "mouse")).toBe("pending");
+    expect(getQuestCarouselSwipeIntent(22, 20, "mouse")).toBe("horizontal");
+  });
+
   test("maps committed inner recipe swipes to neighboring quest-detail slides", () => {
     expect(getQuestCarouselSwipeDirection(-33)).toBe(0);
     expect(getQuestCarouselSwipeDirection(-34)).toBe(1);
     expect(getQuestCarouselSwipeDirection(34)).toBe(-1);
+  });
+
+  test("commits short fast flicks but not slow or reversing ones", () => {
+    expect(getQuestCarouselSwipeDirection(-20, -0.6)).toBe(1);
+    expect(getQuestCarouselSwipeDirection(20, 0.6)).toBe(-1);
+    expect(getQuestCarouselSwipeDirection(-20, -0.4)).toBe(0);
+    expect(getQuestCarouselSwipeDirection(-20, 0.6)).toBe(0);
   });
 
   test("switches crowded vertical recipe steps from dots to a fraction", () => {

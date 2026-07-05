@@ -8,9 +8,12 @@ import "../app/styles/index.css";
 
 // React Compiler diagnostic — outlines re-rendering components while authoring stories.
 // Storybook always builds in dev mode for `storybook dev`; the static build (`storybook build`) tree-shakes.
+// showToolbar:false keeps the re-render outlines (the actual diagnostic) but drops
+// react-scan's bottom-anchored control widget, which otherwise overlaps and steals
+// pointer events from bottom-anchored UI in stories (e.g. the bottom-right toast).
 if (import.meta.env.DEV) {
   const { scan } = await import("react-scan");
-  scan();
+  scan({ showToolbar: false });
 }
 
 function HydrateThenRender({ children }: { children: ReactNode }): ReactNode {

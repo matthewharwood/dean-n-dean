@@ -156,6 +156,58 @@ describe("emergent recipes", () => {
     expect(getEmergentRecipeRarity([3, 4])).toBe("legendary");
     expect(getEmergentRecipeRarity([4, 4, 4, 4, 4])).toBe("mythical");
   });
+
+  test("a flawless run (all top indexes) forges mythical at any craft size", () => {
+    expect(getEmergentRecipeRarity([4, 4])).toBe("mythical");
+    expect(getEmergentRecipeRarity([4, 4, 4])).toBe("mythical");
+    // One short of flawless is not mythical.
+    expect(getEmergentRecipeRarity([4, 3])).toBe("legendary");
+  });
+
+  test("the skill path uses the supplied syllable indexes and skips the RNG", () => {
+    const preview = getAlchemyWorkbenchEmergentPreview([
+      "element:h",
+      "element:ne",
+      null,
+      null,
+      null,
+    ]);
+    if (!preview) throw new Error("expected emergent preview");
+
+    // random() that would always FAIL the 82% roll — proves the skill path ignores it.
+    const alwaysFail = () => 0.99;
+    const result = createEmergentTransmutationResult(preview, 777, alwaysFail, {
+      success: true,
+      syllableIndexes: [4, 4],
+    });
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected success");
+    expect(result.discovery.syllableIndexes).toEqual([4, 4]);
+    expect(result.discovery.rarity).toBe("mythical");
+  });
+
+  test("the skill path fails (returning ingredients) on a no-show round", () => {
+    const preview = getAlchemyWorkbenchEmergentPreview([
+      "element:h",
+      "element:ne",
+      null,
+      null,
+      null,
+    ]);
+    if (!preview) throw new Error("expected emergent preview");
+
+    const result = createEmergentTransmutationResult(preview, 777, Math.random, {
+      success: false,
+      syllableIndexes: [0, 0],
+    });
+
+    expect(result).toEqual({
+      attemptedAtMs: 777,
+      kind: "failure",
+      orderedIngredientCardIds: ["element:h", "element:ne"],
+    });
+  });
 });
 
 function createRandomSequence(values: readonly number[]): () => number {

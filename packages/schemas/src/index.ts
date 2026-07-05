@@ -200,7 +200,12 @@ export type AlchemistGuildQuestDeliveries = z.infer<typeof AlchemistGuildQuestDe
 export const ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT: AlchemistGuildQuestDeliveries =
   AlchemistGuildQuestDeliveriesSchema.parse({});
 
-export const ALCHEMIST_GUILD_BOARD_MODE_TABS = ["crafting", "gathering", "expedition"] as const;
+export const ALCHEMIST_GUILD_BOARD_MODE_TABS = [
+  "crafting",
+  "gathering",
+  "expedition",
+  "upgrades",
+] as const;
 export const AlchemistGuildBoardModeSchema = z.enum(ALCHEMIST_GUILD_BOARD_MODE_TABS);
 export type AlchemistGuildBoardMode = z.infer<typeof AlchemistGuildBoardModeSchema>;
 
@@ -223,7 +228,27 @@ export type AlchemistGuildGatheringEquation = z.infer<typeof AlchemistGuildGathe
 export const ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT: AlchemistGuildGatheringEquation =
   AlchemistGuildGatheringEquationSchema.parse({});
 
+// Gathering combat uses a five-element counter wheel. Each enemy and attack card
+// exposes its type so the weakness and exact damage are visible before attacking.
+export const ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES = [
+  "lightning",
+  "water",
+  "fire",
+  "nature",
+  "stone",
+] as const;
+export const AlchemistGuildGatheringElementTypeSchema = z.enum(
+  ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES,
+);
+export type AlchemistGuildGatheringElementType = z.infer<
+  typeof AlchemistGuildGatheringElementTypeSchema
+>;
+
 export const AlchemistGuildGatheringMonsterSchema = z.object({
+  // The enemy's elemental type, defaulting to the themed round-1 "Tide Minnow"
+  // (water). Pre-element saves heal to this default on hydration's re-parse and
+  // get a real per-round type the next time the loop advances a round.
+  elementType: AlchemistGuildGatheringElementTypeSchema.default("water"),
   hp: z.int().min(0).default(10),
   id: z
     .string()
@@ -347,6 +372,20 @@ export type AlchemistGuildGatheringTargetDropChances = z.infer<
   typeof AlchemistGuildGatheringTargetDropChancesSchema
 >;
 
+// Visible "answers in a row" streak for normal gathering (distinct from the boss
+// streak). `current` ticks up on a correct answer and resets to 0 on the first
+// wrong one. Every field defaults, so adding this to a persisted record needs no
+// IDB migration — hydration re-parses through this schema and fills the defaults.
+export const AlchemistGuildGatheringStreakSchema = z.object({
+  current: z.int().min(0).default(0),
+  lastBrokenAtMs: z.number().min(0).nullable().default(null),
+  lastIncrementAtMs: z.number().min(0).nullable().default(null),
+  longest: z.int().min(0).default(0),
+});
+export type AlchemistGuildGatheringStreak = z.infer<typeof AlchemistGuildGatheringStreakSchema>;
+export const ALCHEMIST_GUILD_GATHERING_STREAK_DEFAULT: AlchemistGuildGatheringStreak =
+  AlchemistGuildGatheringStreakSchema.parse({});
+
 export const AlchemistGuildGatheringStateSchema = z.object({
   equation: AlchemistGuildGatheringEquationSchema.default(
     ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT,
@@ -360,11 +399,14 @@ export const AlchemistGuildGatheringStateSchema = z.object({
   boss: AlchemistGuildGatheringBossStateSchema.default(ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT),
   monster: AlchemistGuildGatheringMonsterSchema.default(ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT),
   phase: AlchemistGuildGatheringPhaseSchema.default("solving"),
-  rewardOptionCardIds: z.array(AlchemistGuildCardIdSchema).max(3).default([]),
+  // Up to 4: the baseline is 3 options, and the New Reward Slot upgrade can add a
+  // 4th. Keep this cap in sync with the app's GATHERING_REWARD_OPTION_COUNT (3) + 1.
+  rewardOptionCardIds: z.array(AlchemistGuildCardIdSchema).max(4).default([]),
   round: z.int().min(1).default(1),
   spacedRepetition: AlchemistGuildGatheringSpacedRepetitionSchema.default(
     ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
   ),
+  streak: AlchemistGuildGatheringStreakSchema.default(ALCHEMIST_GUILD_GATHERING_STREAK_DEFAULT),
   targetDropChances: AlchemistGuildGatheringTargetDropChancesSchema,
   unlockSeen: z.boolean().default(false),
   wrongAnswerStreak: z.int().min(0).max(3).default(0),
@@ -373,7 +415,13 @@ export type AlchemistGuildGatheringState = z.infer<typeof AlchemistGuildGatherin
 export const ALCHEMIST_GUILD_GATHERING_DEFAULT: AlchemistGuildGatheringState =
   AlchemistGuildGatheringStateSchema.parse({});
 
+/** Total expeditions in flight at once (active + queued) with the Queue upgrade. */
+export const EXPEDITION_QUEUE_MAX = 3;
+
 export const AlchemistGuildExpeditionStateSchema = z.object({
+  // Target cards lined up to auto-run after the active one returns (Expedition
+  // Queue upgrade). Capped in app logic to EXPEDITION_QUEUE_MAX total in flight.
+  queuedTargetCardIds: z.array(AlchemistGuildCardIdSchema).default([]),
   readyAtMs: z.number().min(0).nullable().default(null),
   readyNotified: z.boolean().default(false),
   startedAtMs: z.number().min(0).nullable().default(null),
@@ -387,6 +435,7 @@ export const ALCHEMIST_GUILD_EXPEDITION_DEFAULT: AlchemistGuildExpeditionState =
 
 export const AlchemistGuildBoardStateSchema = z.object({
   activeBoardMode: AlchemistGuildBoardModeSchema.default("crafting"),
+  autoPlayedQuestVoiceIds: z.array(AlchemyQuestIdSchema).default([]),
   completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
   discoveredElementIds: z
     .array(AlchemistGuildCardIdSchema)
@@ -408,6 +457,14 @@ export const AlchemistGuildBoardStateSchema = z.object({
   questLogScrollTop: z.number().min(0).default(0),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
   selectedQuestId: AlchemyQuestIdSchema.default(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID),
+  // Lifetime count of finished gathering sessions (a reward claimed after an enemy
+  // is beaten). Drives the New Reward Slot upgrade's confirm threshold.
+  gatheringSessionsCompleted: z.int().min(0).default(0),
+  // Upgrade-shop ids the player has unlocked (see the upgrade catalog in the app
+  // layer). The Upgrades tab only appears once this is non-empty. `upgradesTabSeen`
+  // suppresses the "new tab" nudge after the first visit.
+  unlockedUpgradeIds: z.array(z.string()).default([]),
+  upgradesTabSeen: z.boolean().default(false),
 });
 export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;
 export const ALCHEMIST_GUILD_BOARD_DEFAULT: AlchemistGuildBoardState =

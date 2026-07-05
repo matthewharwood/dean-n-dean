@@ -11,13 +11,16 @@ export function isGatheringAvailable(completedQuestIds: readonly string[]): bool
 export function getVisibleBoardModeTabs({
   expeditionAvailable,
   gatheringAvailable,
+  upgradesAvailable,
 }: {
   expeditionAvailable: boolean;
   gatheringAvailable: boolean;
+  upgradesAvailable: boolean;
 }): AlchemistGuildBoardMode[] {
   return ALCHEMIST_GUILD_BOARD_MODE_TABS.filter((tab) => {
     if (tab === "gathering") return gatheringAvailable;
     if (tab === "expedition") return expeditionAvailable;
+    if (tab === "upgrades") return upgradesAvailable;
     return true;
   });
 }
@@ -26,12 +29,18 @@ export function resolveVisibleBoardMode({
   activeBoardMode,
   expeditionAvailable,
   gatheringAvailable,
+  upgradesAvailable,
 }: {
   activeBoardMode: AlchemistGuildBoardMode;
   expeditionAvailable: boolean;
   gatheringAvailable: boolean;
+  upgradesAvailable: boolean;
 }): AlchemistGuildBoardMode {
-  const visibleTabs = getVisibleBoardModeTabs({ expeditionAvailable, gatheringAvailable });
+  const visibleTabs = getVisibleBoardModeTabs({
+    expeditionAvailable,
+    gatheringAvailable,
+    upgradesAvailable,
+  });
   return visibleTabs.includes(activeBoardMode) ? activeBoardMode : "crafting";
 }
 
