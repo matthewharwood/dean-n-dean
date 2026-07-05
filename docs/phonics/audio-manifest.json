@@ -1,0 +1,818 @@
+[
+  {
+    "kind": "vowel",
+    "label": "short a /æ/",
+    "path": "phonics-vowels/short-a.mp3",
+    "text": "Aaa."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "short a hint",
+    "path": "phonics-vowels-hint/short-a.mp3",
+    "text": "Short A. Ah, ah, ah. Like in cat."
+  },
+  {
+    "kind": "vowel",
+    "label": "long a /eɪ/",
+    "path": "phonics-vowels/long-a.mp3",
+    "text": "Ayy."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "long a hint",
+    "path": "phonics-vowels-hint/long-a.mp3",
+    "text": "Long A says its name. Like in cake."
+  },
+  {
+    "kind": "vowel",
+    "label": "short e /ɛ/",
+    "path": "phonics-vowels/short-e.mp3",
+    "text": "Ehh."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "short e hint",
+    "path": "phonics-vowels-hint/short-e.mp3",
+    "text": "Short E. Eh, eh, eh. Like in bed."
+  },
+  {
+    "kind": "vowel",
+    "label": "long e /iː/",
+    "path": "phonics-vowels/long-e.mp3",
+    "text": "Eee."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "long e hint",
+    "path": "phonics-vowels-hint/long-e.mp3",
+    "text": "Long E says its name. Like in bee."
+  },
+  {
+    "kind": "vowel",
+    "label": "short i /ɪ/",
+    "path": "phonics-vowels/short-i.mp3",
+    "text": "Ihh."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "short i hint",
+    "path": "phonics-vowels-hint/short-i.mp3",
+    "text": "Short I. Ih, ih, ih. Like in pig."
+  },
+  {
+    "kind": "vowel",
+    "label": "long i /aɪ/",
+    "path": "phonics-vowels/long-i.mp3",
+    "text": "Eye."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "long i hint",
+    "path": "phonics-vowels-hint/long-i.mp3",
+    "text": "Long I says its name. Like in kite."
+  },
+  {
+    "kind": "vowel",
+    "label": "short o /ɒ/",
+    "path": "phonics-vowels/short-o.mp3",
+    "text": "Ahh."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "short o hint",
+    "path": "phonics-vowels-hint/short-o.mp3",
+    "text": "Short O. Ah, ah, ah. Like in dog."
+  },
+  {
+    "kind": "vowel",
+    "label": "long o /oʊ/",
+    "path": "phonics-vowels/long-o.mp3",
+    "text": "Ohh."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "long o hint",
+    "path": "phonics-vowels-hint/long-o.mp3",
+    "text": "Long O says its name. Like in boat."
+  },
+  {
+    "kind": "vowel",
+    "label": "short u /ʌ/",
+    "path": "phonics-vowels/short-u.mp3",
+    "text": "Uhh."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "short u hint",
+    "path": "phonics-vowels-hint/short-u.mp3",
+    "text": "Short U. Uh, uh, uh. Like in sun."
+  },
+  {
+    "kind": "vowel",
+    "label": "long u /juː/",
+    "path": "phonics-vowels/long-u.mp3",
+    "text": "Yoo."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "long u hint",
+    "path": "phonics-vowels-hint/long-u.mp3",
+    "text": "Long U says its name. Like in cube."
+  },
+  {
+    "kind": "vowel",
+    "label": "ar /ɑːr/",
+    "path": "phonics-vowels/ar.mp3",
+    "text": "Arr."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "ar hint",
+    "path": "phonics-vowels-hint/ar.mp3",
+    "text": "Ar. Like a pirate, arr. Like in car."
+  },
+  {
+    "kind": "vowel",
+    "label": "or /ɔːr/",
+    "path": "phonics-vowels/or.mp3",
+    "text": "Or."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "or hint",
+    "path": "phonics-vowels-hint/or.mp3",
+    "text": "Or. Like in corn."
+  },
+  {
+    "kind": "vowel",
+    "label": "er /ɜːr/",
+    "path": "phonics-vowels/er.mp3",
+    "text": "Err."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "er hint",
+    "path": "phonics-vowels-hint/er.mp3",
+    "text": "Er. Like in bird."
+  },
+  {
+    "kind": "vowel",
+    "label": "long oo /uː/",
+    "path": "phonics-vowels/oo-long.mp3",
+    "text": "Ooo."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "long oo hint",
+    "path": "phonics-vowels-hint/oo-long.mp3",
+    "text": "Long oo. Like a ghost, oooo. Like in moon."
+  },
+  {
+    "kind": "vowel",
+    "label": "short oo /ʊ/",
+    "path": "phonics-vowels/oo-short.mp3",
+    "text": "Uu."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "short oo hint",
+    "path": "phonics-vowels-hint/oo-short.mp3",
+    "text": "Short oo. Like in book."
+  },
+  {
+    "kind": "vowel",
+    "label": "ow /aʊ/",
+    "path": "phonics-vowels/ow.mp3",
+    "text": "Ow."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "ow hint",
+    "path": "phonics-vowels-hint/ow.mp3",
+    "text": "Ow. Like it hurts, owww. Like in cow."
+  },
+  {
+    "kind": "vowel",
+    "label": "oy /ɔɪ/",
+    "path": "phonics-vowels/oy.mp3",
+    "text": "Oy."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "oy hint",
+    "path": "phonics-vowels-hint/oy.mp3",
+    "text": "Oy. Like in boy."
+  },
+  {
+    "kind": "vowel",
+    "label": "aw /ɔː/",
+    "path": "phonics-vowels/aw.mp3",
+    "text": "Aw."
+  },
+  {
+    "kind": "vowel-hint",
+    "label": "aw hint",
+    "path": "phonics-vowels-hint/aw.mp3",
+    "text": "Aw. Like in saw."
+  },
+  {
+    "kind": "word",
+    "label": "cat",
+    "path": "phonics-words/cat.mp3",
+    "text": "Cat."
+  },
+  {
+    "kind": "word",
+    "label": "map",
+    "path": "phonics-words/map.mp3",
+    "text": "Map."
+  },
+  {
+    "kind": "word",
+    "label": "bag",
+    "path": "phonics-words/bag.mp3",
+    "text": "Bag."
+  },
+  {
+    "kind": "word",
+    "label": "cake",
+    "path": "phonics-words/cake.mp3",
+    "text": "Cake."
+  },
+  {
+    "kind": "word",
+    "label": "rain",
+    "path": "phonics-words/rain.mp3",
+    "text": "Rain."
+  },
+  {
+    "kind": "word",
+    "label": "gate",
+    "path": "phonics-words/gate.mp3",
+    "text": "Gate."
+  },
+  {
+    "kind": "word",
+    "label": "bed",
+    "path": "phonics-words/bed.mp3",
+    "text": "Bed."
+  },
+  {
+    "kind": "word",
+    "label": "net",
+    "path": "phonics-words/net.mp3",
+    "text": "Net."
+  },
+  {
+    "kind": "word",
+    "label": "hen",
+    "path": "phonics-words/hen.mp3",
+    "text": "Hen."
+  },
+  {
+    "kind": "word",
+    "label": "bee",
+    "path": "phonics-words/bee.mp3",
+    "text": "Bee."
+  },
+  {
+    "kind": "word",
+    "label": "leaf",
+    "path": "phonics-words/leaf.mp3",
+    "text": "Leaf."
+  },
+  {
+    "kind": "word",
+    "label": "tree",
+    "path": "phonics-words/tree.mp3",
+    "text": "Tree."
+  },
+  {
+    "kind": "word",
+    "label": "pig",
+    "path": "phonics-words/pig.mp3",
+    "text": "Pig."
+  },
+  {
+    "kind": "word",
+    "label": "ship",
+    "path": "phonics-words/ship.mp3",
+    "text": "Ship."
+  },
+  {
+    "kind": "word",
+    "label": "fish",
+    "path": "phonics-words/fish.mp3",
+    "text": "Fish."
+  },
+  {
+    "kind": "word",
+    "label": "kite",
+    "path": "phonics-words/kite.mp3",
+    "text": "Kite."
+  },
+  {
+    "kind": "word",
+    "label": "bike",
+    "path": "phonics-words/bike.mp3",
+    "text": "Bike."
+  },
+  {
+    "kind": "word",
+    "label": "dog",
+    "path": "phonics-words/dog.mp3",
+    "text": "Dog."
+  },
+  {
+    "kind": "word",
+    "label": "pot",
+    "path": "phonics-words/pot.mp3",
+    "text": "Pot."
+  },
+  {
+    "kind": "word",
+    "label": "boat",
+    "path": "phonics-words/boat.mp3",
+    "text": "Boat."
+  },
+  {
+    "kind": "word",
+    "label": "rope",
+    "path": "phonics-words/rope.mp3",
+    "text": "Rope."
+  },
+  {
+    "kind": "word",
+    "label": "sun",
+    "path": "phonics-words/sun.mp3",
+    "text": "Sun."
+  },
+  {
+    "kind": "word",
+    "label": "cup",
+    "path": "phonics-words/cup.mp3",
+    "text": "Cup."
+  },
+  {
+    "kind": "word",
+    "label": "cube",
+    "path": "phonics-words/cube.mp3",
+    "text": "Cube."
+  },
+  {
+    "kind": "word",
+    "label": "mule",
+    "path": "phonics-words/mule.mp3",
+    "text": "Mule."
+  },
+  {
+    "kind": "word",
+    "label": "ham",
+    "path": "phonics-words/ham.mp3",
+    "text": "Ham."
+  },
+  {
+    "kind": "word",
+    "label": "jam",
+    "path": "phonics-words/jam.mp3",
+    "text": "Jam."
+  },
+  {
+    "kind": "word",
+    "label": "hand",
+    "path": "phonics-words/hand.mp3",
+    "text": "Hand."
+  },
+  {
+    "kind": "word",
+    "label": "lamp",
+    "path": "phonics-words/lamp.mp3",
+    "text": "Lamp."
+  },
+  {
+    "kind": "word",
+    "label": "tail",
+    "path": "phonics-words/tail.mp3",
+    "text": "Tail."
+  },
+  {
+    "kind": "word",
+    "label": "snail",
+    "path": "phonics-words/snail.mp3",
+    "text": "Snail."
+  },
+  {
+    "kind": "word",
+    "label": "plane",
+    "path": "phonics-words/plane.mp3",
+    "text": "Plane."
+  },
+  {
+    "kind": "word",
+    "label": "web",
+    "path": "phonics-words/web.mp3",
+    "text": "Web."
+  },
+  {
+    "kind": "word",
+    "label": "jet",
+    "path": "phonics-words/jet.mp3",
+    "text": "Jet."
+  },
+  {
+    "kind": "word",
+    "label": "nest",
+    "path": "phonics-words/nest.mp3",
+    "text": "Nest."
+  },
+  {
+    "kind": "word",
+    "label": "seed",
+    "path": "phonics-words/seed.mp3",
+    "text": "Seed."
+  },
+  {
+    "kind": "word",
+    "label": "queen",
+    "path": "phonics-words/queen.mp3",
+    "text": "Queen."
+  },
+  {
+    "kind": "word",
+    "label": "key",
+    "path": "phonics-words/key.mp3",
+    "text": "Key."
+  },
+  {
+    "kind": "word",
+    "label": "bean",
+    "path": "phonics-words/bean.mp3",
+    "text": "Bean."
+  },
+  {
+    "kind": "word",
+    "label": "lip",
+    "path": "phonics-words/lip.mp3",
+    "text": "Lip."
+  },
+  {
+    "kind": "word",
+    "label": "milk",
+    "path": "phonics-words/milk.mp3",
+    "text": "Milk."
+  },
+  {
+    "kind": "word",
+    "label": "hill",
+    "path": "phonics-words/hill.mp3",
+    "text": "Hill."
+  },
+  {
+    "kind": "word",
+    "label": "night",
+    "path": "phonics-words/night.mp3",
+    "text": "Night."
+  },
+  {
+    "kind": "word",
+    "label": "light",
+    "path": "phonics-words/light.mp3",
+    "text": "Light."
+  },
+  {
+    "kind": "word",
+    "label": "fly",
+    "path": "phonics-words/fly.mp3",
+    "text": "Fly."
+  },
+  {
+    "kind": "word",
+    "label": "tie",
+    "path": "phonics-words/tie.mp3",
+    "text": "Tie."
+  },
+  {
+    "kind": "word",
+    "label": "frog",
+    "path": "phonics-words/frog.mp3",
+    "text": "Frog."
+  },
+  {
+    "kind": "word",
+    "label": "rock",
+    "path": "phonics-words/rock.mp3",
+    "text": "Rock."
+  },
+  {
+    "kind": "word",
+    "label": "sock",
+    "path": "phonics-words/sock.mp3",
+    "text": "Sock."
+  },
+  {
+    "kind": "word",
+    "label": "box",
+    "path": "phonics-words/box.mp3",
+    "text": "Box."
+  },
+  {
+    "kind": "word",
+    "label": "top",
+    "path": "phonics-words/top.mp3",
+    "text": "Top."
+  },
+  {
+    "kind": "word",
+    "label": "nose",
+    "path": "phonics-words/nose.mp3",
+    "text": "Nose."
+  },
+  {
+    "kind": "word",
+    "label": "goat",
+    "path": "phonics-words/goat.mp3",
+    "text": "Goat."
+  },
+  {
+    "kind": "word",
+    "label": "snow",
+    "path": "phonics-words/snow.mp3",
+    "text": "Snow."
+  },
+  {
+    "kind": "word",
+    "label": "bug",
+    "path": "phonics-words/bug.mp3",
+    "text": "Bug."
+  },
+  {
+    "kind": "word",
+    "label": "duck",
+    "path": "phonics-words/duck.mp3",
+    "text": "Duck."
+  },
+  {
+    "kind": "word",
+    "label": "drum",
+    "path": "phonics-words/drum.mp3",
+    "text": "Drum."
+  },
+  {
+    "kind": "word",
+    "label": "flute",
+    "path": "phonics-words/flute.mp3",
+    "text": "Flute."
+  },
+  {
+    "kind": "word",
+    "label": "tube",
+    "path": "phonics-words/tube.mp3",
+    "text": "Tube."
+  },
+  {
+    "kind": "word",
+    "label": "june",
+    "path": "phonics-words/june.mp3",
+    "text": "June."
+  },
+  {
+    "kind": "word",
+    "label": "car",
+    "path": "phonics-words/car.mp3",
+    "text": "Car."
+  },
+  {
+    "kind": "word",
+    "label": "star",
+    "path": "phonics-words/star.mp3",
+    "text": "Star."
+  },
+  {
+    "kind": "word",
+    "label": "jar",
+    "path": "phonics-words/jar.mp3",
+    "text": "Jar."
+  },
+  {
+    "kind": "word",
+    "label": "farm",
+    "path": "phonics-words/farm.mp3",
+    "text": "Farm."
+  },
+  {
+    "kind": "word",
+    "label": "arm",
+    "path": "phonics-words/arm.mp3",
+    "text": "Arm."
+  },
+  {
+    "kind": "word",
+    "label": "corn",
+    "path": "phonics-words/corn.mp3",
+    "text": "Corn."
+  },
+  {
+    "kind": "word",
+    "label": "fork",
+    "path": "phonics-words/fork.mp3",
+    "text": "Fork."
+  },
+  {
+    "kind": "word",
+    "label": "horn",
+    "path": "phonics-words/horn.mp3",
+    "text": "Horn."
+  },
+  {
+    "kind": "word",
+    "label": "storm",
+    "path": "phonics-words/storm.mp3",
+    "text": "Storm."
+  },
+  {
+    "kind": "word",
+    "label": "north",
+    "path": "phonics-words/north.mp3",
+    "text": "North."
+  },
+  {
+    "kind": "word",
+    "label": "bird",
+    "path": "phonics-words/bird.mp3",
+    "text": "Bird."
+  },
+  {
+    "kind": "word",
+    "label": "fern",
+    "path": "phonics-words/fern.mp3",
+    "text": "Fern."
+  },
+  {
+    "kind": "word",
+    "label": "turn",
+    "path": "phonics-words/turn.mp3",
+    "text": "Turn."
+  },
+  {
+    "kind": "word",
+    "label": "girl",
+    "path": "phonics-words/girl.mp3",
+    "text": "Girl."
+  },
+  {
+    "kind": "word",
+    "label": "nurse",
+    "path": "phonics-words/nurse.mp3",
+    "text": "Nurse."
+  },
+  {
+    "kind": "word",
+    "label": "moon",
+    "path": "phonics-words/moon.mp3",
+    "text": "Moon."
+  },
+  {
+    "kind": "word",
+    "label": "spoon",
+    "path": "phonics-words/spoon.mp3",
+    "text": "Spoon."
+  },
+  {
+    "kind": "word",
+    "label": "boot",
+    "path": "phonics-words/boot.mp3",
+    "text": "Boot."
+  },
+  {
+    "kind": "word",
+    "label": "zoo",
+    "path": "phonics-words/zoo.mp3",
+    "text": "Zoo."
+  },
+  {
+    "kind": "word",
+    "label": "food",
+    "path": "phonics-words/food.mp3",
+    "text": "Food."
+  },
+  {
+    "kind": "word",
+    "label": "book",
+    "path": "phonics-words/book.mp3",
+    "text": "Book."
+  },
+  {
+    "kind": "word",
+    "label": "foot",
+    "path": "phonics-words/foot.mp3",
+    "text": "Foot."
+  },
+  {
+    "kind": "word",
+    "label": "hook",
+    "path": "phonics-words/hook.mp3",
+    "text": "Hook."
+  },
+  {
+    "kind": "word",
+    "label": "wood",
+    "path": "phonics-words/wood.mp3",
+    "text": "Wood."
+  },
+  {
+    "kind": "word",
+    "label": "cook",
+    "path": "phonics-words/cook.mp3",
+    "text": "Cook."
+  },
+  {
+    "kind": "word",
+    "label": "cow",
+    "path": "phonics-words/cow.mp3",
+    "text": "Cow."
+  },
+  {
+    "kind": "word",
+    "label": "owl",
+    "path": "phonics-words/owl.mp3",
+    "text": "Owl."
+  },
+  {
+    "kind": "word",
+    "label": "house",
+    "path": "phonics-words/house.mp3",
+    "text": "House."
+  },
+  {
+    "kind": "word",
+    "label": "mouse",
+    "path": "phonics-words/mouse.mp3",
+    "text": "Mouse."
+  },
+  {
+    "kind": "word",
+    "label": "cloud",
+    "path": "phonics-words/cloud.mp3",
+    "text": "Cloud."
+  },
+  {
+    "kind": "word",
+    "label": "boy",
+    "path": "phonics-words/boy.mp3",
+    "text": "Boy."
+  },
+  {
+    "kind": "word",
+    "label": "coin",
+    "path": "phonics-words/coin.mp3",
+    "text": "Coin."
+  },
+  {
+    "kind": "word",
+    "label": "toy",
+    "path": "phonics-words/toy.mp3",
+    "text": "Toy."
+  },
+  {
+    "kind": "word",
+    "label": "oil",
+    "path": "phonics-words/oil.mp3",
+    "text": "Oil."
+  },
+  {
+    "kind": "word",
+    "label": "soil",
+    "path": "phonics-words/soil.mp3",
+    "text": "Soil."
+  },
+  {
+    "kind": "word",
+    "label": "saw",
+    "path": "phonics-words/saw.mp3",
+    "text": "Saw."
+  },
+  {
+    "kind": "word",
+    "label": "paw",
+    "path": "phonics-words/paw.mp3",
+    "text": "Paw."
+  },
+  {
+    "kind": "word",
+    "label": "hawk",
+    "path": "phonics-words/hawk.mp3",
+    "text": "Hawk."
+  },
+  {
+    "kind": "word",
+    "label": "claw",
+    "path": "phonics-words/claw.mp3",
+    "text": "Claw."
+  },
+  {
+    "kind": "word",
+    "label": "yawn",
+    "path": "phonics-words/yawn.mp3",
+    "text": "Yawn."
+  }
+]

@@ -6,9 +6,12 @@ import { ALCHEMIST_GUILD_GATHERING_STREAK_DEFAULT } from "@dean-stack/schemas";
 import {
   advanceGatheringStreak,
   CELESTIAL_STREAK_TIER_AT,
+  DIVINE_STREAK_TIER_AT,
   GATHERING_STREAK_RARITY_TIERS,
   gatheringStreakIncrementDetuneCents,
+  isGatheringStreakRecord,
   resolveGatheringStreakSoundEvent,
+  STREAK_RECORD_MIN,
   streakBonusForOptionIndex,
   streakChestImage,
   streakRarity,
@@ -77,7 +80,7 @@ describe("gathering streak reward math", () => {
 });
 
 describe("gathering streak rarity tiers", () => {
-  test("maps streak bands to the rarity tiers, up to Celestial at 50", () => {
+  test("maps streak bands to the rarity tiers, up to Divine at 100", () => {
     expect(streakRarity(0)).toBe("common");
     expect(streakRarity(4)).toBe("common");
     expect(streakRarity(5)).toBe("uncommon");
@@ -91,7 +94,9 @@ describe("gathering streak rarity tiers", () => {
     expect(streakRarity(30)).toBe("mythical");
     expect(streakRarity(CELESTIAL_STREAK_TIER_AT - 1)).toBe("mythical");
     expect(streakRarity(CELESTIAL_STREAK_TIER_AT)).toBe("celestial");
-    expect(streakRarity(9999)).toBe("celestial");
+    expect(streakRarity(DIVINE_STREAK_TIER_AT - 1)).toBe("celestial");
+    expect(streakRarity(DIVINE_STREAK_TIER_AT)).toBe("divine");
+    expect(streakRarity(9999)).toBe("divine");
   });
 
   test("every rarity tier ships a committed treasure-chest WebP, all distinct", async () => {
@@ -110,6 +115,7 @@ describe("gathering streak rarity tiers", () => {
     expect(streakChestImage(0)).toBe(streakRarityChestImage("common"));
     expect(streakChestImage(30)).toBe(streakRarityChestImage("mythical"));
     expect(streakChestImage(CELESTIAL_STREAK_TIER_AT)).toBe(streakRarityChestImage("celestial"));
+    expect(streakChestImage(DIVINE_STREAK_TIER_AT)).toBe(streakRarityChestImage("divine"));
   });
 });
 
@@ -142,6 +148,43 @@ describe("advanceGatheringStreak", () => {
     const next = advanceGatheringStreak(ALCHEMIST_GUILD_GATHERING_STREAK_DEFAULT, false, 500);
     expect(next.current).toBe(0);
     expect(next.lastBrokenAtMs).toBeNull();
+  });
+});
+
+describe("isGatheringStreakRecord", () => {
+  const streak = (current: number, longest = current) => ({
+    current,
+    lastBrokenAtMs: null,
+    lastIncrementAtMs: null,
+    longest: Math.max(current, longest),
+  });
+
+  test("fires on the tick that overtakes the previous all-time best", () => {
+    // On the verge (current tied with the record): the next correct answer beats it.
+    expect(isGatheringStreakRecord(streak(12, 12), true)).toBe(true);
+    // Still climbing toward a bigger prior best: not a record yet.
+    expect(isGatheringStreakRecord(streak(7, 12), true)).toBe(false);
+  });
+
+  test("keeps firing every tick of a hot record run (current stays tied to longest)", () => {
+    for (const value of [STREAK_RECORD_MIN, 13, 40, 99]) {
+      expect(isGatheringStreakRecord(streak(value, value), true)).toBe(true);
+    }
+  });
+
+  test("stays quiet below the celebrate floor so a fresh save doesn't spam", () => {
+    // A brand-new save climbing 1→2 sets an all-time high but isn't worth a fanfare.
+    expect(isGatheringStreakRecord(streak(0, 0), true)).toBe(false); // -> 1
+    expect(
+      isGatheringStreakRecord(streak(STREAK_RECORD_MIN - 2, STREAK_RECORD_MIN - 2), true),
+    ).toBe(false); // -> 2
+    expect(
+      isGatheringStreakRecord(streak(STREAK_RECORD_MIN - 1, STREAK_RECORD_MIN - 1), true),
+    ).toBe(true); // -> STREAK_RECORD_MIN
+  });
+
+  test("never fires on a wrong answer", () => {
+    expect(isGatheringStreakRecord(streak(20, 20), false)).toBe(false);
   });
 });
 

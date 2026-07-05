@@ -366,7 +366,9 @@ describe("gathering loop", () => {
       ...ALCHEMIST_GUILD_BOARD_DEFAULT,
       completedQuestIds: ["quest:first-water"],
     });
-    const kitchenNeeds = new Set(["element:na", "element:cl", "raw:wood"]);
+    // Kitchen Stores demands Salt (Na + Cl), Charcoal (raw:wood) and Ash
+    // (raw:herbs) — all four primitives are valid focused reward targets.
+    const kitchenNeeds = new Set(["element:na", "element:cl", "raw:wood", "raw:herbs"]);
     const focusedNeedCount = options.filter((cardId) => kitchenNeeds.has(cardId)).length;
 
     expect(options).toHaveLength(3);
@@ -655,11 +657,14 @@ describe("gathering loop", () => {
 
     const next = claimGatheringBossReward(state, 15_003_000);
 
-    expect(next.levelProgress.completedBossLevels).toContain(1);
-    expect(next.levelProgress.currentLevel).toBe(2);
-    expect(next.levelProgress.highestUnlockedLevel).toBe(2);
+    // Beating the boss returns the player to the learning-path map and parks the
+    // addition track's advanced progress in the archive (level 2 now unlocked).
+    expect(next.selectedTrack).toBeNull();
+    const additionTrack = next.trackArchive.addition;
+    expect(additionTrack.levelProgress.completedBossLevels).toContain(1);
+    expect(additionTrack.levelProgress.currentLevel).toBe(2);
+    expect(additionTrack.levelProgress.highestUnlockedLevel).toBe(2);
     expect(next.boss.phase).toBe("idle");
-    expect(next.boss.level).toBe(2);
     expect(next.gatherLog).toHaveLength(6);
   });
 });

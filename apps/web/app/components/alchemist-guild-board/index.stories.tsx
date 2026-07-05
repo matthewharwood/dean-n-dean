@@ -36,6 +36,9 @@ const GATHERING_READY_BOARD_STATE: AlchemistGuildBoardState = {
   completedQuestIds: [ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID],
   gathering: {
     ...ALCHEMIST_GUILD_BOARD_DEFAULT.gathering,
+    // These stories demonstrate active gathering play, so they start on the addition
+    // path rather than the learning-path map (selectedTrack === null).
+    selectedTrack: "addition",
     unlockSeen: true,
   },
 };

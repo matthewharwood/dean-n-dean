@@ -56,7 +56,9 @@ If any of the four exited or its port is silent, dev is broken. Inspect `/tmp/de
 Skip this step for changes that don't touch dev orchestration (component edits, schemas, tests, docs).
 
 ### P3.4.1 — Dev browser-console smoke (any P1 change)
-The gate's Playwright runs against `bun run preview` (the production build), so dev-only runtime errors are invisible to it: `react-scan` is gated to `import.meta.env.DEV`, top-level-await module evaluation runs in dev only, side channels (anime.js, PixiJS) initialize via dev paths, and Vite's prebundle cache is dev-only. A broken `applyEngineDefaults` or a stale `.vite/deps` entry passes the gate green and reveals itself only when a human opens the browser.
+The gate's Playwright runs against `bun run preview` (the production build), so dev-only runtime errors are invisible to it: `react-scan` is gated to `import.meta.env.DEV`, top-level-await module evaluation runs in dev only, side channels (anime.js, PixiJS) initialize via dev paths, and Vite's prebundle cache is dev-only. A broken `applyEngineDefaults`, a stale `.vite/deps` entry, or a `ZodError` when a persisted IDB record re-parses against a changed schema (Pillar 3) passes the gate green and reveals itself only when a human opens the browser.
+
+**Canonical quick check — always run `bun run check:runtime` before completing.** It probes the local ports (`5173`/`3010`); if a server is up it headless-loads the app and fails on the "Something broke" error boundary or any runtime `ZodError`; **if no server is running it skips (exit 0) and never starts one.** For a deeper sweep (all console errors/warnings, 4xx/5xx responses, blank-page detection), use the fuller inline smoke below.
 
 **An empty error log is NOT proof the page works.** A blank page can render without throwing — React rendered into an empty body, hydration silently no-op'd because the target element is missing, etc. The smoke MUST also assert visible content.
 

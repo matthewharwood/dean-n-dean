@@ -14,17 +14,25 @@ import {
   AlchemistGuildGatheringEquationSchema,
   type AlchemistGuildGatheringLevelProgress,
   type AlchemistGuildGatheringMonster,
+  type AlchemistGuildGatheringPhonicsChoice,
+  type AlchemistGuildGatheringPhonicsPrompt,
+  AlchemistGuildGatheringPhonicsPromptSchema,
   type AlchemistGuildGatheringSpacedRepetition,
   type AlchemistGuildGatheringSpacedRepetitionFact,
   type AlchemistGuildGatheringState,
   AlchemistGuildGatheringStateSchema,
   type AlchemistGuildGatheringTargetDropChances,
+  type AlchemistGuildGatheringTrackKind,
   ELEMENT_CARDS,
+  GATHERING_TRACK_KINDS,
   getAlchemyQuestById,
   getAlchemyRecipeById,
   getAlchemyRecipeByOutput,
   getGatheringEnemyForRound,
   getGatheringEnemyImagePath,
+  getPhonicsVowel,
+  getPhonicsWordsForLevel,
+  type PhonicsWord,
   type StaticAlchemyQuest,
 } from "@dean-stack/schemas";
 
@@ -35,6 +43,7 @@ import {
   gatheringElementForEnemy,
 } from "./gathering-elements";
 import { advanceGatheringStreak } from "./gathering-streak";
+import { isQuestDeliveryComplete } from "./quest-deliverables";
 import { hasUpgrade, NEW_REWARD_SLOT_FOURTH_CHANCE, NEW_REWARD_SLOT_UPGRADE_ID } from "./upgrades";
 
 export const gatheringMoveIds = [
@@ -109,6 +118,9 @@ const GATHERING_FACT_MASTERY_MIN_ATTEMPTS = 3;
 const GATHERING_FACT_MASTERY_MIN_ACCURACY = 0.9;
 const GATHERING_FACT_MASTERY_MIN_STREAK = 2;
 const GATHERING_BOSS_REWARD_CARD_COUNT = 6;
+const GATHERING_PHONICS_CHOICE_COUNT = 5;
+// Mid difficulty seed for new phonics facts (getInitialGatheringFactDifficulty(5) ≈ 5).
+const GATHERING_PHONICS_DIFFICULTY_SEED = 5;
 const GATHERING_ATTACK_LEVEL_TWO_DAMAGE_BONUS = 9;
 
 const GATHERING_MOVE_DEFINITIONS = [
@@ -172,6 +184,23 @@ const GATHERING_MOVE_DEFINITIONS = [
   soundId: GatheringAttackSoundId;
   unlockStreak: number;
 }>;
+
+// The two numeric tracks share the equation shape; only the operator + factId
+// prefix differ. Phonics is handled by its own prompt path.
+export type NumericGatheringTrackKind = "addition" | "subtraction";
+
+function isNumericGatheringTrack(track: AlchemistGuildGatheringTrackKind): boolean {
+  return track === "addition" || track === "subtraction";
+}
+
+// Resolve the active learning path. Pre-track saves (selectedTrack === null while
+// mid-game) and any numeric flow without an explicit track fall back to addition,
+// preserving the original behavior exactly.
+function getActiveGatheringTrack(
+  state: AlchemistGuildGatheringState,
+): AlchemistGuildGatheringTrackKind {
+  return state.selectedTrack ?? "addition";
+}
 
 export type GatheringRewardContext = Pick<
   AlchemistGuildBoardState,
@@ -249,24 +278,109 @@ export function createGatheringEquation(
   spacedRepetition?: AlchemistGuildGatheringSpacedRepetition,
   nowMs = Date.now(),
   maxAnswer = GATHERING_LEVEL_ONE_MAX_ANSWER,
+  track: NumericGatheringTrackKind = "addition",
 ): AlchemistGuildGatheringEquation {
   const candidate = spacedRepetition
-    ? pickGatheringSpacedRepetitionFact(spacedRepetition, round, equationIndex, nowMs, maxAnswer)
-    : createDeterministicGatheringFact(round, equationIndex, maxAnswer);
-  const oriented = orientGatheringFact(candidate, round + equationIndex);
-  const left = oriented.left;
-  const right = oriented.right;
-  const answer = left + right;
+    ? pickGatheringNumericFact(spacedRepetition, track, round, equationIndex, nowMs, maxAnswer)
+    : createDeterministicGatheringNumericFact(track, round, equationIndex, maxAnswer);
+  // Addition is commutative, so the operands can flip for variety; subtraction is
+  // order-sensitive and must keep `minuend - subtrahend`.
+  const oriented =
+    track === "addition" ? orientGatheringFact(candidate, round + equationIndex) : candidate;
 
   return AlchemistGuildGatheringEquationSchema.parse({
-    answer,
-    choiceValues: buildAnswerChoices(answer, round + equationIndex),
-    factId: candidate.factId,
-    id: `gathering-equation:${round}:${equationIndex}:${candidate.factId}`,
-    left,
-    right,
+    answer: oriented.answer,
+    choiceValues: buildAnswerChoices(oriented.answer, round + equationIndex),
+    factId: oriented.factId,
+    id: `gathering-equation:${round}:${equationIndex}:${oriented.factId}`,
+    left: oriented.left,
+    operator: track === "subtraction" ? "-" : "+",
+    right: oriented.right,
     selectedValue: null,
   });
+}
+
+// Build a phonics "listen & match" question: pick a target word (spaced-repetition
+// scheduled), then four distractor words with DIFFERENT vowel sounds so exactly one
+// card matches the prompt's vowel. The prompt plays the target's vowel sound.
+export function createGatheringPhonicsPrompt(
+  level: number,
+  round: number,
+  promptIndex: number,
+  spacedRepetition?: AlchemistGuildGatheringSpacedRepetition,
+  nowMs = Date.now(),
+): AlchemistGuildGatheringPhonicsPrompt {
+  const target = spacedRepetition
+    ? pickGatheringPhonicsWord(spacedRepetition, level, round, promptIndex, nowMs)
+    : createDeterministicPhonicsWord(level, round, promptIndex);
+  const vowel = getPhonicsVowel(target.vowelKey);
+  const seed = round + promptIndex;
+  const choices = shufflePhonicsWords(
+    [target, ...pickPhonicsDistractors(level, target, seed)],
+    seed,
+  ).map(toGatheringPhonicsChoice);
+
+  return AlchemistGuildGatheringPhonicsPromptSchema.parse({
+    choices,
+    correctFactId: target.factId,
+    hintVoiceClipPath: vowel.hintVoiceClipPath,
+    id: `gathering-phonics:${round}:${promptIndex}:${target.factId}`,
+    promptVoiceClipPath: vowel.promptVoiceClipPath,
+    selectedFactId: null,
+    targetLabel: vowel.label,
+    targetVowelKey: target.vowelKey,
+  });
+}
+
+function toGatheringPhonicsChoice(wordEntry: PhonicsWord): AlchemistGuildGatheringPhonicsChoice {
+  return {
+    factId: wordEntry.factId,
+    vowelKey: wordEntry.vowelKey,
+    voiceClipPath: wordEntry.voiceClipPath,
+    word: wordEntry.word,
+  };
+}
+
+// Four distractors, each a different vowel sound from the target (and from each
+// other where possible) so the contrast is unambiguous. Deterministic by seed.
+function pickPhonicsDistractors(level: number, target: PhonicsWord, seed: number): PhonicsWord[] {
+  const wordsByVowel = new Map<string, PhonicsWord[]>();
+  for (const entry of getPhonicsWordsForLevel(level)) {
+    if (entry.vowelKey === target.vowelKey) continue;
+    const list = wordsByVowel.get(entry.vowelKey) ?? [];
+    list.push(entry);
+    wordsByVowel.set(entry.vowelKey, list);
+  }
+
+  const orderedVowelKeys = rotateBySeed([...wordsByVowel.keys()].toSorted(), seed);
+  const distractors: PhonicsWord[] = [];
+  for (const vowelKey of orderedVowelKeys) {
+    if (distractors.length >= GATHERING_PHONICS_CHOICE_COUNT - 1) break;
+    const words = wordsByVowel.get(vowelKey) ?? [];
+    const choice = words[Math.abs(seed + distractors.length) % Math.max(1, words.length)];
+    if (choice) distractors.push(choice);
+  }
+  return distractors;
+}
+
+function rotateBySeed<T>(items: readonly T[], seed: number): T[] {
+  if (items.length === 0) return [];
+  const offset = Math.abs(seed) % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
+
+function shufflePhonicsWords(entries: readonly PhonicsWord[], seed: number): PhonicsWord[] {
+  const ordered = [...entries];
+  for (let index = ordered.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(getDeterministicUnit(seed + index, index) * (index + 1));
+    const current = ordered[index];
+    const target = ordered[swapIndex];
+    if (current && target) {
+      ordered[index] = target;
+      ordered[swapIndex] = current;
+    }
+  }
+  return ordered;
 }
 
 // Derive the gathering monster for a 1-based round from the bestiary ladder. Identity
@@ -288,30 +402,75 @@ export function createGatheringRound(
   round: number,
   spacedRepetition?: AlchemistGuildGatheringSpacedRepetition,
   levelProgress?: AlchemistGuildGatheringLevelProgress,
+  track: AlchemistGuildGatheringTrackKind = "addition",
 ): AlchemistGuildGatheringState {
   const resolvedLevelProgress = levelProgress ?? ALCHEMIST_GUILD_GATHERING_DEFAULT.levelProgress;
+  const level = resolvedLevelProgress.currentLevel;
+  const phonicsPrompt =
+    track === "phonics" ? createGatheringPhonicsPrompt(level, round, 1, spacedRepetition) : null;
+  const equation =
+    track === "phonics"
+      ? ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT
+      : createGatheringEquation(
+          round,
+          1,
+          spacedRepetition,
+          Date.now(),
+          getGatheringLevelMaxAnswer(level),
+          track,
+        );
+
   return AlchemistGuildGatheringStateSchema.parse({
     ...ALCHEMIST_GUILD_GATHERING_DEFAULT,
     monster: createGatheringMonsterForRound(round),
-    equation: createGatheringEquation(
-      round,
-      1,
-      spacedRepetition,
-      Date.now(),
-      getGatheringLevelMaxAnswer(resolvedLevelProgress.currentLevel),
-    ),
+    equation,
     equationIndex: 1,
     levelProgress: resolvedLevelProgress,
+    phonicsPrompt,
     round,
+    selectedTrack: track,
     spacedRepetition: spacedRepetition ?? ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
   });
+}
+
+// The active track's next live question (numeric equation or phonics prompt),
+// used by the post-attack advance and the wrong-streak reset.
+function buildNextGatheringPrompt(
+  state: AlchemistGuildGatheringState,
+  nextIndex: number,
+): Pick<AlchemistGuildGatheringState, "equation" | "equationIndex" | "phonicsPrompt"> {
+  const track = getActiveGatheringTrack(state);
+  if (track === "phonics") {
+    return {
+      equation: state.equation,
+      equationIndex: nextIndex,
+      phonicsPrompt: createGatheringPhonicsPrompt(
+        state.levelProgress.currentLevel,
+        state.round,
+        nextIndex,
+        state.spacedRepetition,
+      ),
+    };
+  }
+  return {
+    equation: createGatheringEquation(
+      state.round,
+      nextIndex,
+      state.spacedRepetition,
+      Date.now(),
+      getGatheringLevelMaxAnswer(state.levelProgress.currentLevel),
+      track,
+    ),
+    equationIndex: nextIndex,
+    phonicsPrompt: null,
+  };
 }
 
 function getGatheringMoveLevel(
   move: (typeof GATHERING_MOVE_DEFINITIONS)[number],
   streak: number,
 ): number {
-  return move.levelTwoAt !== null && streak >= move.levelTwoAt ? 2 : 1;
+  return move.levelTwoAt !== null && streak >= move.levelTwoAt ? GATHERING_LEVEL_TWO : 1;
 }
 
 function createGatheringMove(
@@ -369,13 +528,26 @@ export function resolveGatheringMoveDamage(
   };
 }
 
+function getAvailableGatheringMoves(streak: number): GatheringMove[] {
+  return GATHERING_MOVE_DEFINITIONS.filter((move) => streak >= move.unlockStreak).map((move) =>
+    createGatheringMove(move, streak),
+  );
+}
+
+// Phonics combat uses the same streak-unlocked attack card ladder as the numeric
+// tracks. The prompt earns the attack opportunity; the card itself owns damage.
+export function getGatheringPhonicsMoves(
+  _prompt: AlchemistGuildGatheringPhonicsPrompt,
+  streak = 0,
+): GatheringMove[] {
+  return getGatheringMoves(ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT, streak);
+}
+
 export function getGatheringMoves(
   _equation: AlchemistGuildGatheringEquation,
   streak = 0,
 ): GatheringMove[] {
-  return GATHERING_MOVE_DEFINITIONS.filter((move) => streak >= move.unlockStreak).map((move) =>
-    createGatheringMove(move, streak),
-  );
+  return getAvailableGatheringMoves(streak);
 }
 
 export function reviewGatheringSpacedRepetitionFact(
@@ -384,7 +556,46 @@ export function reviewGatheringSpacedRepetitionFact(
   correct: boolean,
   reviewedAtMs: number,
 ): AlchemistGuildGatheringSpacedRepetition {
-  const fact = getGatheringSpacedRepetitionFact(spacedRepetition, equation);
+  return reviewGatheringFactById(
+    spacedRepetition,
+    equation.factId,
+    equation.left,
+    equation.right,
+    equation.answer,
+    correct,
+    reviewedAtMs,
+  );
+}
+
+// Phonics has no numeric operands; left/right are 0 and the difficulty seed is a
+// fixed mid value. The SM-2 engine below is otherwise identical across all tracks.
+function reviewGatheringPhonicsFact(
+  spacedRepetition: AlchemistGuildGatheringSpacedRepetition,
+  prompt: AlchemistGuildGatheringPhonicsPrompt,
+  correct: boolean,
+  reviewedAtMs: number,
+): AlchemistGuildGatheringSpacedRepetition {
+  return reviewGatheringFactById(
+    spacedRepetition,
+    prompt.correctFactId,
+    0,
+    0,
+    GATHERING_PHONICS_DIFFICULTY_SEED,
+    correct,
+    reviewedAtMs,
+  );
+}
+
+function reviewGatheringFactById(
+  spacedRepetition: AlchemistGuildGatheringSpacedRepetition,
+  factId: string,
+  left: number,
+  right: number,
+  difficultySeed: number,
+  correct: boolean,
+  reviewedAtMs: number,
+): AlchemistGuildGatheringSpacedRepetition {
+  const fact = getOrCreateGatheringFact(spacedRepetition, factId, left, right, difficultySeed);
   const retrievability = getGatheringFactRetrievability(fact, reviewedAtMs);
   const attempts = fact.attempts + 1;
   const correctCount = fact.correctCount + (correct ? 1 : 0);
@@ -479,18 +690,19 @@ export function createGatheringLevelMasteryReport(
   gathering: AlchemistGuildGatheringState,
   nowMs = Date.now(),
 ): GatheringLevelMasteryReport {
+  const track = getActiveGatheringTrack(gathering);
   const currentLevel = gathering.levelProgress.currentLevel;
-  const maxAnswer = getGatheringLevelMaxAnswer(currentLevel);
-  const facts = createGatheringFactPool(maxAnswer);
+  const maxAnswer = isNumericGatheringTrack(track) ? getGatheringLevelMaxAnswer(currentLevel) : 0;
+  const factIds = getGatheringTrackFactIds(track, currentLevel);
   let masteredFactCount = 0;
   let strengthSum = 0;
-  for (const candidate of facts) {
-    const fact = gathering.spacedRepetition.facts[candidate.factId];
+  for (const factId of factIds) {
+    const fact = gathering.spacedRepetition.facts[factId];
     if (!fact) continue;
     strengthSum += getGatheringLevelFactStrength(fact, nowMs);
     if (isGatheringLevelFactMastered(fact, nowMs)) masteredFactCount += 1;
   }
-  const totalFactCount = facts.length;
+  const totalFactCount = factIds.length;
   // `progress` is the graded spaced-repetition strength averaged over the pool, so
   // the Memory track grows with every correct rep (a fully-mastered fact scores 1,
   // so once the counted facts are all mastered this equals the mastered fraction).
@@ -552,12 +764,15 @@ export function startGatheringBossFight(
   const level = state.levelProgress.currentLevel;
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
-    boss: createGatheringBossState({
-      level,
-      phase: "active",
-      problemIndex: 1,
-      startedAtMs,
-    }),
+    boss: createGatheringBossState(
+      {
+        level,
+        phase: "active",
+        problemIndex: 1,
+        startedAtMs,
+      },
+      getActiveGatheringTrack(state),
+    ),
     lastAnswerCorrect: null,
     phase: "solving",
     wrongAnswerStreak: 0,
@@ -574,6 +789,22 @@ export function answerGatheringBossChallenge(
   const timedOut =
     state.boss.problemEndsAtMs !== null && answeredAtMs >= state.boss.problemEndsAtMs;
   const correct = !timedOut && selectedValue === state.boss.equation.answer;
+  if (correct) return advanceCorrectGatheringBossAnswer(state, answeredAtMs);
+
+  return advanceMissedGatheringBossAnswer(state, answeredAtMs);
+}
+
+// Phonics boss answer: the chosen word's factId must match the prompt's target.
+export function answerGatheringBossPhonics(
+  state: AlchemistGuildGatheringState,
+  selectedFactId: string | null,
+  answeredAtMs = Date.now(),
+): AlchemistGuildGatheringState {
+  if (state.boss.phase !== "active" || !state.boss.phonicsPrompt) return state;
+
+  const timedOut =
+    state.boss.problemEndsAtMs !== null && answeredAtMs >= state.boss.problemEndsAtMs;
+  const correct = !timedOut && selectedFactId === state.boss.phonicsPrompt.correctFactId;
   if (correct) return advanceCorrectGatheringBossAnswer(state, answeredAtMs);
 
   return advanceMissedGatheringBossAnswer(state, answeredAtMs);
@@ -599,14 +830,24 @@ export function claimGatheringBossReward(
 ): AlchemistGuildGatheringState {
   if (state.boss.phase !== "reward") return state;
 
+  const track = getActiveGatheringTrack(state);
   const completedLevel = state.boss.level;
-  const nextLevel = getNextGatheringLevel(completedLevel);
+  // Beating the boss advances ONLY this track (its level 2 unlocks), parks its
+  // learning state, and returns the player to the learning-path map to choose
+  // their next path — they may pick this track's level 2 OR another track's
+  // level 1, but never another track's level 2 (that needs its own level-1 boss).
   const nextLevelProgress = createNextGatheringLevelProgress(state.levelProgress, completedLevel);
-  const nextSpacedRepetition = state.spacedRepetition;
-  const nextRound = createGatheringRound(state.round + 1, nextSpacedRepetition, nextLevelProgress);
+  const trackArchive = {
+    ...state.trackArchive,
+    [track]: {
+      levelProgress: nextLevelProgress,
+      parkedRound: state.round + 1,
+      spacedRepetition: state.spacedRepetition,
+    },
+  };
 
   return AlchemistGuildGatheringStateSchema.parse({
-    ...nextRound,
+    ...ALCHEMIST_GUILD_GATHERING_DEFAULT,
     gatherLog: [
       ...state.boss.rewardCardIds.map((cardId, index) => ({
         cardId,
@@ -616,32 +857,100 @@ export function claimGatheringBossReward(
       })),
       ...state.gatherLog,
     ].slice(0, GATHERING_LOG_LIMIT),
-    boss: {
-      ...ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT,
-      level: nextLevel,
-    },
-    // A flawless run carries its streak through the boss into the next level —
-    // only a wrong answer breaks it (see claimGatheringReward for the rationale).
+    // selectedTrack === null shows the learning-path map (default), no path locked in.
+    selectedTrack: null,
+    // A flawless run carries its streak through the boss into the next path.
     streak: state.streak,
     targetDropChances: state.targetDropChances,
+    trackArchive,
+    unlockSeen: true,
+  });
+}
+
+// One option on the learning-path map. `level` is the next selectable level (null
+// once both levels are complete). `isComplete` flags a fully-beaten track.
+export type GatheringPathOption = {
+  completedLevels: number[];
+  isComplete: boolean;
+  level: number | null;
+  track: AlchemistGuildGatheringTrackKind;
+};
+
+// The offered level for a track: level 1 until its level-1 boss falls, then level
+// 2 until that boss falls, then null (complete). This is the whole lock rule —
+// level 2 is only reachable by beating the same track's level 1.
+function getGatheringTrackOfferedLevel(
+  levelProgress: AlchemistGuildGatheringLevelProgress,
+): number | null {
+  if (!levelProgress.completedBossLevels.includes(GATHERING_LEVEL_ONE)) return GATHERING_LEVEL_ONE;
+  if (!levelProgress.completedBossLevels.includes(GATHERING_LEVEL_TWO)) return GATHERING_LEVEL_TWO;
+  return null;
+}
+
+export function getGatheringPathMap(state: AlchemistGuildGatheringState): GatheringPathOption[] {
+  return GATHERING_TRACK_KINDS.map((track) => {
+    const archive = state.trackArchive[track];
+    const offeredLevel = getGatheringTrackOfferedLevel(archive.levelProgress);
+    return {
+      completedLevels: [...archive.levelProgress.completedBossLevels],
+      isComplete: offeredLevel === null,
+      level: offeredLevel,
+      track,
+    };
+  });
+}
+
+// Pick a path from the map and lock into it. Refused while a path is already in
+// progress (selectedTrack !== null) or if the chosen track is already complete.
+export function selectGatheringTrack(
+  state: AlchemistGuildGatheringState,
+  track: AlchemistGuildGatheringTrackKind,
+): AlchemistGuildGatheringState {
+  if (state.selectedTrack !== null) return state;
+
+  const archive = state.trackArchive[track];
+  const offeredLevel = getGatheringTrackOfferedLevel(archive.levelProgress);
+  if (offeredLevel === null) return state;
+
+  const levelProgress: AlchemistGuildGatheringLevelProgress = {
+    ...archive.levelProgress,
+    currentLevel: offeredLevel,
+  };
+  const round = createGatheringRound(
+    archive.parkedRound,
+    archive.spacedRepetition,
+    levelProgress,
+    track,
+  );
+
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...round,
+    gatherLog: state.gatherLog,
+    selectedTrack: track,
+    streak: state.streak,
+    targetDropChances: state.targetDropChances,
+    trackArchive: state.trackArchive,
+    unlockSeen: true,
   });
 }
 
 export function createGatheringBossReadyState(
   level = GATHERING_LEVEL_ONE,
   nowMs = Date.now(),
+  track: AlchemistGuildGatheringTrackKind = "addition",
 ): AlchemistGuildGatheringState {
   const currentLevel = clampGatheringLevel(level);
   const levelProgress = createGatheringLevelProgressForLevel(currentLevel);
-  const spacedRepetition = createGatheringLevelMasteredSpacedRepetition(currentLevel, nowMs);
+  const spacedRepetition = createGatheringLevelMasteredSpacedRepetition(track, currentLevel, nowMs);
 
   return AlchemistGuildGatheringStateSchema.parse({
-    ...createGatheringRound(1, spacedRepetition, levelProgress),
+    ...createGatheringRound(1, spacedRepetition, levelProgress, track),
     boss: {
       ...ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT,
       level: currentLevel,
     },
     levelProgress,
+    selectedTrack: track,
     spacedRepetition,
   });
 }
@@ -649,8 +958,9 @@ export function createGatheringBossReadyState(
 export function createActiveGatheringBossTestState(
   level = GATHERING_LEVEL_ONE,
   nowMs = Date.now(),
+  track: AlchemistGuildGatheringTrackKind = "addition",
 ): AlchemistGuildGatheringState {
-  return startGatheringBossFight(createGatheringBossReadyState(level, nowMs), nowMs, true);
+  return startGatheringBossFight(createGatheringBossReadyState(level, nowMs, track), nowMs, true);
 }
 
 export function getGatheringBossRewardQuantity(level: number): number {
@@ -700,48 +1010,96 @@ function getGatheringLevelFactStrength(
 function createGatheringBossState(
   input: Pick<AlchemistGuildGatheringBossState, "level" | "phase" | "problemIndex"> &
     Partial<AlchemistGuildGatheringBossState>,
+  track: AlchemistGuildGatheringTrackKind = "addition",
 ): AlchemistGuildGatheringBossState {
   const startedAtMs = input.startedAtMs ?? Date.now();
   const problemStartedAtMs = input.problemStartedAtMs ?? startedAtMs;
   const active = input.phase === "active";
+  const phonicsActive = active && track === "phonics";
+  const numericTrack: NumericGatheringTrackKind =
+    track === "subtraction" ? "subtraction" : "addition";
+
+  const equation =
+    active && !phonicsActive
+      ? createGatheringBossEquation(
+          numericTrack,
+          input.level,
+          input.problemIndex,
+          problemStartedAtMs,
+        )
+      : (input.equation ?? ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT);
+
+  let phonicsPrompt: AlchemistGuildGatheringPhonicsPrompt | null;
+  if (phonicsActive) {
+    phonicsPrompt = createGatheringBossPhonicsPrompt(
+      input.level,
+      input.problemIndex,
+      problemStartedAtMs,
+    );
+  } else if (active) {
+    phonicsPrompt = null;
+  } else {
+    phonicsPrompt = input.phonicsPrompt ?? null;
+  }
 
   return {
     ...ALCHEMIST_GUILD_GATHERING_BOSS_DEFAULT,
     ...input,
-    equation: active
-      ? createGatheringBossEquation(input.level, input.problemIndex, problemStartedAtMs)
-      : (input.equation ?? ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT),
+    equation,
+    phonicsPrompt,
     problemEndsAtMs: active ? problemStartedAtMs + GATHERING_BOSS_PROBLEM_DURATION_MS : null,
     problemStartedAtMs: active ? problemStartedAtMs : null,
     startedAtMs,
   };
 }
 
+// Review the boss problem against the active track's spaced-repetition store —
+// phonics problems review the phonics fact, numeric problems the equation fact.
+function reviewGatheringBossFact(
+  state: AlchemistGuildGatheringState,
+  correct: boolean,
+  answeredAtMs: number,
+): AlchemistGuildGatheringSpacedRepetition {
+  if (getActiveGatheringTrack(state) === "phonics" && state.boss.phonicsPrompt) {
+    return reviewGatheringPhonicsFact(
+      state.spacedRepetition,
+      state.boss.phonicsPrompt,
+      correct,
+      answeredAtMs,
+    );
+  }
+  return reviewGatheringSpacedRepetitionFact(
+    state.spacedRepetition,
+    state.boss.equation,
+    correct,
+    answeredAtMs,
+  );
+}
+
 function advanceCorrectGatheringBossAnswer(
   state: AlchemistGuildGatheringState,
   answeredAtMs: number,
 ): AlchemistGuildGatheringState {
-  const spacedRepetition = reviewGatheringSpacedRepetitionFact(
-    state.spacedRepetition,
-    state.boss.equation,
-    true,
-    answeredAtMs,
-  );
+  const track = getActiveGatheringTrack(state);
+  const spacedRepetition = reviewGatheringBossFact(state, true, answeredAtMs);
   const currentStreak = state.boss.currentStreak + 1;
 
   if (currentStreak >= GATHERING_BOSS_REQUIRED_STREAK) {
     return AlchemistGuildGatheringStateSchema.parse({
       ...state,
-      boss: createGatheringBossState({
-        ...state.boss,
-        completedAtMs: answeredAtMs,
-        currentStreak,
-        lastAnswerCorrect: true,
-        phase: "reward",
-        problemEndsAtMs: null,
-        problemStartedAtMs: null,
-        rewardCardIds: createGatheringBossRewardCardIds(state.boss.level),
-      }),
+      boss: createGatheringBossState(
+        {
+          ...state.boss,
+          completedAtMs: answeredAtMs,
+          currentStreak,
+          lastAnswerCorrect: true,
+          phase: "reward",
+          problemEndsAtMs: null,
+          problemStartedAtMs: null,
+          rewardCardIds: createGatheringBossRewardCardIds(state.boss.level),
+        },
+        track,
+      ),
       lastAnswerCorrect: true,
       spacedRepetition,
     });
@@ -749,14 +1107,17 @@ function advanceCorrectGatheringBossAnswer(
 
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
-    boss: createGatheringBossState({
-      ...state.boss,
-      currentStreak,
-      lastAnswerCorrect: true,
-      phase: "active",
-      problemIndex: state.boss.problemIndex + 1,
-      problemStartedAtMs: answeredAtMs,
-    }),
+    boss: createGatheringBossState(
+      {
+        ...state.boss,
+        currentStreak,
+        lastAnswerCorrect: true,
+        phase: "active",
+        problemIndex: state.boss.problemIndex + 1,
+        problemStartedAtMs: answeredAtMs,
+      },
+      track,
+    ),
     lastAnswerCorrect: true,
     spacedRepetition,
   });
@@ -766,31 +1127,31 @@ function advanceMissedGatheringBossAnswer(
   state: AlchemistGuildGatheringState,
   answeredAtMs: number,
 ): AlchemistGuildGatheringState {
+  const track = getActiveGatheringTrack(state);
   const misses = Math.min(GATHERING_BOSS_ALLOWED_MISSES + 1, state.boss.misses + 1);
-  const spacedRepetition = reviewGatheringSpacedRepetitionFact(
-    state.spacedRepetition,
-    state.boss.equation,
-    false,
-    answeredAtMs,
-  );
+  const spacedRepetition = reviewGatheringBossFact(state, false, answeredAtMs);
 
   if (misses > GATHERING_BOSS_ALLOWED_MISSES) {
     return AlchemistGuildGatheringStateSchema.parse({
       ...state,
-      boss: createGatheringBossState({
-        ...state.boss,
-        currentStreak: 0,
-        failedAtMs: answeredAtMs,
-        lastAnswerCorrect: false,
-        misses,
-        phase: "failed",
-        problemEndsAtMs: null,
-        problemStartedAtMs: null,
-      }),
+      boss: createGatheringBossState(
+        {
+          ...state.boss,
+          currentStreak: 0,
+          failedAtMs: answeredAtMs,
+          lastAnswerCorrect: false,
+          misses,
+          phase: "failed",
+          problemEndsAtMs: null,
+          problemStartedAtMs: null,
+        },
+        track,
+      ),
       lastAnswerCorrect: false,
       phase: "solving",
       spacedRepetition: resetGatheringLevelSpacedRepetition(
         spacedRepetition,
+        track,
         state.boss.level,
         answeredAtMs,
       ),
@@ -800,41 +1161,61 @@ function advanceMissedGatheringBossAnswer(
 
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
-    boss: createGatheringBossState({
-      ...state.boss,
-      currentStreak: 0,
-      lastAnswerCorrect: false,
-      misses,
-      phase: "active",
-      problemIndex: state.boss.problemIndex + 1,
-      problemStartedAtMs: answeredAtMs,
-    }),
+    boss: createGatheringBossState(
+      {
+        ...state.boss,
+        currentStreak: 0,
+        lastAnswerCorrect: false,
+        misses,
+        phase: "active",
+        problemIndex: state.boss.problemIndex + 1,
+        problemStartedAtMs: answeredAtMs,
+      },
+      track,
+    ),
     lastAnswerCorrect: false,
     spacedRepetition,
   });
 }
 
 function createGatheringBossEquation(
+  track: NumericGatheringTrackKind,
   level: number,
   problemIndex: number,
   seedMs: number,
 ): AlchemistGuildGatheringEquation {
   const maxAnswer = getGatheringLevelMaxAnswer(level);
-  const candidates = createGatheringFactPool(maxAnswer);
+  const candidates = createGatheringNumericFactPool(track, maxAnswer);
   const seed = problemIndex * 17 + clampGatheringLevel(level) * 31 + Math.floor(seedMs / 1000);
   const candidate = candidates[Math.abs(seed) % candidates.length];
-  if (!candidate) return createGatheringEquation(1, problemIndex, undefined, seedMs, maxAnswer);
+  if (!candidate)
+    return createGatheringEquation(1, problemIndex, undefined, seedMs, maxAnswer, track);
 
-  const oriented = orientGatheringFact(candidate, seed);
-  const answer = oriented.left + oriented.right;
+  const oriented = track === "addition" ? orientGatheringFact(candidate, seed) : candidate;
   return AlchemistGuildGatheringEquationSchema.parse({
-    answer,
-    choiceValues: buildAnswerChoices(answer, seed),
-    factId: candidate.factId,
-    id: `gathering-boss:${clampGatheringLevel(level)}:${problemIndex}:${candidate.factId}`,
+    answer: oriented.answer,
+    choiceValues: buildAnswerChoices(oriented.answer, seed),
+    factId: oriented.factId,
+    id: `gathering-boss:${clampGatheringLevel(level)}:${problemIndex}:${oriented.factId}`,
     left: oriented.left,
+    operator: track === "subtraction" ? "-" : "+",
     right: oriented.right,
     selectedValue: null,
+  });
+}
+
+function createGatheringBossPhonicsPrompt(
+  level: number,
+  problemIndex: number,
+  seedMs: number,
+): AlchemistGuildGatheringPhonicsPrompt {
+  const seed = problemIndex * 17 + clampGatheringLevel(level) * 31 + Math.floor(seedMs / 1000);
+  // Reuse the live prompt builder with a boss-derived seed; the unique id keeps
+  // each boss problem distinct from the live round's prompts.
+  const prompt = createGatheringPhonicsPrompt(level, seed, problemIndex);
+  return AlchemistGuildGatheringPhonicsPromptSchema.parse({
+    ...prompt,
+    id: `gathering-boss-phonics:${clampGatheringLevel(level)}:${problemIndex}:${prompt.correctFactId}`,
   });
 }
 
@@ -874,12 +1255,11 @@ function createNextGatheringLevelProgress(
 
 function resetGatheringLevelSpacedRepetition(
   spacedRepetition: AlchemistGuildGatheringSpacedRepetition,
+  track: AlchemistGuildGatheringTrackKind,
   level: number,
   resetAtMs: number,
 ): AlchemistGuildGatheringSpacedRepetition {
-  const resetFactIds = new Set(
-    createGatheringFactPool(getGatheringLevelMaxAnswer(level)).map((fact) => fact.factId),
-  );
+  const resetFactIds = new Set(getGatheringTrackFactIds(track, level));
   const facts: AlchemistGuildGatheringSpacedRepetition["facts"] = {};
 
   for (const [factId, fact] of Object.entries(spacedRepetition.facts)) {
@@ -911,11 +1291,12 @@ function normalizeGatheringMasteryProgress(progress: number): number {
 }
 
 function createGatheringLevelMasteredSpacedRepetition(
+  track: AlchemistGuildGatheringTrackKind,
   level: number,
   masteredAtMs: number,
 ): AlchemistGuildGatheringSpacedRepetition {
   const facts: AlchemistGuildGatheringSpacedRepetition["facts"] = {};
-  for (const candidate of createGatheringFactPool(getGatheringLevelMaxAnswer(level))) {
+  for (const candidate of getGatheringTrackFactSeeds(track, level)) {
     facts[candidate.factId] = {
       attempts: 3,
       correctCount: 3,
@@ -999,17 +1380,9 @@ export function resetGatheringEquationAfterWrongStreak(
     return state;
   }
 
-  const nextEquationIndex = state.equationIndex + 1;
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
-    equation: createGatheringEquation(
-      state.round,
-      nextEquationIndex,
-      state.spacedRepetition,
-      Date.now(),
-      getGatheringLevelMaxAnswer(state.levelProgress.currentLevel),
-    ),
-    equationIndex: nextEquationIndex,
+    ...buildNextGatheringPrompt(state, state.equationIndex + 1),
     lastAnswerCorrect: null,
     phase: "solving",
     wrongAnswerStreak: 0,
@@ -1029,6 +1402,53 @@ export function clearGatheringAnswer(
     },
     lastAnswerCorrect: null,
     phase: "solving",
+  });
+}
+
+// ---- Phonics live-play handlers (the audio-match analogue of the numeric ones) ----
+
+export function selectGatheringPhonicsChoice(
+  state: AlchemistGuildGatheringState,
+  factId: string,
+): AlchemistGuildGatheringState {
+  if (state.phase !== "solving" || !state.phonicsPrompt) return state;
+  if (!state.phonicsPrompt.choices.some((choice) => choice.factId === factId)) return state;
+
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...state,
+    lastAnswerCorrect: null,
+    phase: "solving",
+    phonicsPrompt: { ...state.phonicsPrompt, selectedFactId: factId },
+  });
+}
+
+export function confirmGatheringPhonicsAnswer(
+  state: AlchemistGuildGatheringState,
+  reviewedAtMs = Date.now(),
+): AlchemistGuildGatheringState {
+  if (state.phase !== "solving" || !state.phonicsPrompt) return state;
+  const selectedFactId = state.phonicsPrompt.selectedFactId;
+  if (selectedFactId === null) return state;
+
+  const correct = selectedFactId === state.phonicsPrompt.correctFactId;
+  const wrongAnswerStreak = correct
+    ? 0
+    : Math.min(GATHERING_WRONG_ANSWER_RESET_COUNT, state.wrongAnswerStreak + 1);
+  const spacedRepetition = reviewGatheringPhonicsFact(
+    state.spacedRepetition,
+    state.phonicsPrompt,
+    correct,
+    reviewedAtMs,
+  );
+  const streak = advanceGatheringStreak(state.streak, correct, reviewedAtMs);
+
+  return AlchemistGuildGatheringStateSchema.parse({
+    ...state,
+    lastAnswerCorrect: correct,
+    phase: correct ? "move" : "solving",
+    spacedRepetition,
+    streak,
+    wrongAnswerStreak,
   });
 }
 
@@ -1093,9 +1513,11 @@ export function selectGatheringMove(
 ): AlchemistGuildGatheringState {
   if (state.phase !== "move") return state;
 
-  const move = getGatheringMoves(state.equation, state.streak.current).find(
-    (candidate) => candidate.id === moveId,
-  );
+  const moves =
+    getActiveGatheringTrack(state) === "phonics" && state.phonicsPrompt
+      ? getGatheringPhonicsMoves(state.phonicsPrompt, state.streak.current)
+      : getGatheringMoves(state.equation, state.streak.current);
+  const move = moves.find((candidate) => candidate.id === moveId);
   if (!move) return state;
 
   const { damage } = resolveGatheringMoveDamage(move, state.monster.elementType);
@@ -1115,17 +1537,9 @@ export function selectGatheringMove(
     });
   }
 
-  const nextEquationIndex = state.equationIndex + 1;
   return AlchemistGuildGatheringStateSchema.parse({
     ...state,
-    equation: createGatheringEquation(
-      state.round,
-      nextEquationIndex,
-      state.spacedRepetition,
-      Date.now(),
-      getGatheringLevelMaxAnswer(state.levelProgress.currentLevel),
-    ),
-    equationIndex: nextEquationIndex,
+    ...buildNextGatheringPrompt(state, state.equationIndex + 1),
     lastAnswerCorrect: null,
     monster: { ...state.monster, hp: nextHp },
     phase: "solving",
@@ -1143,6 +1557,7 @@ export function claimGatheringReward(
     state.round + 1,
     state.spacedRepetition,
     state.levelProgress,
+    getActiveGatheringTrack(state),
   );
   return AlchemistGuildGatheringStateSchema.parse({
     ...nextRound,
@@ -1156,12 +1571,15 @@ export function claimGatheringReward(
       },
       ...state.gatherLog,
     ].slice(0, GATHERING_LOG_LIMIT),
+    // Stay on the active path and keep the other tracks' parked progress.
+    selectedTrack: state.selectedTrack,
     // Carry the answer streak across the round transition — `createGatheringRound`
     // resets it to the default, but a streak only breaks on a WRONG answer
     // (advanceGatheringStreak), never on winning a fight. Without this the streak
     // resets every kill and could never reach the 10/15/30 reward tiers.
     streak: state.streak,
     targetDropChances: state.targetDropChances,
+    trackArchive: state.trackArchive,
   });
 }
 
@@ -1251,14 +1669,15 @@ export function createGatheringRewardPlan(
   };
 }
 
-function pickGatheringSpacedRepetitionFact(
+function pickGatheringNumericFact(
   spacedRepetition: AlchemistGuildGatheringSpacedRepetition,
+  track: NumericGatheringTrackKind,
   round: number,
   equationIndex: number,
   nowMs: number,
   maxAnswer: number,
 ): GatheringFactCandidate {
-  const candidates = createGatheringFactPool(maxAnswer);
+  const candidates = createGatheringNumericFactPool(track, maxAnswer);
   const reviewedPicks: GatheringFactSchedulePick[] = [];
   const newPicks: GatheringFactSchedulePick[] = [];
 
@@ -1287,34 +1706,140 @@ function pickGatheringSpacedRepetitionFact(
   if (newPicks.length > 0) return getHighestScoredGatheringFact(newPicks);
   if (reviewedPicks.length > 0) return getHighestScoredGatheringFact(reviewedPicks);
 
-  return createDeterministicGatheringFact(round, equationIndex);
+  return createDeterministicGatheringNumericFact(track, round, equationIndex, maxAnswer);
 }
 
-function createGatheringFactPool(maxAnswer: number): GatheringFactCandidate[] {
+// Phonics scheduling mirrors the numeric scheduler: due facts first, then unseen
+// words, then weakest reviewed — all keyed off the same spaced-repetition stats.
+function pickGatheringPhonicsWord(
+  spacedRepetition: AlchemistGuildGatheringSpacedRepetition,
+  level: number,
+  round: number,
+  promptIndex: number,
+  nowMs: number,
+): PhonicsWord {
+  const words = getPhonicsWordsForLevel(level);
+  const reviewed: Array<{ score: number; word: PhonicsWord }> = [];
+  const fresh: Array<{ score: number; word: PhonicsWord }> = [];
+
+  for (const [wordIndex, word] of words.entries()) {
+    const fact = spacedRepetition.facts[word.factId];
+    if (!fact) {
+      fresh.push({
+        score: getDeterministicUnit(round + promptIndex, wordIndex) * GATHERING_NEW_FACT_WEIGHT,
+        word,
+      });
+      continue;
+    }
+    reviewed.push({ score: getGatheringFactScheduleScore(fact, nowMs), word });
+  }
+
+  const due = reviewed.filter((pick) => {
+    const fact = spacedRepetition.facts[pick.word.factId];
+    return fact !== undefined && fact.dueAtMs <= nowMs;
+  });
+  if (due.length > 0) return getHighestScoredPhonicsWord(due);
+  if (fresh.length > 0) return getHighestScoredPhonicsWord(fresh);
+  if (reviewed.length > 0) return getHighestScoredPhonicsWord(reviewed);
+
+  return createDeterministicPhonicsWord(level, round, promptIndex);
+}
+
+function getHighestScoredPhonicsWord(
+  picks: ReadonlyArray<{ score: number; word: PhonicsWord }>,
+): PhonicsWord {
+  const pick = picks.toSorted(
+    (left, right) => right.score - left.score || left.word.factId.localeCompare(right.word.factId),
+  )[0];
+  if (!pick) throw new Error("gathering phonics schedule unexpectedly empty");
+  return pick.word;
+}
+
+function createDeterministicPhonicsWord(
+  level: number,
+  round: number,
+  promptIndex: number,
+): PhonicsWord {
+  const words = getPhonicsWordsForLevel(level);
+  const word = words[(round * 7 + promptIndex * 11) % words.length];
+  if (!word) throw new Error("gathering phonics pool unexpectedly empty");
+  return word;
+}
+
+// Every factId for a (track, level) — the spaced-repetition universe used by the
+// mastery report, the level reset, and the mastered-seed builder. Track-agnostic.
+function getGatheringTrackFactIds(
+  track: AlchemistGuildGatheringTrackKind,
+  level: number,
+): string[] {
+  if (track === "phonics") return getPhonicsWordsForLevel(level).map((word) => word.factId);
+  return createGatheringNumericFactPool(track, getGatheringLevelMaxAnswer(level)).map(
+    (candidate) => candidate.factId,
+  );
+}
+
+// Per-fact left/right seeds (phonics has none → 0) for building a fully-mastered
+// spaced-repetition snapshot of a track+level.
+function getGatheringTrackFactSeeds(
+  track: AlchemistGuildGatheringTrackKind,
+  level: number,
+): GatheringFactCandidate[] {
+  if (track === "phonics") {
+    return getPhonicsWordsForLevel(level).map((word) => ({
+      answer: 0,
+      factId: word.factId,
+      left: 0,
+      right: 0,
+    }));
+  }
+  return createGatheringNumericFactPool(track, getGatheringLevelMaxAnswer(level));
+}
+
+function createGatheringNumericFactPool(
+  track: NumericGatheringTrackKind,
+  maxAnswer: number,
+): GatheringFactCandidate[] {
   const candidates: GatheringFactCandidate[] = [];
 
   for (let left = 1; left <= maxAnswer; left += 1) {
     for (let right = left; left + right <= maxAnswer; right += 1) {
-      candidates.push(createGatheringFactCandidate(left, right));
+      candidates.push(createGatheringNumericFactCandidate(track, left, right));
     }
   }
 
   return candidates;
 }
 
-function createDeterministicGatheringFact(
+function createDeterministicGatheringNumericFact(
+  track: NumericGatheringTrackKind,
   round: number,
   equationIndex: number,
   maxAnswer = GATHERING_LEVEL_ONE_MAX_ANSWER,
 ): GatheringFactCandidate {
-  const candidates = createGatheringFactPool(maxAnswer);
+  const candidates = createGatheringNumericFactPool(track, maxAnswer);
   const candidate = candidates[(round * 7 + equationIndex * 11) % candidates.length];
-  if (!candidate) return createGatheringFactCandidate(1, 1);
+  if (!candidate) return createGatheringNumericFactCandidate(track, 1, 1);
   return candidate;
 }
 
-function createGatheringFactCandidate(left: number, right: number): GatheringFactCandidate {
-  const canonical = getCanonicalGatheringFact(left, right);
+// One numeric fact from a pair of addends. Addition uses them directly; subtraction
+// mirrors each addition fact as `(a+b) - b = a`, so the two numeric pools are the
+// same size (level 1 = 25 facts, level 2 = 100) and stay equivalent in length.
+function createGatheringNumericFactCandidate(
+  track: NumericGatheringTrackKind,
+  addendA: number,
+  addendB: number,
+): GatheringFactCandidate {
+  const canonical = getCanonicalGatheringFact(addendA, addendB);
+  if (track === "subtraction") {
+    const minuend = canonical.left + canonical.right;
+    return {
+      answer: canonical.left,
+      factId: `subtraction:${minuend}-${canonical.right}`,
+      left: minuend,
+      right: canonical.right,
+    };
+  }
   return {
     answer: canonical.left + canonical.right,
     factId: createGatheringFactId(canonical.left, canonical.right),
@@ -1367,27 +1892,28 @@ function getGatheringFactScheduleScore(
   return dueBoost + lapsePressure + difficultyPressure + memoryPressure;
 }
 
-function getGatheringSpacedRepetitionFact(
+function getOrCreateGatheringFact(
   spacedRepetition: AlchemistGuildGatheringSpacedRepetition,
-  equation: AlchemistGuildGatheringEquation,
+  factId: string,
+  left: number,
+  right: number,
+  difficultySeed: number,
 ): AlchemistGuildGatheringSpacedRepetitionFact {
-  const canonical = getCanonicalGatheringFact(equation.left, equation.right);
-  const factId = equation.factId || createGatheringFactId(canonical.left, canonical.right);
   return (
     spacedRepetition.facts[factId] ?? {
       attempts: 0,
       correctCount: 0,
       currentStreak: 0,
-      difficulty: getInitialGatheringFactDifficulty(equation.answer),
+      difficulty: getInitialGatheringFactDifficulty(difficultySeed),
       dueAtMs: 0,
       id: factId,
       lapses: 0,
       lastResult: null,
       lastReviewedAtMs: null,
       lastRetrievability: 0,
-      left: canonical.left,
+      left,
       longestStreak: 0,
-      right: canonical.right,
+      right,
       stabilityDays: 0,
       wrongCount: 0,
     }
@@ -1798,7 +2324,8 @@ function getEffectivelyCompletedQuestIds(context: GatheringRewardContext): Set<s
   const completedQuestIds = new Set<string>(context.completedQuestIds);
 
   for (const [questId, delivery] of Object.entries(context.questDeliveries)) {
-    if (delivery.delivered >= delivery.required) completedQuestIds.add(questId);
+    const quest = getAlchemyQuestById(questId);
+    if (quest && isQuestDeliveryComplete(quest, delivery)) completedQuestIds.add(questId);
   }
 
   return completedQuestIds;

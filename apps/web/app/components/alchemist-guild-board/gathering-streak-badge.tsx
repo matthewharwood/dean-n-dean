@@ -11,8 +11,11 @@ import { gatheringStreakRarityStyle } from "./gathering-streak-style";
 // it advertises is the real reward (see claimGatheringRewardForBoard).
 const GatheringStreakBadgePropsSchema = z.object({
   bonus: z.int(),
-  // Accepts the six shared rarities plus the streak-only "celestial" top tier.
-  rarity: AlchemistGuildEmergentRecipeRaritySchema.or(z.literal("celestial")),
+  // Accepts the six shared rarities plus the streak-only "celestial" and the
+  // god-tier "divine" apex tiers.
+  rarity: AlchemistGuildEmergentRecipeRaritySchema.or(z.literal("celestial")).or(
+    z.literal("divine"),
+  ),
 });
 
 export const GatheringStreakBadge = defineComponent(

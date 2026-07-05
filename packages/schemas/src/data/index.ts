@@ -7,3 +7,4 @@ export * from "./element-cards";
 export * from "./extended-molecule-kid-info";
 export * from "./extended-molecule-recipes";
 export * from "./gathering-enemies";
+export * from "./phonics";

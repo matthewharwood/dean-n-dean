@@ -215,7 +215,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     "Ash",
     [
       "Ash is the powdery mineral leftovers after plant material burns.",
-      "It is like the footprint a fire leaves behind after the wood is gone.",
+      "It is like the footprint a fire leaves behind after the plants are gone.",
       "In recipes, Ash matters because it can stand for useful minerals and powdery additives instead of just trash.",
     ],
     ["source:ash"],

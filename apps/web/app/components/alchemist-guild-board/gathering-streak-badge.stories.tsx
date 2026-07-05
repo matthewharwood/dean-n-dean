@@ -51,6 +51,10 @@ export const CelestialPlusFour: Story = {
   args: { bonus: 4, rarity: "celestial" },
 };
 
+export const DivinePlusFive: Story = {
+  args: { bonus: 5, rarity: "divine" },
+};
+
 const TIER_GALLERY: ReadonlyArray<{ bonus: number; rarity: GatheringStreakRarity }> = [
   { bonus: 1, rarity: "uncommon" },
   { bonus: 1, rarity: "rare" },
@@ -58,6 +62,7 @@ const TIER_GALLERY: ReadonlyArray<{ bonus: number; rarity: GatheringStreakRarity
   { bonus: 2, rarity: "legendary" },
   { bonus: 3, rarity: "mythical" },
   { bonus: 4, rarity: "celestial" },
+  { bonus: 5, rarity: "divine" },
 ];
 
 export const TierGallery: Story = {
