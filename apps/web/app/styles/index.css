@@ -766,7 +766,38 @@ body {
   }
 }
 
+/* "NEW HIGH SCORE" flash text on the streak meter — a prismatic gradient that
+   sweeps across the letters, a cheap "shader text" via background-clip: text
+   (Tailwind's bg-clip-text + text-transparent utilities own the clip so the
+   webkit prefix the iPad needs is emitted for us; this owns the moving fill).
+   The anime.js pop of the banner is separate. Sweep disabled under reduced
+   motion below — the steady gradient still reads as celebratory. */
+.gathering-streak-record-text {
+  background-image: linear-gradient(
+    92deg,
+    rgb(253 224 71) 0%,
+    rgb(52 211 153) 22%,
+    rgb(56 189 248) 44%,
+    rgb(232 121 249) 66%,
+    rgb(253 224 71) 88%,
+    rgb(52 211 153) 100%
+  );
+  background-size: 260% 100%;
+  animation: gathering-streak-record-sweep 1100ms linear infinite;
+}
+
+@keyframes gathering-streak-record-sweep {
+  from {
+    background-position: 0% 50%;
+  }
+
+  to {
+    background-position: 260% 50%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .gathering-streak-record-text,
   .gathering-celestial-bonus-chip,
   .quest-panel-accepted::after,
   .gathering-attack-charge-card::before,

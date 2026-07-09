@@ -14,7 +14,23 @@ export interface AppDB extends DBSchema {
 }
 
 const DB_NAME = "web";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
+
+// A pre-track save carries its addition progress in the live gathering fields with
+// no `selectedTrack`. Hydration would default `selectedTrack` to null and bounce
+// the player to the learning-path map — and selecting "addition" there loads the
+// (empty) track archive, wiping their live progress. So v4 marks any save with real
+// addition progress as already-on the addition path; brand-new saves stay on the map.
+function hasExistingAdditionProgress(gathering: AlchemistGuildBoardState["gathering"]): boolean {
+  if (gathering.selectedTrack != null) return false;
+  return (
+    Object.keys(gathering.spacedRepetition.facts).length > 0 ||
+    gathering.round > 1 ||
+    gathering.gatherLog.length > 0 ||
+    gathering.boss.phase !== "idle" ||
+    gathering.levelProgress.completedBossLevels.length > 0
+  );
+}
 
 let dbPromise: Promise<IDBPDatabase<AppDB>> | undefined;
 let closed = false;
@@ -25,7 +41,7 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
   }
   if (dbPromise) return dbPromise;
   dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
+    async upgrade(db, oldVersion, _newVersion, tx) {
       // Cumulative migrations — every hop must run for users on older versions.
       // Equivalent to `switch(oldVersion)` with fall-through; the `<` form is
       // biome-clean and just as canonical.
@@ -41,6 +57,19 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
           keyPath: "id",
         });
         void alchemistGuildBoards.put(ALCHEMIST_GUILD_BOARD_DEFAULT);
+      }
+      if (oldVersion < 4) {
+        // Multi-track gathering: keep existing addition players on the addition path
+        // so the new learning-path map never strands their in-flight progress.
+        const store = tx.objectStore("alchemistGuildBoards");
+        for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
+          const record = cursor.value;
+          if (!hasExistingAdditionProgress(record.gathering)) continue;
+          await cursor.update({
+            ...record,
+            gathering: { ...record.gathering, selectedTrack: "addition" },
+          });
+        }
       }
     },
     blocked() {

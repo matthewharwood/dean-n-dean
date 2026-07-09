@@ -30,6 +30,7 @@ export const SoundIdSchema = z.enum([
   "gathering.streak.ignite",
   "gathering.streak.increment",
   "gathering.streak.milestone",
+  "gathering.streak.record",
   "gathering.streak.break",
   "music.crownIn8Bit",
   "notification.hide",

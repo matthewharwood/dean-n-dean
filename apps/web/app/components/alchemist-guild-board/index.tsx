@@ -15,6 +15,7 @@ import {
   type AlchemistGuildGatheringLogEntry,
   type AlchemistGuildGatheringState,
   type AlchemistGuildGatheringStreak,
+  type AlchemistGuildGatheringTrackKind,
   type AlchemistGuildInventoryCooldown,
   type AlchemistGuildInventorySlotId,
   AlchemistGuildInventorySlotIdSchema,
@@ -38,7 +39,6 @@ import {
   getExtendedMoleculeKidInfoById,
   getQuestRequesterVoiceClipPath,
   type StaticAlchemyQuest,
-  type StaticAlchemyRecipe,
   type StaticExtendedMoleculeRecipe,
 } from "@dean-stack/schemas";
 import {
@@ -128,11 +128,14 @@ import {
   resolveGatheringDamageFloaterTier,
 } from "./gathering-damage-floater";
 import { type GatheringElementType, gatheringCounterElementFor } from "./gathering-elements";
+import { getGatheringEnemyModelPath } from "./gathering-enemy-models";
 import {
   answerGatheringBossChallenge,
+  answerGatheringBossPhonics,
   claimGatheringBossReward,
   clearGatheringAnswer,
   confirmGatheringAnswer,
+  confirmGatheringPhonicsAnswer,
   createGatheringLevelMasteryReport,
   dismissGatheringBossFailure,
   GATHERING_BOSS_ALLOWED_MISSES,
@@ -143,26 +146,41 @@ import {
   type GatheringMoveId,
   getGatheringBossRewardQuantity,
   getGatheringMoveLadder,
+  getGatheringNextMoveUnlock,
+  getGatheringPathMap,
+  getGatheringPhonicsMoves,
   isGatheringBossReady,
   recordGatheringMasteryProgress,
   resetGatheringEquationAfterWrongStreak,
   resolveGatheringMoveDamage,
   selectGatheringAnswer,
   selectGatheringMove,
+  selectGatheringPhonicsChoice,
+  selectGatheringTrack,
   startGatheringBossFight,
   swapGatheringAnswerWithChoice,
   swapGatheringChoices,
 } from "./gathering-loop";
+
+import { GatheringPathMap } from "./gathering-path-map";
+import {
+  GatheringPhonicsBossAnswerPanel,
+  GatheringPhonicsBossPanel,
+  GatheringPhonicsCardsPanel,
+  GatheringPhonicsPromptPanel,
+} from "./gathering-phonics-panels";
 import { claimGatheringRewardForBoard } from "./gathering-reward-claim";
 import {
   gatheringStreakIncrementDetuneCents,
+  isGatheringStreakRecord,
   resolveGatheringStreakSoundEvent,
   streakBonusForOptionIndex,
   streakChestImage,
   streakRarity,
 } from "./gathering-streak";
-import { GatheringStreakBadge } from "./gathering-streak-badge";
 import { GatheringStreakMeter } from "./gathering-streak-meter";
+import { getGatheringOperandLabels } from "./gathering-track-display";
+import { GlbMonsterViewer } from "./glb-monster-viewer";
 import {
   ALCHEMIST_GUILD_INTRO_FOCUS_ELEMENT_ID,
   ALCHEMIST_GUILD_INTRO_FOCUS_SCALE,
@@ -194,6 +212,13 @@ import {
   getQuestCurrentSwipeDirection,
   getQuestCurrentSwipeIntent,
 } from "./quest-current-carousel-gesture";
+import {
+  canDeliverCardToQuest,
+  deliverCardToQuest,
+  getQuestDeliverables,
+  getQuestDeliveredCount,
+  isQuestDeliveryComplete,
+} from "./quest-deliverables";
 import {
   type AlchemyWorkbenchExtendedRecipePreview,
   type AlchemyWorkbenchRecipePreview,
@@ -255,7 +280,6 @@ const INVENTORY_CLOCK_INTERVAL_MS = 250;
 const RECIPE_REVEAL_STAGGER_MS = 70;
 const RECIPE_REVEAL_INTERSECTION_THRESHOLD = 0.36;
 const RECIPE_REVEAL_ID_SEPARATOR = "|";
-const QUEST_DELIVERY_COMPLETE_LABEL = "Ready to claim";
 const QUEST_CURRENT_SNAP_DURATION_MS = 240;
 const QUEST_CURRENT_SLIDE_OFFSETS = [-1, 0, 1] as const;
 const QUEST_CURRENT_CENTER_SLIDE_INDEX = 1;
@@ -282,18 +306,23 @@ const WINDOW_POINTER_LISTENER_OPTIONS = {
 } satisfies AddEventListenerOptions;
 const WINDOW_POINTER_LISTENER_CAPTURE = true;
 const BOARD_DOT_GRID_STYLE = {
-  backgroundColor: "#f7f7f7",
-  backgroundImage: "radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.22) 1px, transparent 0)",
-  backgroundSize: "12px 12px",
+  backgroundColor: "#f4f6f4",
+  backgroundImage:
+    "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(235,241,239,0.58) 54%, rgba(224,242,254,0.38)), radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.18) 1px, transparent 0)",
+  backgroundSize: "100% 100%, 12px 12px",
 } satisfies CSSProperties;
 const GLASS_PANEL_CLASS =
-  "pointer-events-auto relative min-h-0 min-w-0 rounded-[8px] border border-white/50 bg-white/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_16px_32px_rgba(15,23,42,0.14)] backdrop-blur-md backdrop-saturate-150";
+  "pointer-events-auto relative min-h-0 min-w-0 rounded-[12px] border border-[#6b4a2b]/18 bg-[linear-gradient(135deg,rgba(255,255,255,0.74),rgba(255,255,255,0.46)_48%,rgba(224,242,254,0.22))] shadow-[inset_0_1px_0_rgba(255,255,255,0.86),inset_0_0_0_1px_rgba(255,255,255,0.38),0_1px_0_rgba(107,74,43,0.14),0_18px_36px_rgba(15,23,42,0.14)] backdrop-blur-xl backdrop-saturate-150";
+const GLASS_CONTROL_CLASS =
+  "pointer-events-auto rounded-[10px] border border-[#6b4a2b]/18 bg-white/68 shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_8px_18px_rgba(15,23,42,0.1)] backdrop-blur-md backdrop-saturate-150";
 const HIDDEN_SCROLL_CLASS =
   "overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const CLEAR_TABLE_WINDOW_CLASS =
-  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[8px] border border-white/40 bg-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-[linear-gradient(135deg,rgba(255,255,255,0.22),rgba(255,255,255,0.08)_50%,rgba(14,165,233,0.06))] shadow-[inset_0_1px_0_rgba(255,255,255,0.56),inset_0_0_0_1px_rgba(255,255,255,0.22),0_12px_28px_rgba(15,23,42,0.1)] backdrop-blur-sm backdrop-saturate-150";
+const PERIODIC_TABLE_WINDOW_CLASS =
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-transparent shadow-[inset_0_1px_0_rgba(255,255,255,0.48),inset_0_0_0_1px_rgba(255,255,255,0.18),0_12px_28px_rgba(15,23,42,0.08)]";
 const GATHERING_PANEL_LABEL_CLASS =
-  "pointer-events-none absolute left-3 top-3 z-20 text-xs font-black uppercase leading-none tracking-[-0.02em] text-neutral-950";
+  "pointer-events-none absolute left-3 top-3 z-20 rounded-full border border-[#6b4a2b]/18 bg-white/62 px-2 py-1 text-[10px] font-black uppercase leading-none tracking-normal text-[#3c2819] shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_5px_12px_rgba(15,23,42,0.08)] backdrop-blur-md";
 const GATHERING_PANEL_TRANSITION_CLASS =
   "transition-[grid-template-rows,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 const BOARD_MAIN_GRID_TRANSITION_CLASS =
@@ -475,56 +504,61 @@ const gatheringMoveVisuals = {
 
 // Per-element presentation shared by enemy badges and attack cards.
 type GatheringElementUi = {
-  badgeClass: string;
+  frameFill: string;
+  frameStroke: string;
+  gemFill: string;
+  gemStroke: string;
+  auraClass: string;
   glyph: string;
   label: string;
 };
 const gatheringElementUi = {
   lightning: {
-    badgeClass: "border-amber-400/80 bg-amber-100 text-amber-800",
+    frameFill: "#f7d794",
+    frameStroke: "#92400e",
+    gemFill: "#f59e0b",
+    gemStroke: "#78350f",
+    auraClass: "from-amber-300/40 via-orange-300/16 to-neutral-950",
     glyph: "⚡",
     label: "Lightning",
   },
+  water: {
+    frameFill: "#a7f3d0",
+    frameStroke: "#155e75",
+    gemFill: "#0891b2",
+    gemStroke: "#164e63",
+    auraClass: "from-cyan-300/36 via-sky-300/16 to-neutral-950",
+    glyph: "🌊",
+    label: "Water",
+  },
   fire: {
-    badgeClass: "border-orange-400/80 bg-orange-100 text-orange-800",
+    frameFill: "#fed7aa",
+    frameStroke: "#9a3412",
+    gemFill: "#ea580c",
+    gemStroke: "#7c2d12",
+    auraClass: "from-orange-400/38 via-rose-400/16 to-neutral-950",
     glyph: "🔥",
     label: "Fire",
   },
   nature: {
-    badgeClass: "border-emerald-400/80 bg-emerald-100 text-emerald-800",
+    frameFill: "#bbf7d0",
+    frameStroke: "#166534",
+    gemFill: "#16a34a",
+    gemStroke: "#14532d",
+    auraClass: "from-emerald-300/36 via-lime-300/16 to-neutral-950",
     glyph: "🌿",
     label: "Nature",
   },
   stone: {
-    badgeClass: "border-stone-400/80 bg-stone-100 text-stone-800",
+    frameFill: "#d6d3d1",
+    frameStroke: "#57534e",
+    gemFill: "#78716c",
+    gemStroke: "#292524",
+    auraClass: "from-stone-300/34 via-zinc-300/14 to-neutral-950",
     glyph: "◆",
     label: "Stone",
   },
-  water: {
-    badgeClass: "border-sky-400/80 bg-sky-100 text-sky-800",
-    glyph: "🌊",
-    label: "Water",
-  },
 } satisfies Record<GatheringElementType, GatheringElementUi>;
-
-const GatheringElementBadgePropsSchema = z.object({
-  element: z.custom<GatheringElementType>(),
-});
-
-const GatheringElementBadge = defineComponent(GatheringElementBadgePropsSchema, ({ element }) => {
-  const ui = gatheringElementUi[element];
-  return (
-    <span
-      data-board-section="gathering-element-badge"
-      data-element-type={element}
-      title={`${ui.label} type`}
-      aria-hidden="true"
-      className={`pointer-events-none grid size-7 place-items-center rounded-full border text-base leading-none shadow-[0_2px_6px_rgba(15,23,42,0.28)] ${ui.badgeClass}`}
-    >
-      {ui.glyph}
-    </span>
-  );
-});
 
 const infoPanelTabs = ["element", "recipe", "extended", "emergent"] as const;
 const InfoPanelTabSchema = z.enum(infoPanelTabs);
@@ -1064,15 +1098,15 @@ const GatheringGamePanel = defineComponent(
             <GatheringEquationValue
               disabled={equationCardsLocked}
               value={gathering.equation.left}
-              label="Left addend"
+              label={getGatheringOperandLabels(gathering.equation.operator).left}
             />
             <span className="text-4xl font-black leading-none" aria-hidden="true">
-              +
+              {gathering.equation.operator}
             </span>
             <GatheringEquationValue
               disabled={equationCardsLocked}
               value={gathering.equation.right}
-              label="Right addend"
+              label={getGatheringOperandLabels(gathering.equation.operator).right}
             />
             <span className="text-4xl font-black leading-none" aria-hidden="true">
               =
@@ -1216,13 +1250,15 @@ const GatheringBossFightPanel = defineComponent(
           </div>
           <div className="grid gap-4">
             <p className="text-xs font-black uppercase leading-none text-fuchsia-900">
-              Level {boss.level} addition
+              Level {boss.level} {boss.equation.operator === "-" ? "subtraction" : "addition"}
             </p>
             <div className="flex items-center justify-center gap-4 text-neutral-950">
               <span className="grid size-28 place-items-center rounded-[8px] border-2 border-neutral-900/40 bg-white/85 font-mono text-6xl font-black leading-none shadow-[0_10px_20px_rgba(15,23,42,0.14)]">
                 {boss.equation.left}
               </span>
-              <span className="font-mono text-5xl font-black leading-none">+</span>
+              <span className="font-mono text-5xl font-black leading-none">
+                {boss.equation.operator}
+              </span>
               <span className="grid size-28 place-items-center rounded-[8px] border-2 border-neutral-900/40 bg-white/85 font-mono text-6xl font-black leading-none shadow-[0_10px_20px_rgba(15,23,42,0.14)]">
                 {boss.equation.right}
               </span>
@@ -1494,7 +1530,7 @@ const GatheringGameCardsPanel = defineComponent(
         ),
       );
     } else if (gathering.phase === "move") {
-      const moveCards = getGatheringMoveLadder(gathering.streak.current).map((move, index) =>
+      occupiedCards = getGatheringMoveLadder(gathering.streak.current).map((move, index) =>
         move.locked ? (
           <GatheringLockedMoveCard
             key={move.id}
@@ -1511,7 +1547,6 @@ const GatheringGameCardsPanel = defineComponent(
           />
         ),
       );
-      occupiedCards = moveCards;
     } else {
       occupiedCards = gathering.rewardOptionCardIds.map((cardId, optionIndex) => (
         <GatheringRewardCard
@@ -1731,6 +1766,8 @@ const GatheringMoveCardStatBadgePropsSchema = z.object({
   className: z.string(),
   dataBoardSection: z.string().optional(),
   dataGatheringEffectiveness: z.string().optional(),
+  dataGatheringStreakBonus: z.int().optional(),
+  dataGatheringStreakRarity: z.string().optional(),
   fill: z.string(),
   label: z.string(),
   stroke: z.string(),
@@ -1744,6 +1781,8 @@ const GatheringMoveCardStatBadge = defineComponent(
     className,
     dataBoardSection,
     dataGatheringEffectiveness,
+    dataGatheringStreakBonus,
+    dataGatheringStreakRarity,
     fill,
     label,
     stroke,
@@ -1761,6 +1800,8 @@ const GatheringMoveCardStatBadge = defineComponent(
         aria-hidden="true"
         data-board-section={dataBoardSection}
         data-gathering-effectiveness={dataGatheringEffectiveness}
+        data-gathering-streak-bonus={dataGatheringStreakBonus}
+        data-gathering-streak-rarity={dataGatheringStreakRarity}
         className={`grid place-items-center ${className}`}
       >
         <svg
@@ -1904,6 +1945,50 @@ const GatheringMoveCardFace = defineComponent(
   },
 );
 
+// Phonics attack step: the same streak-unlocked move cards as the numeric tracks,
+// but tapped instead of dragged.
+const GatheringPhonicsMovePanelPropsSchema = z.object({
+  gathering: z.custom<AlchemistGuildGatheringState>(),
+  onPickMove: z.custom<(moveId: GatheringMoveId) => void>(),
+});
+
+const GatheringPhonicsMovePanel = defineComponent(
+  GatheringPhonicsMovePanelPropsSchema,
+  ({ gathering, onPickMove }) => {
+    const prompt = gathering.phonicsPrompt;
+    if (!prompt) return null;
+    const moves = getGatheringPhonicsMoves(prompt, gathering.streak.current);
+    const nextUnlock = getGatheringNextMoveUnlock(gathering.streak.current);
+    return (
+      <div className="pointer-events-auto col-span-full grid h-full content-center gap-2 p-3">
+        <p className="text-center text-xs font-black uppercase leading-none text-neutral-700">
+          {nextUnlock
+            ? `Great match! Next attack at streak ${nextUnlock.unlockStreak}`
+            : "Great match! All attacks ready"}
+        </p>
+        <div
+          className="mx-auto grid w-full max-w-[30rem] gap-2.5"
+          style={{ gridTemplateColumns: `repeat(${moves.length}, minmax(0, 1fr))` }}
+        >
+          {moves.map((move) => (
+            <button
+              key={move.id}
+              type="button"
+              data-board-section="gathering-move-card"
+              data-board-name={move.name}
+              data-gathering-phonics-move={move.id}
+              onClick={() => onPickMove(move.id)}
+              className={`relative aspect-[5/7] overflow-visible rounded-[8px] border-2 text-neutral-950 shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 active:scale-[0.98] ${getGatheringMoveVisual(move.id).cardClass}`}
+            >
+              <GatheringMoveCardFace enemyElement={gathering.monster.elementType} move={move} />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  },
+);
+
 const GatheringAttackArcCanvasPropsSchema = z.object({
   cardRef: z.custom<RefObject<HTMLDivElement | null>>(),
   move: z.custom<GatheringMove>(),
@@ -1992,6 +2077,143 @@ const GatheringMonsterDeathCanvas = defineComponent(
   },
 );
 
+const GatheringRewardCardFacePropsSchema = z.object({
+  card: z.custom<AlchemyBoardCard>(),
+  optionIndex: z.int().min(0),
+  selected: z.boolean(),
+  streakBonus: z.int().min(0),
+  streakRarityLabel: z.string(),
+});
+
+const GatheringRewardCardFace = defineComponent(
+  GatheringRewardCardFacePropsSchema,
+  ({ card, optionIndex, selected, streakBonus, streakRarityLabel }) => {
+    const totalQuantity = streakBonus + 1;
+    const typeBadgeLabel = card.atomicNumber ? "No" : "Kind";
+    const typeBadgeValue = card.atomicNumber
+      ? String(card.atomicNumber)
+      : card.kindLabel.slice(0, 3);
+    let bonusFill = "#a8a29e";
+    if (streakBonus > 1) {
+      bonusFill = "#10b981";
+    } else if (streakBonus > 0) {
+      bonusFill = "#22c55e";
+    }
+    const bonusStroke = streakBonus > 0 ? "#065f46" : "#44403c";
+    const bonusLabel = streakBonus > 0 ? "Bonus" : "Base";
+    const bonusValue = streakBonus > 0 ? `+${streakBonus}` : "x1";
+
+    return (
+      <span className="absolute inset-0 block overflow-visible rounded-[8px] bg-transparent">
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 size-full"
+          preserveAspectRatio="none"
+          viewBox="0 0 105 148"
+        >
+          <path
+            d="M15 2 H90 C99 2 103 9 103 19 V129 C103 140 97 146 86 146 H19 C8 146 2 140 2 129 V19 C2 9 7 2 15 2Z"
+            fill="#2f241d"
+          />
+          <path
+            d="M17 6 H88 C95 6 99 12 99 20 V126 C99 136 94 142 84 142 H21 C11 142 6 136 6 126 V20 C6 12 10 6 17 6Z"
+            fill={card.familyColor}
+            fillOpacity="0.88"
+            stroke="#5f3b1f"
+            strokeWidth="2"
+          />
+          <path
+            d="M14 94 C25 102 80 102 91 94 V127 C91 134 87 138 80 138 H25 C18 138 14 134 14 127Z"
+            fill="#e3ceb0"
+            stroke="#6b4a2b"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M18 10 H87 C92 10 95 14 95 20 V35 C75 25 30 25 10 35 V20 C10 14 13 10 18 10Z"
+            fill="rgba(255,255,255,0.34)"
+          />
+          <path
+            d="M24 85 H81 L90 94 L81 103 H24 L15 94Z"
+            fill="#7a5130"
+            stroke="#3f2818"
+            strokeWidth="1.4"
+          />
+        </svg>
+        <span
+          aria-hidden="true"
+          className="absolute left-3 top-3 h-[70px] w-[81px] rounded-t-[42px] rounded-b-[8px] border-2 border-[#3f2818] bg-neutral-950/92 shadow-[inset_0_0_0_2px_rgba(255,255,255,0.13)]"
+        >
+          <span
+            className="absolute inset-0 rounded-t-[40px] rounded-b-[6px] opacity-25"
+            style={{ backgroundColor: card.familyColor }}
+          />
+          {card.imagePath ? (
+            <img
+              src={getAlchemyCardArtSrc(card)}
+              alt=""
+              aria-hidden="true"
+              className="absolute left-1/2 top-1/2 size-[60px] -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_4px_5px_rgba(0,0,0,0.42)]"
+              draggable={false}
+            />
+          ) : (
+            <span className="absolute inset-x-2 top-1/2 -translate-y-1/2 truncate text-center font-mono text-[30px] font-black leading-none text-white drop-shadow-[0_3px_4px_rgba(0,0,0,0.42)]">
+              {card.symbol}
+            </span>
+          )}
+        </span>
+        <span className="absolute inset-x-[18px] top-[87px] z-10 truncate text-center text-[10px] font-black uppercase leading-none text-white drop-shadow-[0_2px_1px_rgba(0,0,0,0.6)]">
+          {card.name}
+        </span>
+        <span className="absolute inset-x-[15px] bottom-[22px] z-10 grid gap-0.5 text-center text-[9px] font-black uppercase leading-tight text-[#3c2819]">
+          <span className="truncate">{card.kindLabel}</span>
+          <span className="truncate">{card.detailLabel}</span>
+        </span>
+        <GatheringMoveCardStatBadge
+          className="absolute -left-1 -top-1 z-30 size-10"
+          fill="#d97706"
+          label="Qty"
+          stroke="#78350f"
+          value={`+${totalQuantity}`}
+          variant="attack"
+        />
+        {selected ? (
+          <span className="pointer-events-none absolute -right-1 -top-1 z-30 grid size-10 place-items-center rounded-full border-2 border-emerald-900 bg-emerald-400 text-emerald-950 shadow-[0_5px_8px_rgba(15,23,42,0.42)]">
+            <CheckCircle2 className="size-5" strokeWidth={3} aria-hidden="true" />
+          </span>
+        ) : (
+          <GatheringMoveCardStatBadge
+            className="absolute -right-1 -top-1 z-30 size-9"
+            fill="#334155"
+            label="Pick"
+            stroke="#0f172a"
+            value={`#${optionIndex + 1}`}
+            variant="level"
+          />
+        )}
+        <GatheringMoveCardStatBadge
+          className="absolute -bottom-1.5 -left-1.5 z-30 size-10"
+          fill="#475569"
+          label={typeBadgeLabel}
+          stroke="#1e293b"
+          value={typeBadgeValue}
+          variant="level"
+        />
+        <GatheringMoveCardStatBadge
+          className="absolute -bottom-1.5 -right-2 z-30 h-11 w-[3.35rem]"
+          dataBoardSection={streakBonus > 0 ? "gathering-streak-badge" : undefined}
+          dataGatheringStreakBonus={streakBonus > 0 ? streakBonus : undefined}
+          dataGatheringStreakRarity={streakBonus > 0 ? streakRarityLabel : undefined}
+          fill={bonusFill}
+          label={bonusLabel}
+          stroke={bonusStroke}
+          value={bonusValue}
+          variant="counter"
+        />
+      </span>
+    );
+  },
+);
+
 const GatheringRewardCardPropsSchema = z.object({
   cardId: z.string().min(1),
   onSelect: z.custom<GatheringRewardSelectHandler>(),
@@ -2009,6 +2231,8 @@ const GatheringRewardCard = defineComponent(
     if (!card) return null;
 
     const streakBonus = streakBonusForOptionIndex(streak.current, optionIndex);
+    const streakRarityLabel = streakRarity(streak.current);
+    const totalQuantity = streakBonus + 1;
 
     return (
       <button
@@ -2017,30 +2241,30 @@ const GatheringRewardCard = defineComponent(
         data-board-name={`${card.name} gathering reward`}
         data-card-id={card.id}
         data-gathering-reward-selected={selected ? "true" : "false"}
-        className={`absolute inset-0 z-10 select-none overflow-hidden rounded-[3px] border-2 bg-[#eeeeee] p-0 text-left shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[background-color,border-color,box-shadow,opacity,transform] duration-150 ${
+        className={`absolute inset-0 z-10 select-none overflow-visible rounded-[8px] border-0 bg-transparent p-0 text-left shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-[filter,opacity,transform] duration-150 ${
           selected
-            ? "cursor-pointer border-emerald-500 ring-4 ring-emerald-400/70 ring-offset-2 ring-offset-white/40"
-            : "cursor-pointer border-[#888888] hover:border-emerald-500 hover:shadow-[inset_0_0_0_3px_rgba(16,185,129,0.18),0_8px_18px_rgba(0,0,0,0.18)] active:scale-[0.985]"
+            ? "cursor-pointer ring-4 ring-emerald-400/70 ring-offset-2 ring-offset-white/40"
+            : "cursor-pointer hover:-translate-y-0.5 hover:brightness-105 active:scale-[0.985]"
         }`}
         aria-label={
           selected
-            ? `Confirm ${card.name} and add it to your gathered supplies`
-            : `Select ${card.name} as the gathering reward`
+            ? `Confirm ${card.name}, ${totalQuantity} total reward cards`
+            : `Select ${card.name}, ${totalQuantity} total reward cards`
         }
         aria-pressed={selected}
         onClick={() => onSelect(card.id)}
       >
-        <AlchemyCardFace card={card} />
-        <GatheringStreakBadge bonus={streakBonus} rarity={streakRarity(streak.current)} />
+        <GatheringRewardCardFace
+          card={card}
+          optionIndex={optionIndex}
+          selected={selected}
+          streakBonus={streakBonus}
+          streakRarityLabel={streakRarityLabel}
+        />
         {selected ? (
-          <>
-            <span className="pointer-events-none absolute right-1 top-1 z-20 grid size-7 place-items-center rounded-full border border-emerald-900/20 bg-emerald-400 text-emerald-950 shadow-[0_6px_14px_rgba(15,23,42,0.22)]">
-              <CheckCircle2 className="size-4" strokeWidth={2.8} aria-hidden="true" />
-            </span>
-            <span className="pointer-events-none absolute inset-x-2 bottom-2 z-20 grid min-h-10 place-items-center rounded-[5px] border border-emerald-950/20 bg-emerald-400 px-2 text-center text-xs font-black uppercase leading-none text-emerald-950 shadow-[0_8px_18px_rgba(15,23,42,0.22)]">
-              Confirm
-            </span>
-          </>
+          <span className="pointer-events-none absolute inset-x-3 bottom-2 z-40 grid min-h-7 place-items-center rounded-[5px] border border-emerald-950/30 bg-emerald-400 px-2 text-center text-[10px] font-black uppercase leading-none text-emerald-950 shadow-[0_8px_18px_rgba(15,23,42,0.22)]">
+            Confirm
+          </span>
         ) : null}
       </button>
     );
@@ -2452,6 +2676,9 @@ const GatheringMonsterPanel = defineComponent(
     onDeathAnimationComplete,
   }) => {
     const hpPercent = Math.round((gathering.monster.hp / gathering.monster.maxHp) * 100);
+    // Enemies with a generated 3D model show it in place of the 2D portrait. Resolve
+    // off imagePath so the poster variant (_L1/_L2/_L3) selects its matching model.
+    const monsterModelPath = getGatheringEnemyModelPath(gathering.monster.imagePath);
     const monsterDropActive = gatheringDropTarget === "monster-panel";
     const monsterElementUi = gatheringElementUi[gathering.monster.elementType];
     const weaknessElement = gatheringCounterElementFor(gathering.monster.elementType);
@@ -2653,55 +2880,120 @@ const GatheringMonsterPanel = defineComponent(
             data-gathering-monster-death-active={deathAnimation ? "true" : "false"}
             data-board-section="gathering-monster-card"
             data-board-name={gathering.monster.name}
-            className={`relative grid w-[13rem] gap-2 rounded-[7px] border-2 border-neutral-800/60 bg-white/80 p-2 shadow-[0_14px_28px_rgba(15,23,42,0.18)] transition-[border-color,box-shadow] duration-150 ${
+            className={`relative h-[19rem] w-[13rem] overflow-visible rounded-[10px] p-0 text-neutral-950 shadow-[0_14px_28px_rgba(15,23,42,0.2)] transition-[filter,box-shadow,transform] duration-150 ${
               monsterDropActive
-                ? "border-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.22),0_14px_28px_rgba(15,23,42,0.18)]"
+                ? "scale-[1.02] ring-4 ring-sky-400/45 drop-shadow-[0_0_16px_rgba(14,165,233,0.38)]"
                 : ""
             }`}
           >
-            <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
-              <img
-                src={resolvePublicAssetPath(gathering.monster.imagePath)}
-                alt=""
-                aria-hidden="true"
-                className="size-full object-cover"
-                draggable={false}
+            <svg
+              aria-hidden="true"
+              className="absolute inset-0 size-full"
+              preserveAspectRatio="none"
+              viewBox="0 0 208 330"
+            >
+              <path
+                d="M28 4 H180 C197 4 204 17 204 34 V300 C204 318 194 326 176 326 H32 C14 326 4 318 4 300 V34 C4 17 11 4 28 4Z"
+                fill="#2f241d"
               />
-              <span
-                ref={monsterDamageVignetteRef}
-                className="pointer-events-none absolute inset-0 z-20 rounded-[5px] bg-[radial-gradient(circle_at_50%_45%,transparent_40%,rgba(239,68,68,0.44)_72%,rgba(127,29,29,0.72)_100%)] opacity-0 mix-blend-multiply"
-                aria-hidden="true"
+              <path
+                d="M31 11 H177 C191 11 197 22 197 36 V296 C197 311 189 319 173 319 H35 C19 319 11 311 11 296 V36 C11 22 17 11 31 11Z"
+                fill={monsterElementUi.frameFill}
+                stroke={monsterElementUi.frameStroke}
+                strokeWidth="4"
               />
-              {deathAnimation ? (
-                <GatheringMonsterDeathCanvas
-                  accentColor={0x14b8a6}
-                  animationId={deathAnimation.id}
-                />
-              ) : null}
-              <span className="absolute right-1 top-1 z-30">
-                <GatheringElementBadge element={gathering.monster.elementType} />
-              </span>
-            </div>
-            <div className="grid gap-1">
-              <h3 className="truncate text-center text-sm font-black leading-tight text-neutral-950">
-                {gathering.monster.name}
-              </h3>
-              <p
-                data-board-section="gathering-monster-weakness"
-                className="text-center text-[11px] font-black uppercase leading-tight text-neutral-700"
+              <path
+                d="M22 240 C48 258 160 258 186 240 V294 C186 307 179 313 165 313 H43 C29 313 22 307 22 294Z"
+                fill="#e3ceb0"
+                stroke="#6b4a2b"
+                strokeWidth="2.4"
+              />
+              <path
+                d="M36 19 H172 C184 19 190 29 190 40 V78 C150 54 58 54 18 78 V40 C18 29 24 19 36 19Z"
+                fill="rgba(255,255,255,0.28)"
+              />
+              <path
+                d="M42 234 H166 L187 252 L166 270 H42 L21 252Z"
+                fill="#7a5130"
+                stroke="#3f2818"
+                strokeWidth="2"
+              />
+            </svg>
+            <div className="relative z-10 grid h-full grid-rows-[minmax(0,1fr)_auto] gap-1.5 p-2.5">
+              <div
+                className={`relative min-h-0 overflow-hidden rounded-t-[92px] rounded-b-[12px] border-[3px] border-[#3f2818] bg-gradient-to-b shadow-[inset_0_0_0_2px_rgba(255,255,255,0.12),0_7px_14px_rgba(15,23,42,0.28)] ${monsterElementUi.auraClass}`}
               >
-                {monsterElementUi.label} enemy · weak to {weaknessElementUi.label}
-              </p>
-              <div className="h-3 overflow-hidden rounded-full border border-neutral-900/20 bg-neutral-200">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
-                  style={{ width: `${hpPercent}%` }}
+                {monsterModelPath ? (
+                  <GlbMonsterViewer
+                    label={gathering.monster.name}
+                    modelUrl={resolvePublicAssetPath(monsterModelPath)}
+                  />
+                ) : (
+                  <img
+                    src={resolvePublicAssetPath(gathering.monster.imagePath)}
+                    alt=""
+                    aria-hidden="true"
+                    className="size-full object-cover"
+                    draggable={false}
+                  />
+                )}
+                <span
+                  ref={monsterDamageVignetteRef}
+                  className="pointer-events-none absolute inset-0 z-20 rounded-t-[89px] rounded-b-[9px] bg-[radial-gradient(circle_at_50%_45%,transparent_40%,rgba(239,68,68,0.44)_72%,rgba(127,29,29,0.72)_100%)] opacity-0 mix-blend-multiply"
+                  aria-hidden="true"
                 />
+                {deathAnimation ? (
+                  <GatheringMonsterDeathCanvas
+                    accentColor={0x14b8a6}
+                    animationId={deathAnimation.id}
+                  />
+                ) : null}
               </div>
-              <p className="text-center text-[11px] font-black uppercase leading-none text-neutral-700">
-                {gathering.monster.hp} / {gathering.monster.maxHp} HP
-              </p>
+              <div className="relative grid gap-1 rounded-[6px] border border-[#6b4a2b] bg-[#e3ceb0] px-2 pb-1.5 pt-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)]">
+                <span className="pointer-events-none absolute inset-x-3 -top-2.5 z-10 rounded-[5px] border border-[#3f2818] bg-[#7a5130] px-2 py-1 text-center text-[11px] font-black uppercase leading-none text-white shadow-[0_3px_5px_rgba(15,23,42,0.28)]">
+                  {gathering.monster.name}
+                </span>
+                <p
+                  data-board-section="gathering-monster-weakness"
+                  className="text-center text-[10px] font-black uppercase leading-tight text-[#3c2819]"
+                >
+                  {monsterElementUi.label} enemy · weak to {weaknessElementUi.label}
+                </p>
+                <div className="h-3 overflow-hidden rounded-full border border-[#3c2819]/35 bg-[#bca17b]">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-[width] duration-200"
+                    style={{ width: `${hpPercent}%` }}
+                  />
+                </div>
+                <p className="text-center text-[10px] font-black uppercase leading-none text-[#3c2819]/80">
+                  {gathering.monster.hp} / {gathering.monster.maxHp} HP
+                </p>
+              </div>
             </div>
+            <GatheringMoveCardStatBadge
+              className="absolute left-1 top-1 z-30 size-11"
+              fill={monsterElementUi.gemFill}
+              label="Enemy"
+              stroke={monsterElementUi.gemStroke}
+              value={monsterElementUi.glyph}
+              variant="level"
+            />
+            <GatheringMoveCardStatBadge
+              className="absolute bottom-1 left-1 z-30 size-11"
+              fill="#dc2626"
+              label="HP"
+              stroke="#7f1d1d"
+              value={String(gathering.monster.hp)}
+              variant="attack"
+            />
+            <GatheringMoveCardStatBadge
+              className="absolute bottom-1 right-1 z-30 h-11 w-[3.35rem]"
+              fill={weaknessElementUi.gemFill}
+              label="Weak"
+              stroke={weaknessElementUi.gemStroke}
+              value={weaknessElementUi.glyph}
+              variant="counter"
+            />
             {damageFloaters.map((floater) => (
               <GatheringDamageFloater
                 key={floater.id}
@@ -2757,138 +3049,147 @@ const QuestBriefingAtmosphere = defineComponent(z.object({}), () => (
   </div>
 ));
 
-const QuestDeliverySlotPropsSchema = z.object({
-  canClaim: z.boolean(),
+const QuestDeliveryItemSchema = z.object({
   card: z.custom<AlchemyBoardCard>(),
-  claimed: z.boolean(),
-  claimProgress: z.number().min(0).max(1),
   delivered: z.int().min(0),
+  required: z.int().min(1),
+});
+const QuestDeliveryPagerPropsSchema = z.object({
+  canClaim: z.boolean(),
+  claimProgress: z.number().min(0).max(1),
+  complete: z.boolean(),
   dropFeedback: z.custom<DropFeedback>(),
   isClaimDragging: z.boolean(),
+  items: z.array(QuestDeliveryItemSchema).min(1),
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
   questId: z.string().min(1),
-  required: z.int().min(1),
   requesterName: z.string().min(1),
 });
 
-const QuestDeliverySlot = defineComponent(
-  QuestDeliverySlotPropsSchema,
+// One drop-zone page per deliverable. Dots (one per item) show which parts are in;
+// when every part is delivered, the swipe-to-deliver claim slider appears. The drop
+// itself auto-routes (any matching card delivers to its part), so the active page is
+// purely a view — see `isQuestDeliveryAccepted`.
+const QuestDeliveryPager = defineComponent(
+  QuestDeliveryPagerPropsSchema,
   ({
     canClaim,
-    card,
-    claimed,
     claimProgress,
-    delivered,
+    complete,
     dropFeedback,
     isClaimDragging,
+    items,
     onClaimPointerDown,
     questId,
-    required,
     requesterName,
   }) => {
-    const shellRef = useRef<HTMLElement>(null);
-    const claimRevealRef = useRef<HTMLDivElement>(null);
-    const wasCompleteRef = useRef(false);
-    const deliveredCount = Math.min(delivered, required);
-    const isComplete = deliveredCount >= required;
-    const statusText = getQuestDeliveryStatusText(isComplete, claimed, card.name);
-    const claimLabel = getQuestDeliveryClaimLabel(isComplete, claimed, card.name);
-    const visibleClaimProgress = claimed ? 1 : claimProgress;
+    const [activePage, setActivePage] = useState(0);
+    const pageCount = items.length;
+    const safePage = activePage < pageCount ? activePage : pageCount - 1;
+    const activeItem = items[safePage] ?? items[0];
+    if (!activeItem) return null;
+
+    const activeDelivered = Math.min(activeItem.delivered, activeItem.required);
+    const activeItemComplete = activeDelivered >= activeItem.required;
     const claimKnobLeft = `calc(${QUEST_CLAIM_TRACK_PADDING_PX}px + ${
-      visibleClaimProgress * 100
-    }% - ${
-      visibleClaimProgress * (QUEST_CLAIM_KNOB_WIDTH_PX + QUEST_CLAIM_TRACK_PADDING_PX * 2)
-    }px)`;
-
-    useBrowserLayoutEffect(() => {
-      const shellElement = shellRef.current;
-      const claimElement = claimRevealRef.current;
-      clearQuestDeliveryMotionStyles(shellElement, claimElement);
-
-      const becameComplete = isComplete && !wasCompleteRef.current;
-      wasCompleteRef.current = isComplete;
-      if (!becameComplete) return;
-
-      const reducedMotion = typeof window !== "undefined" && window.matchMedia(PRM).matches;
-      if (reducedMotion) return;
-
-      const animations: JSAnimation[] = [];
-      if (shellElement) {
-        animations.push(
-          animate(shellElement, {
-            duration: 280,
-            ease: "out(3)",
-            scale: [0.985, 1],
-            y: [6, 0],
-          }),
-        );
-      }
-
-      if (claimElement) {
-        animations.push(
-          animate(claimElement, {
-            delay: 60,
-            duration: 260,
-            ease: "out(3)",
-            opacity: [0, 1],
-            y: [10, 0],
-          }),
-        );
-      }
-
-      return () => {
-        for (const animation of animations) animation.cancel();
-        clearQuestDeliveryMotionStyles(shellElement, claimElement);
-      };
-    }, [isComplete, questId]);
+      claimProgress * 100
+    }% - ${claimProgress * (QUEST_CLAIM_KNOB_WIDTH_PX + QUEST_CLAIM_TRACK_PADDING_PX * 2)}px)`;
 
     return (
-      <section
-        ref={shellRef}
-        data-board-section="quest-delivery-drop-zone"
-        data-board-name={`${card.name} quest delivery`}
-        data-card-id={card.id}
-        data-quest-id={questId}
-        data-claim-complete={claimed ? "true" : "false"}
-        data-claim-ready={canClaim ? "true" : "false"}
-        data-delivery-complete={isComplete ? "true" : "false"}
-        data-drop-feedback={dropFeedback}
-        className={getQuestDeliverySlotClass(dropFeedback, isComplete, claimed)}
-        aria-label={`Deliver ${required} ${card.name} card${required === 1 ? "" : "s"} to ${requesterName}`}
-      >
-        <div
-          ref={claimRevealRef}
-          data-board-section="quest-claim-swipe"
-          data-claim-complete={claimed ? "true" : "false"}
-          data-claim-locked={isComplete ? "false" : "true"}
-          className={getQuestDeliveryClaimTrackClass(isComplete)}
+      <div className="grid gap-2" data-board-section="quest-delivery-pager" data-quest-id={questId}>
+        <section
+          key={activeItem.card.id}
+          data-board-section="quest-delivery-drop-zone"
+          data-board-name={`${activeItem.card.name} quest delivery`}
+          data-card-id={activeItem.card.id}
+          data-quest-id={questId}
+          data-delivery-complete={activeItemComplete ? "true" : "false"}
+          data-drop-feedback={dropFeedback}
+          className={getQuestDeliverySlotClass(dropFeedback, activeItemComplete, false)}
+          aria-label={`Deliver ${activeItem.required} ${activeItem.card.name} card${activeItem.required === 1 ? "" : "s"} to ${requesterName}`}
         >
-          <span
-            className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/45 transition-[width] duration-75"
-            style={{ width: `${Math.round(visibleClaimProgress * 100)}%` }}
-            aria-hidden="true"
-          />
-          <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-            <span className={`min-w-0 ${isComplete ? "pl-[4.85rem]" : ""}`}>
-              <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
-                {statusText}
+          <div className={getQuestDeliveryClaimTrackClass(activeItemComplete)}>
+            <span
+              className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/40 transition-[width] duration-150"
+              style={{ width: activeItemComplete ? "100%" : "0%" }}
+              aria-hidden="true"
+            />
+            <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+              <span className="min-w-0">
+                <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+                  {activeItemComplete ? "Delivered" : "Drop here"}
+                </span>
+                <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
+                  {activeItem.card.name}
+                </span>
               </span>
-              <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
-                {claimLabel}
+              <span className="rounded-full border border-amber-900/25 bg-white/78 px-2 py-1 font-mono text-xs font-black leading-none text-amber-950 shadow-[0_1px_0_rgba(72,45,16,0.1)]">
+                {activeDelivered}/{activeItem.required}
               </span>
             </span>
-            <span className="rounded-full border border-amber-900/25 bg-white/78 px-2 py-1 font-mono text-xs font-black leading-none text-amber-950 shadow-[0_1px_0_rgba(72,45,16,0.1)]">
-              {deliveredCount}/{required}
+          </div>
+        </section>
+
+        {pageCount > 1 ? (
+          <div
+            role="tablist"
+            aria-label="Quest delivery parts"
+            className="flex items-center justify-center gap-1.5"
+          >
+            {items.map((item, index) => {
+              const itemComplete = item.delivered >= item.required;
+              return (
+                <button
+                  key={item.card.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={index === safePage}
+                  aria-label={`${item.card.name}${itemComplete ? " — delivered" : ""}`}
+                  data-quest-delivery-dot=""
+                  data-delivered={itemComplete ? "true" : "false"}
+                  data-active={index === safePage ? "true" : "false"}
+                  className={`size-3 rounded-full border transition-colors ${
+                    itemComplete
+                      ? "border-emerald-700 bg-emerald-500"
+                      : "border-amber-800/45 bg-white/80"
+                  } ${index === safePage ? "ring-2 ring-amber-500/55 ring-offset-1" : ""}`}
+                  onClick={() => {
+                    setActivePage(index);
+                  }}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+
+        {complete ? (
+          <div
+            data-board-section="quest-claim-swipe"
+            data-claim-locked="false"
+            className={getQuestDeliveryClaimTrackClass(true)}
+          >
+            <span
+              className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/45 transition-[width] duration-75"
+              style={{ width: `${Math.round(claimProgress * 100)}%` }}
+              aria-hidden="true"
+            />
+            <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+              <span className="min-w-0 pl-[4.85rem]">
+                <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+                  All parts ready
+                </span>
+                <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
+                  Swipe to deliver to {requesterName}
+                </span>
+              </span>
             </span>
-          </span>
-          {isComplete ? (
             <button
               type="button"
               data-quest-claim-knob=""
-              tabIndex={canClaim && !claimed ? 0 : -1}
-              aria-label={claimLabel}
+              tabIndex={canClaim ? 0 : -1}
+              aria-label={`Swipe to deliver to ${requesterName}`}
               className={`absolute top-1/2 z-20 grid h-8 -translate-y-1/2 touch-none select-none place-items-center rounded-full border shadow-[0_5px_14px_rgba(72,45,16,0.22)] transition-[background-color,border-color,opacity] ${
-                canClaim && !claimed
+                canClaim
                   ? "cursor-grab border-emerald-950/30 bg-emerald-600 text-white active:cursor-grabbing"
                   : "cursor-not-allowed border-neutral-950/15 bg-white text-emerald-800"
               } ${isClaimDragging ? "opacity-95" : ""}`}
@@ -2899,17 +3200,13 @@ const QuestDeliverySlot = defineComponent(
                   : "left 220ms cubic-bezier(0.34,1.56,0.64,1), background-color 160ms ease, border-color 160ms ease",
                 width: `${QUEST_CLAIM_KNOB_WIDTH_PX}px`,
               }}
-              onPointerDown={canClaim && !claimed ? onClaimPointerDown : undefined}
+              onPointerDown={canClaim ? onClaimPointerDown : undefined}
             >
-              {claimed ? (
-                <CheckCircle2 className="size-5" strokeWidth={2.5} />
-              ) : (
-                <ChevronUp className="size-5 rotate-90" strokeWidth={2.75} />
-              )}
+              <ChevronUp className="size-5 rotate-90" strokeWidth={2.75} />
             </button>
-          ) : null}
-        </div>
-      </section>
+          </div>
+        ) : null}
+      </div>
     );
   },
 );
@@ -2921,12 +3218,9 @@ const QuestPanelPropsSchema = z.object({
   canClaim: z.boolean(),
   claimedQuestIds: z.array(z.string().min(1)),
   claimProgress: z.number().min(0).max(1),
-  deliveryCard: z.custom<AlchemyBoardCard | null>(),
+  deliveryComplete: z.boolean(),
   deliveryDropFeedback: z.custom<DropFeedback>(),
-  deliveryProgress: z.object({
-    delivered: z.int().min(0),
-    required: z.int().min(1),
-  }),
+  deliveryItems: z.array(QuestDeliveryItemSchema),
   developerNotesVisible: z.boolean(),
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
@@ -2954,9 +3248,9 @@ const QuestPanel = defineComponent(
     canClaim,
     claimedQuestIds,
     claimProgress,
-    deliveryCard,
+    deliveryComplete,
     deliveryDropFeedback,
-    deliveryProgress,
+    deliveryItems,
     developerNotesVisible,
     hasQuestNotifications,
     isClaimDragging,
@@ -2983,19 +3277,17 @@ const QuestPanel = defineComponent(
     }, [activeTab, selectedQuestId]);
 
     const deliverySlot =
-      !selectedQuestClaimed && deliveryCard ? (
-        <QuestDeliverySlot
+      !selectedQuestClaimed && deliveryItems.length > 0 ? (
+        <QuestDeliveryPager
           key={selectedQuestId}
           canClaim={canClaim}
-          card={deliveryCard}
-          claimed={false}
           claimProgress={claimProgress}
-          delivered={deliveryProgress.delivered}
+          complete={deliveryComplete}
           dropFeedback={deliveryDropFeedback}
           isClaimDragging={isClaimDragging}
+          items={deliveryItems}
           onClaimPointerDown={onClaimPointerDown}
           questId={selectedQuestId}
-          required={deliveryProgress.required}
           requesterName={getQuestRequesterName(selectedQuestId)}
         />
       ) : null;
@@ -3451,7 +3743,7 @@ const BoardModeTabs = defineComponent(
         data-board-section="board-mode-tabs"
         data-board-name="Board Mode Tabs"
         data-board-description={BOARD_DESCRIPTIONS.boardModeTabs}
-        className="pointer-events-auto inline-flex min-h-10 w-fit max-w-full items-center gap-1 justify-self-center rounded-[8px] border border-white/50 bg-white/70 px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+        className={`${GLASS_CONTROL_CLASS} inline-flex min-h-10 w-fit max-w-full items-center gap-1 justify-self-center px-2 py-1.5`}
         role="tablist"
         aria-label="Board modes"
       >
@@ -3513,10 +3805,7 @@ const BoardControlRow = defineComponent(
     const showInfoPanelToggle = activeTab === "crafting";
 
     return (
-      <div
-        data-board-section="board-control-row"
-        className="grid min-h-10 min-w-0 gap-2.5 lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]"
-      >
+      <div data-board-section="board-control-row" className={getBoardControlRowClass(activeTab)}>
         <div className="flex min-w-0 items-center gap-1 justify-self-start lg:col-span-2">
           <QuestPanelCollapseButton collapsed={questPanelCollapsed} onClick={onQuestPanelToggle} />
           <BoardModeTabs
@@ -3559,7 +3848,7 @@ const QuestPanelCollapseButton = defineComponent(
       type="button"
       data-board-section="quest-panel-collapse-button"
       data-board-name={collapsed ? "Open quest briefing" : "Collapse quest briefing"}
-      className="pointer-events-auto grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/50 bg-white/70 text-amber-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition-[background-color,transform] hover:bg-white/85 active:translate-y-px"
+      className={`${GLASS_CONTROL_CLASS} grid size-10 shrink-0 place-items-center text-amber-950 transition-[background-color,transform] hover:bg-white/85 active:translate-y-px`}
       aria-label={collapsed ? "Open quest briefing panel" : "Collapse quest briefing panel"}
       aria-expanded={!collapsed}
       onClick={onClick}
@@ -3587,7 +3876,7 @@ const AlchemyWorkbenchInfoCollapseButton = defineComponent(
       data-board-name={
         collapsed ? "Open alchemy workbench info" : "Collapse alchemy workbench info"
       }
-      className="pointer-events-auto grid size-10 shrink-0 place-items-center rounded-[8px] border border-white/50 bg-white/70 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition-[background-color,transform] hover:bg-white/85 active:translate-y-px"
+      className={`${GLASS_CONTROL_CLASS} grid size-10 shrink-0 place-items-center text-sky-950 transition-[background-color,transform] hover:bg-white/85 active:translate-y-px`}
       aria-label={
         collapsed ? "Open alchemy workbench info panel" : "Collapse alchemy workbench info panel"
       }
@@ -3701,7 +3990,7 @@ function getBoardModeTabClass(
 
   if (selected) return `${baseClass} border-amber-900/45 bg-amber-950 text-white`;
 
-  return `${baseClass} border-amber-900/20 bg-white/60 text-amber-950/70 hover:bg-white/85`;
+  return `${baseClass} border-[#6b4a2b]/18 bg-white/52 text-[#3c2819]/72 hover:bg-white/82`;
 }
 
 function getBoardModeRevealKey(
@@ -6188,12 +6477,9 @@ const LeftModePanelPropsSchema = z.object({
   canClaim: z.boolean(),
   claimedQuestIds: z.array(z.string().min(1)),
   claimProgress: z.number().min(0).max(1),
-  deliveryCard: z.custom<AlchemyBoardCard | null>(),
+  deliveryComplete: z.boolean(),
   deliveryDropFeedback: z.custom<DropFeedback>(),
-  deliveryProgress: z.object({
-    delivered: z.int().min(0),
-    required: z.int().min(1),
-  }),
+  deliveryItems: z.array(QuestDeliveryItemSchema),
   developerNotesVisible: z.boolean(),
   gathering: z.custom<AlchemistGuildGatheringState>(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
@@ -6225,9 +6511,9 @@ const LeftModePanel = defineComponent(
     canClaim,
     claimedQuestIds,
     claimProgress,
-    deliveryCard,
+    deliveryComplete,
     deliveryDropFeedback,
-    deliveryProgress,
+    deliveryItems,
     developerNotesVisible,
     gathering,
     gatheringDropTarget,
@@ -6281,9 +6567,9 @@ const LeftModePanel = defineComponent(
           canClaim={canClaim}
           claimedQuestIds={claimedQuestIds}
           claimProgress={claimProgress}
-          deliveryCard={deliveryCard}
+          deliveryComplete={deliveryComplete}
           deliveryDropFeedback={deliveryDropFeedback}
-          deliveryProgress={deliveryProgress}
+          deliveryItems={deliveryItems}
           developerNotesVisible={developerNotesVisible}
           hasQuestNotifications={hasQuestNotifications}
           isClaimDragging={isClaimDragging}
@@ -6329,6 +6615,10 @@ const CenterBoardPanelsPropsSchema = z.object({
   onGatheringConfirmPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
   onGatheringMovePointerDown: z.custom<GatheringMovePointerDownHandler>(),
   onGatheringRewardSelect: z.custom<GatheringRewardSelectHandler>(),
+  onPhonicsBossAnswer: z.custom<(factId: string) => void>(),
+  onPhonicsMovePick: z.custom<(moveId: GatheringMoveId) => void>(),
+  onPhonicsWordPick: z.custom<(factId: string) => void>(),
+  onSelectGatheringTrack: z.custom<(track: AlchemistGuildGatheringTrackKind) => void>(),
   onSlottedCardPointerDown: z.custom<SlottedCardPointerDownHandler>(),
   onTransmutationSwipePointerDown: z.custom<ButtonPointerDownHandler>(),
   periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
@@ -6367,6 +6657,10 @@ const CenterBoardPanels = defineComponent(
     onGatheringConfirmPointerDown,
     onGatheringMovePointerDown,
     onGatheringRewardSelect,
+    onPhonicsBossAnswer,
+    onPhonicsMovePick,
+    onPhonicsWordPick,
+    onSelectGatheringTrack,
     onSlottedCardPointerDown,
     onTransmutationSwipePointerDown,
     periodicTableViewportRef,
@@ -6383,8 +6677,19 @@ const CenterBoardPanels = defineComponent(
     const isGatheringBossRewardMode = isGatheringMode && gatheringBossPhase === "reward";
     const isGatheringRewardMode =
       isGatheringMode && boardState.gathering.phase === "reward" && !isGatheringBossRewardMode;
+    // No path selected → show the learning-path map (the first thing a player sees).
+    const isGatheringPathMapMode = isGatheringMode && boardState.gathering.selectedTrack === null;
+    const isGatheringPhonicsMode =
+      isGatheringMode && boardState.gathering.selectedTrack === "phonics";
     let primaryPanelContent: ReactNode;
-    if (isGatheringBossRewardMode) {
+    if (isGatheringPathMapMode) {
+      primaryPanelContent = (
+        <GatheringPathMap
+          onSelectTrack={onSelectGatheringTrack}
+          options={getGatheringPathMap(boardState.gathering)}
+        />
+      );
+    } else if (isGatheringBossRewardMode) {
       primaryPanelContent = (
         <GatheringBossRewardPanel
           boss={boardState.gathering.boss}
@@ -6399,11 +6704,20 @@ const CenterBoardPanels = defineComponent(
         />
       );
     } else if (isGatheringMode && gatheringBossPhase === "active") {
-      primaryPanelContent = (
+      primaryPanelContent = isGatheringPhonicsMode ? (
+        <GatheringPhonicsBossPanel boss={boardState.gathering.boss} nowMs={nowMs} />
+      ) : (
         <GatheringBossFightPanel boss={boardState.gathering.boss} nowMs={nowMs} />
       );
     } else if (isGatheringRewardMode) {
       primaryPanelContent = <GatheringRewardStagePanel gathering={boardState.gathering} />;
+    } else if (isGatheringPhonicsMode) {
+      primaryPanelContent = (
+        <GatheringPhonicsPromptPanel
+          gathering={boardState.gathering}
+          status={getGatheringPhonicsPanelStatus(boardState.gathering)}
+        />
+      );
     } else if (isGatheringMode) {
       primaryPanelContent = (
         <GatheringGamePanel
@@ -6428,8 +6742,22 @@ const CenterBoardPanels = defineComponent(
     }
 
     let gatheringSecondaryContent: ReactNode;
-    if (gatheringBossPhase === "active") {
+    if (isGatheringPathMapMode) {
       gatheringSecondaryContent = (
+        <div className="grid h-full place-items-center p-6 text-center">
+          <p className="max-w-[20rem] text-sm font-bold leading-snug text-neutral-700">
+            Each path teaches a different skill. Beat a path&apos;s boss to unlock its next level —
+            then come back here to choose what to learn next.
+          </p>
+        </div>
+      );
+    } else if (gatheringBossPhase === "active") {
+      gatheringSecondaryContent = isGatheringPhonicsMode ? (
+        <GatheringPhonicsBossAnswerPanel
+          boss={boardState.gathering.boss}
+          onAnswer={onPhonicsBossAnswer}
+        />
+      ) : (
         <GatheringBossAnswerPanel
           boss={boardState.gathering.boss}
           onAnswer={onGatheringBossAnswer}
@@ -6440,6 +6768,20 @@ const CenterBoardPanels = defineComponent(
         <GatheringBossStatusPanel
           boss={boardState.gathering.boss}
           mastery={gatheringLevelMastery}
+        />
+      );
+    } else if (isGatheringPhonicsMode && boardState.gathering.phase === "move") {
+      gatheringSecondaryContent = (
+        <GatheringPhonicsMovePanel
+          gathering={boardState.gathering}
+          onPickMove={onPhonicsMovePick}
+        />
+      );
+    } else if (isGatheringPhonicsMode && boardState.gathering.phase === "solving") {
+      gatheringSecondaryContent = (
+        <GatheringPhonicsCardsPanel
+          gathering={boardState.gathering}
+          onPickWord={onPhonicsWordPick}
         />
       );
     } else {
@@ -6466,7 +6808,9 @@ const CenterBoardPanels = defineComponent(
           data-board-description={
             isGatheringMode ? "Primary gathering playfield." : BOARD_DESCRIPTIONS.periodicTableVault
           }
-          className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS}`}
+          className={`${
+            isGatheringMode ? CLEAR_TABLE_WINDOW_CLASS : PERIODIC_TABLE_WINDOW_CLASS
+          } ${GATHERING_PANEL_TRANSITION_CLASS}`}
         >
           {primaryPanelContent}
         </div>
@@ -6479,7 +6823,10 @@ const CenterBoardPanels = defineComponent(
               ? "Cards available for the gathering encounter."
               : BOARD_DESCRIPTIONS.alchemyWorkbench
           }
-          className={getWorkbenchPanelClass(isGatheringMode)}
+          className={getWorkbenchPanelClass(
+            isGatheringMode,
+            isGatheringMode ? boardState.gathering.phase : null,
+          )}
         >
           {isGatheringMode ? (
             gatheringSecondaryContent
@@ -7125,7 +7472,7 @@ const RightModePanels = defineComponent(
 );
 
 function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
-  const baseClass = `grid min-h-0 min-w-0 gap-2.5 ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  const baseClass = `grid min-h-0 min-w-0 gap-3 ${GATHERING_PANEL_TRANSITION_CLASS}`;
   if (isGatheringMode) {
     return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
   }
@@ -7136,7 +7483,16 @@ function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
 function getBoardChromeClass(): string {
   const baseClass =
     "pointer-events-none relative z-10 mx-auto grid h-full min-h-0 min-w-0 max-w-[1332px]";
-  return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-2.5 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
+  return `${baseClass} grid-rows-[5rem_auto_minmax(0,1fr)] gap-3 lg:grid-rows-[5.5rem_auto_minmax(0,1fr)]`;
+}
+
+function getBoardControlRowClass(activeTab: BoardModeTab): string {
+  const baseClass = "grid min-h-10 min-w-0 gap-3";
+  if (activeTab === "gathering") {
+    return `${baseClass} lg:grid-cols-[11rem_minmax(0,1fr)_13.25rem] xl:grid-cols-[14rem_minmax(36rem,1fr)_15rem]`;
+  }
+
+  return `${baseClass} lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]`;
 }
 
 function getBoardCanvasName(isExpeditionMode: boolean): string {
@@ -7269,7 +7625,7 @@ const UpgradesPanel = defineComponent(
   }) => (
     <div
       data-board-section="upgrades-panel"
-      className="pointer-events-auto grid h-full min-h-0 content-start gap-4 overflow-y-auto p-6"
+      className={`${GLASS_PANEL_CLASS} grid h-full content-start gap-4 overflow-y-auto p-6`}
     >
       <header className="grid gap-1 text-center">
         <h2 className="text-lg font-black leading-tight text-amber-950">Upgrade Workshop</h2>
@@ -7316,9 +7672,16 @@ function getBoardCanvasAriaLabel(isGatheringMode: boolean, isExpeditionMode: boo
   return "Periodic table Pixi canvas";
 }
 
-function getWorkbenchPanelClass(isGatheringMode: boolean): string {
+function getWorkbenchPanelClass(
+  isGatheringMode: boolean,
+  gatheringPhase: AlchemistGuildGatheringState["phase"] | null,
+): string {
   if (isGatheringMode) {
-    return `${GLASS_PANEL_CLASS} grid grid-cols-5 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 pt-10`;
+    if (gatheringPhase === "reward") {
+      return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(auto-fit,minmax(105px,105px))] grid-rows-[minmax(0,1fr)] justify-center gap-5 overflow-visible p-4 pt-10`;
+    }
+
+    return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(5,105px)] grid-rows-[minmax(0,1fr)] justify-center gap-2 overflow-hidden p-4 pt-10 xl:gap-3`;
   }
 
   return `${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-3 sm:grid-rows-none lg:gap-5 xl:grid-cols-5 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:gap-8`;
@@ -7327,7 +7690,7 @@ function getWorkbenchPanelClass(isGatheringMode: boolean): string {
 function getRightModePanelsClass(isGatheringMode: boolean): string {
   const baseClass = `hidden min-h-0 min-w-0 overflow-hidden lg:grid ${GATHERING_PANEL_TRANSITION_CLASS}`;
   if (isGatheringMode) {
-    return `${baseClass} gap-2.5 lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
+    return `${baseClass} gap-3 lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
   }
 
   return `${baseClass} gap-0 lg:grid-rows-[minmax(0,1fr)_minmax(0,0px)]`;
@@ -7342,8 +7705,14 @@ function getRightPrimaryPanelClass(isGatheringMode: boolean, infoPanelCollapsed:
   return baseClass;
 }
 
-function getMainBoardGridClass(questPanelCollapsed: boolean): string {
-  const baseClass = `grid min-h-0 min-w-0 gap-2.5 ${BOARD_MAIN_GRID_TRANSITION_CLASS}`;
+function getMainBoardGridClass(questPanelCollapsed: boolean, isGatheringMode: boolean): string {
+  const baseClass = `grid min-h-0 min-w-0 gap-3 ${BOARD_MAIN_GRID_TRANSITION_CLASS}`;
+  if (isGatheringMode) {
+    return questPanelCollapsed
+      ? `${baseClass} lg:grid-cols-[3.75rem_minmax(0,1fr)_13.25rem] xl:grid-cols-[3.75rem_minmax(36rem,1fr)_15rem]`
+      : `${baseClass} lg:grid-cols-[11rem_minmax(0,1fr)_13.25rem] xl:grid-cols-[14rem_minmax(36rem,1fr)_15rem]`;
+  }
+
   return questPanelCollapsed
     ? `${baseClass} lg:grid-cols-[3.75rem_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[3.75rem_minmax(30rem,1fr)_minmax(14rem,316px)]`
     : `${baseClass} lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]`;
@@ -7478,8 +7847,25 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const unlockedQuestIds = [...new Set([...boardState.completedQuestIds, ...availableQuestIds])];
   const selectedQuestId = getQuestAtWrappedIndex(getQuestIndexById(boardState.selectedQuestId)).id;
   const selectedQuest = getRequiredAlchemyQuest(selectedQuestId);
-  const selectedQuestDelivery = getQuestDelivery(boardState.questDeliveries, selectedQuest);
-  const selectedQuestDeliveryCard = getAlchemyCard(selectedQuestDelivery.cardId);
+  const selectedQuestDelivery = getQuestDelivery(boardState.questDeliveries, selectedQuestId);
+  // One page per deliverable: a bundle quest yields its components (Salt/Charcoal/Ash);
+  // a simple quest a single item. The delivery state holds the per-card delivered count.
+  const selectedQuestDeliveryItems = getQuestDeliverables(selectedQuest).flatMap((deliverable) => {
+    const card = getAlchemyCard(deliverable.cardId);
+    return card
+      ? [
+          {
+            card,
+            delivered: getQuestDeliveredCount(selectedQuestDelivery, deliverable.cardId),
+            required: deliverable.required,
+          },
+        ]
+      : [];
+  });
+  const selectedQuestDeliveryComplete = isQuestDeliveryComplete(
+    selectedQuest,
+    selectedQuestDelivery,
+  );
   const claimedSelectedQuest = boardState.completedQuestIds.includes(selectedQuestId);
   const selectedQuestClaimSwipeState = getQuestClaimSwipeState(
     questClaimSwipeStateByQuestId,
@@ -7487,9 +7873,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   );
   const selectedQuestUnlocked = unlockedQuestIds.includes(selectedQuestId);
   const canClaimSelectedQuest =
-    selectedQuestUnlocked &&
-    !claimedSelectedQuest &&
-    selectedQuestDelivery.delivered >= selectedQuestDelivery.required;
+    selectedQuestUnlocked && !claimedSelectedQuest && selectedQuestDeliveryComplete;
   const selectedQuestAssemblyGuide =
     selectedQuestUnlocked && !claimedSelectedQuest
       ? createQuestAssemblyGuide(boardState, selectedQuest, nowMs)
@@ -8322,6 +8706,55 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("card.drop");
   };
 
+  const handleSelectGatheringTrack = (track: AlchemistGuildGatheringTrackKind) => {
+    setBoardState((previous) => ({
+      ...previous,
+      gathering: selectGatheringTrack(previous.gathering, track),
+    }));
+    void sfx.play("board-mode.gathering");
+  };
+
+  // Phonics is tap-driven (select + confirm in one tap): the matching word advances
+  // to the attack, a wrong word stays for another try.
+  const handlePhonicsWordPick = (factId: string) => {
+    const current = boardStateRef.current.gathering;
+    if (
+      current.selectedTrack !== "phonics" ||
+      current.phase !== "solving" ||
+      !current.phonicsPrompt
+    ) {
+      return;
+    }
+    const confirmed = confirmGatheringPhonicsAnswer(
+      selectGatheringPhonicsChoice(current, factId),
+      Date.now(),
+    );
+    setBoardState((previous) => ({ ...previous, gathering: confirmed }));
+    void sfx.play(confirmed.lastAnswerCorrect ? "card.drop" : "gathering.answerWrong");
+  };
+
+  const handlePhonicsMovePick = (moveId: GatheringMoveId) => {
+    const current = boardStateRef.current.gathering;
+    if (current.selectedTrack !== "phonics" || current.phase !== "move") return;
+    setBoardState((previous) => ({
+      ...previous,
+      gathering: selectGatheringMove(previous.gathering, moveId, previous),
+    }));
+    void sfx.play("card.drop");
+  };
+
+  const handlePhonicsBossAnswer = (factId: string) => {
+    const current = boardStateRef.current.gathering;
+    if (current.boss.phase !== "active") return;
+    const answeredAtMs = Date.now();
+    const next = answerGatheringBossPhonics(current, factId, answeredAtMs);
+    setBoardState((previous) => ({
+      ...previous,
+      gathering: answerGatheringBossPhonics(previous.gathering, factId, answeredAtMs),
+    }));
+    void sfx.play(next.lastAnswerCorrect ? "card.drop" : "gathering.answerWrong");
+  };
+
   const handleGatheringBossRewardClaim = () => {
     const claimedAtMs = Date.now();
     const currentBoss = boardStateRef.current.gathering.boss;
@@ -8408,10 +8841,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const commitQuestClaim = (questId: string) => {
     const currentBoardState = boardStateRef.current;
     const quest = getRequiredAlchemyQuest(questId);
-    const currentDelivery = getQuestDelivery(currentBoardState.questDeliveries, quest);
+    const currentDelivery = getQuestDelivery(currentBoardState.questDeliveries, quest.id);
     if (
       currentBoardState.completedQuestIds.includes(quest.id) ||
-      currentDelivery.delivered < currentDelivery.required
+      !isQuestDeliveryComplete(quest, currentDelivery)
     ) {
       return;
     }
@@ -8433,7 +8866,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         ...previous,
         completedQuestIds: appendUniqueId(previous.completedQuestIds, quest.id),
         profile: applyQuestRewards(previous.profile, quest.rewards),
-        questDeliveries: ensureQuestDelivery(previous.questDeliveries, quest),
       };
     });
     announceQuestAvailability(nextCompletedQuestIds);
@@ -8802,16 +9234,24 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       currentGathering.streak.current,
       answerCorrect,
     );
-    if (streakSoundEvent === "increment") {
-      void sfx.play("gathering.streak.increment", {
-        detuneCents: gatheringStreakIncrementDetuneCents(currentGathering.streak.current + 1),
-      });
+    // A record tick (the streak overtaking its own all-time best) gets the celebratory
+    // high-score chime, pitched up with the streak like the ordinary tick — but a
+    // rarity-band beat (ignite/milestone) outranks it, and a break always wins.
+    const streakRecord = isGatheringStreakRecord(currentGathering.streak, answerCorrect);
+    if (streakSoundEvent === "break") {
+      void sfx.play("gathering.streak.break");
     } else if (streakSoundEvent === "ignite") {
       void sfx.play("gathering.streak.ignite");
     } else if (streakSoundEvent === "milestone") {
       void sfx.play("gathering.streak.milestone");
-    } else if (streakSoundEvent === "break") {
-      void sfx.play("gathering.streak.break");
+    } else if (streakRecord) {
+      void sfx.play("gathering.streak.record", {
+        detuneCents: gatheringStreakIncrementDetuneCents(currentGathering.streak.current + 1),
+      });
+    } else if (streakSoundEvent === "increment") {
+      void sfx.play("gathering.streak.increment", {
+        detuneCents: gatheringStreakIncrementDetuneCents(currentGathering.streak.current + 1),
+      });
     }
 
     setBoardState((previous) => ({
@@ -9692,6 +10132,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               questDeliveries: addSelectedQuestDelivery(
                 previous.questDeliveries,
                 currentBoardState.selectedQuestId,
+                activeDraggedCard.card.id,
               ),
             }));
             void sfx.play("card.drop");
@@ -9712,6 +10153,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 questDeliveries: addSelectedQuestDelivery(
                   previous.questDeliveries,
                   currentBoardState.selectedQuestId,
+                  activeDraggedCard.card.id,
                 ),
               };
             });
@@ -9725,6 +10167,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               questDeliveries: addSelectedQuestDelivery(
                 previous.questDeliveries,
                 currentBoardState.selectedQuestId,
+                activeDraggedCard.card.id,
               ),
               reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
             }));
@@ -10408,7 +10851,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           data-board-section="top-inventory-panel"
           data-board-name="Inventory"
           data-board-description={BOARD_DESCRIPTIONS.inventory}
-          className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)_2.5rem] items-center gap-3 py-2 pl-3 pr-16`}
+          className={`${GLASS_PANEL_CLASS} grid grid-cols-[3.25rem_1px_minmax(0,1fr)_2.5rem] items-center gap-3 px-3 py-2`}
           aria-label="Inventory"
         >
           <BoardDebugBadge
@@ -10417,16 +10860,16 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             visible={showBoardDebugBadges}
           />
           <div
-            className="grid size-10 place-items-center justify-self-start rounded-[6px] border border-sky-950/20 bg-white/40 text-sky-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)]"
+            className={`${GLASS_CONTROL_CLASS} grid size-10 place-items-center justify-self-start text-sky-950`}
             aria-hidden="true"
           >
             <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
           </div>
-          <span className="h-10 w-px bg-neutral-950/25" aria-hidden="true" />
+          <span className="h-10 w-px bg-[#6b4a2b]/22" aria-hidden="true" />
           <div
             data-board-section="inventory-shelf"
             data-board-name="Inventory shelf"
-            className="grid min-h-14 min-w-0 grid-cols-[repeat(8,minmax(0,1fr))] items-center gap-1.5 pb-1 pr-1 sm:gap-2"
+            className="grid min-h-14 min-w-0 grid-cols-[repeat(8,minmax(0,1fr))] items-center gap-1.5 rounded-[8px] border border-[#6b4a2b]/12 bg-white/22 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.52)] sm:gap-2"
           >
             {inventorySlots.map((slot) => {
               const item = boardState.inventorySlots[slot.id];
@@ -10445,6 +10888,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                   marker={getQuestInventoryMarker(
                     card,
                     selectedQuestAssemblyGuide,
+                    selectedQuest,
                     selectedQuestDelivery,
                   )}
                   nowMs={nowMs}
@@ -10481,7 +10925,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         />
 
         {modeBoardPanel ?? (
-          <section className={getMainBoardGridClass(questPanelCollapsed)}>
+          <section className={getMainBoardGridClass(questPanelCollapsed, isGatheringMode)}>
             <aside className="hidden min-h-0 min-w-0 lg:grid">
               {questPanelCollapsed ? null : (
                 <LeftModePanel
@@ -10491,12 +10935,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                   canClaim={canClaimSelectedQuest}
                   claimedQuestIds={boardState.completedQuestIds}
                   claimProgress={selectedQuestClaimSwipeState.progress}
-                  deliveryCard={selectedQuestUnlocked ? selectedQuestDeliveryCard : null}
+                  deliveryComplete={selectedQuestDeliveryComplete}
                   deliveryDropFeedback={getQuestDeliveryDropFeedback(dropIntent)}
-                  deliveryProgress={{
-                    delivered: selectedQuestDelivery.delivered,
-                    required: selectedQuestDelivery.required,
-                  }}
+                  deliveryItems={selectedQuestUnlocked ? selectedQuestDeliveryItems : []}
                   developerNotesVisible={showBoardDebugBadges}
                   gathering={boardState.gathering}
                   gatheringDropTarget={gatheringDropTarget}
@@ -10549,6 +10990,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               onGatheringConfirmPointerDown={handleGatheringConfirmSwipePointerDown}
               onGatheringMovePointerDown={beginGatheringMoveDrag}
               onGatheringRewardSelect={handleGatheringRewardSelect}
+              onPhonicsBossAnswer={handlePhonicsBossAnswer}
+              onPhonicsMovePick={handlePhonicsMovePick}
+              onPhonicsWordPick={handlePhonicsWordPick}
+              onSelectGatheringTrack={handleSelectGatheringTrack}
               periodicTableViewportRef={periodicTableViewportRef}
               questAssemblyGuide={selectedQuestAssemblyGuide}
               recipePreview={transmutationPreview}
@@ -11386,10 +11831,12 @@ function getAlchemyCardSellPrice(card: AlchemyBoardCard): number {
 function getQuestInventoryMarker(
   card: AlchemyBoardCard | null,
   guide: QuestAssemblyGuide | null,
+  quest: StaticAlchemyQuest,
   delivery: AlchemistGuildQuestDelivery,
 ): QuestInventoryMarker | null {
   if (!card) return null;
-  if (card.id === delivery.cardId) return { label: "Turn in", tone: "delivery" };
+  if (canDeliverCardToQuest(quest, delivery, card.id))
+    return { label: "Turn in", tone: "delivery" };
 
   const ingredient = guide?.ingredients.find((candidate) => candidate.cardId === card.id);
   if (!ingredient) return null;
@@ -11618,7 +12065,22 @@ function getGatheringGamePanelStatus(gathering: AlchemistGuildGatheringState): s
   if (gathering.lastAnswerCorrect === false)
     return "That card missed. Drag it back or swap another sum.";
   if (gathering.equation.selectedValue !== null) return "Answer staged. Swipe to confirm it.";
-  return "Choose the card that matches the addition equation.";
+  return gathering.equation.operator === "-"
+    ? "Choose the card that matches the subtraction equation."
+    : "Choose the card that matches the addition equation.";
+}
+
+function getGatheringPhonicsPanelStatus(gathering: AlchemistGuildGatheringState): string {
+  if (gathering.boss.phase === "active")
+    return "Boss round active. Tap the matching word before time runs out.";
+  if (gathering.boss.phase === "reward") return "Boss cleared. Claim the new element reward.";
+  if (gathering.boss.phase === "failed")
+    return "Boss streak broke. The level memory track restarted.";
+  if (gathering.phase === "reward") return "Monster cleared. Pick one reward card.";
+  if (gathering.phase === "move") return "Great match! Pick an attack to spend it.";
+  if (gathering.lastAnswerCorrect === false)
+    return "Not that one. Play the sound again and try another word.";
+  return "Play the sound, then tap the word that has it.";
 }
 
 function getGatheringBossRemainingMs(
@@ -12111,75 +12573,32 @@ function isQuestDeliveryAccepted(
   if (!isQuestUnlocked(quest.id, boardState.completedQuestIds)) return false;
   if (boardState.completedQuestIds.includes(quest.id)) return false;
 
-  const delivery = getQuestDelivery(boardState.questDeliveries, quest);
-
-  return delivery.delivered < delivery.required && card.id === delivery.cardId;
+  // Auto-route: any of the quest's still-needed deliverables is accepted, whichever
+  // delivery page happens to be showing.
+  return canDeliverCardToQuest(
+    quest,
+    getQuestDelivery(boardState.questDeliveries, quest.id),
+    card.id,
+  );
 }
 
 function addSelectedQuestDelivery(
   questDeliveries: AlchemistGuildQuestDeliveries,
   questId: string,
+  cardId: string,
 ): AlchemistGuildQuestDeliveries {
   const quest = getRequiredAlchemyQuest(questId);
-  const delivery = getQuestDelivery(questDeliveries, quest);
-
   return {
     ...questDeliveries,
-    [quest.id]: {
-      ...delivery,
-      delivered: Math.min(delivery.required, delivery.delivered + 1),
-    },
+    [quest.id]: deliverCardToQuest(quest, questDeliveries[quest.id], cardId),
   };
-}
-
-function ensureQuestDelivery(
-  questDeliveries: AlchemistGuildQuestDeliveries,
-  quest: StaticAlchemyQuest,
-): AlchemistGuildQuestDeliveries {
-  const currentDelivery = questDeliveries[quest.id];
-  if (currentDelivery?.cardId === getQuestDeliveryCardId(quest)) return questDeliveries;
-
-  return { ...questDeliveries, [quest.id]: createQuestDelivery(quest) };
 }
 
 function getQuestDelivery(
   questDeliveries: AlchemistGuildQuestDeliveries,
-  quest: StaticAlchemyQuest,
+  questId: string,
 ): AlchemistGuildQuestDelivery {
-  const currentDelivery = questDeliveries[quest.id];
-  if (currentDelivery?.cardId === getQuestDeliveryCardId(quest)) return currentDelivery;
-
-  return createQuestDelivery(quest);
-}
-
-function createQuestDelivery(quest: StaticAlchemyQuest): AlchemistGuildQuestDelivery {
-  return {
-    cardId: getQuestDeliveryCardId(quest),
-    delivered: 0,
-    required: 1,
-  };
-}
-
-function getQuestDeliveryCardId(quest: StaticAlchemyQuest): string {
-  return getQuestDeliveryRecipe(quest).output.cardId;
-}
-
-function getQuestDeliveryRecipe(quest: StaticAlchemyQuest): StaticAlchemyRecipe {
-  const recipes = quest.recipeIds.map((recipeId) => {
-    const recipe = getAlchemyRecipeById(recipeId);
-    if (!recipe) throw new Error(`Missing alchemy recipe: ${recipeId}`);
-    return recipe;
-  });
-  const fallbackRecipe = recipes[0];
-  if (!fallbackRecipe) throw new Error(`Quest ${quest.id} does not define a delivery recipe`);
-
-  const consumedCardIds = new Set<string>(
-    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
-  );
-  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
-  const terminalRecipe = terminalRecipes.length === 1 ? terminalRecipes[0] : null;
-
-  return terminalRecipe ?? fallbackRecipe;
+  return questDeliveries[questId] ?? {};
 }
 
 function getQuestClaimSwipeState(
@@ -12569,41 +12988,6 @@ function isQuestPanelAcceptedDrop(intent: DropIntent): boolean {
 
 function getQuestDropFeedback(intent: Extract<DropIntent, { kind: "quest" }>): DropFeedback {
   return intent.accepted ? "drop" : "blocked";
-}
-
-function clearQuestDeliveryMotionStyles(
-  shellElement: HTMLElement | null,
-  claimElement: HTMLElement | null,
-): void {
-  shellElement?.style.removeProperty("rotate");
-  shellElement?.style.removeProperty("scale");
-  shellElement?.style.removeProperty("transform");
-  shellElement?.style.removeProperty("translate");
-  claimElement?.style.removeProperty("opacity");
-  claimElement?.style.removeProperty("rotate");
-  claimElement?.style.removeProperty("scale");
-  claimElement?.style.removeProperty("transform");
-  claimElement?.style.removeProperty("translate");
-}
-
-function getQuestDeliveryStatusText(
-  isComplete: boolean,
-  claimed: boolean,
-  cardName: string,
-): string {
-  if (claimed) return "Claimed";
-  if (isComplete) return QUEST_DELIVERY_COMPLETE_LABEL;
-  return `Deliver ${cardName} when it is ready.`;
-}
-
-function getQuestDeliveryClaimLabel(
-  isComplete: boolean,
-  claimed: boolean,
-  cardName: string,
-): string {
-  if (claimed) return `${cardName} claimed`;
-  if (isComplete) return `Swipe to claim ${cardName}`;
-  return `Drop ${cardName} here`;
 }
 
 function getQuestDeliveryClaimTrackClass(isComplete: boolean): string {

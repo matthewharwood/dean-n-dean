@@ -83,14 +83,18 @@ export function streakBonusForOptionIndex(streak: number, optionIndex: number): 
 // "next TIER @N" hint), so the thresholds never drift between systems. NOTE these
 // rarity thresholds (5/10/15/20/30) are intentionally distinct from the bonus
 // breadth tiers above (5/10/18) — two different ladders.
-// The streak ladder reaches ONE tier beyond the six shared rarities: "Celestial",
-// grander than Mythical, earned at a 50 streak. It's streak-only (the orbit forge
-// never produces it), so we keep it as a local superset of the shared rarity type
-// rather than widening the schema enum + every emergent-recipe switch.
-export type GatheringStreakRarity = AlchemistGuildEmergentRecipeRarity | "celestial";
+// The streak ladder reaches TWO tiers beyond the six shared rarities: "Celestial",
+// grander than Mythical, earned at a 50 streak; and "Divine", the god-tier apex,
+// earned at a 100 streak. Both are streak-only (the orbit forge never produces
+// them), so we keep them as a local superset of the shared rarity type rather than
+// widening the schema enum + every emergent-recipe switch.
+export type GatheringStreakRarity = AlchemistGuildEmergentRecipeRarity | "celestial" | "divine";
 
 /** The streak that reaches the Celestial tier (one beyond Mythical's 30). */
 export const CELESTIAL_STREAK_TIER_AT = 50;
+
+/** The streak that reaches the Divine apex tier (one beyond Celestial's 50). */
+export const DIVINE_STREAK_TIER_AT = 100;
 
 export const GATHERING_STREAK_RARITY_TIERS: ReadonlyArray<{
   min: number;
@@ -103,9 +107,10 @@ export const GATHERING_STREAK_RARITY_TIERS: ReadonlyArray<{
   { min: 20, rarity: "legendary" },
   { min: 30, rarity: "mythical" },
   { min: CELESTIAL_STREAK_TIER_AT, rarity: "celestial" },
+  { min: DIVINE_STREAK_TIER_AT, rarity: "divine" },
 ];
 
-/** The rarity tier earned at this streak (common 0-4 … mythical 30-49, celestial 50+). */
+/** The rarity tier earned at this streak (common 0-4 … celestial 50-99, divine 100+). */
 export function streakRarity(streak: number): GatheringStreakRarity {
   let rarity: GatheringStreakRarity = "common";
   for (const tier of GATHERING_STREAK_RARITY_TIERS) {
@@ -123,6 +128,7 @@ const STREAK_RARITY_CHEST_IMAGE: Record<GatheringStreakRarity, string> = {
   legendary: "gathering-art/reward-treasure-ice-strongbox.webp",
   mythical: "gathering-art/reward-treasure-wizard-satchel.webp",
   celestial: "gathering-art/reward-treasure-celestial-aurora.webp",
+  divine: "gathering-art/reward-treasure-divine-radiance.webp",
 };
 
 /** The treasure-chest art for a rarity tier. */
@@ -164,6 +170,34 @@ export function advanceGatheringStreak(
     lastIncrementAtMs: streak.lastIncrementAtMs,
     longest: Math.max(streak.longest, streak.current),
   };
+}
+
+// --- Personal best / "high score" -----------------------------------------
+// The meter always banks `longest` (the all-time-high streak), so no extra state
+// is needed to show a "high score" — it's `longest`, and because `longest` tracks
+// the LIVE max, it climbs with `current` the moment a run overtakes it. A "record
+// tick" is exactly that overtake-and-beyond beat: a correct answer whose new
+// `current` sets a fresh all-time high. On a hot record run every tick is a record
+// tick (the point — keep the "NEW HIGH SCORE" flash firing while the kid keeps the
+// streak alive). Gated by a small floor so a fresh save climbing 1→2 doesn't spam
+// a celebration before there's anything worth bragging about.
+
+/** Records below this streak aren't celebrated (no "new best" fanfare at 1–2). */
+export const STREAK_RECORD_MIN = 3;
+
+/**
+ * Whether this answer sets a NEW all-time-high streak worth celebrating — the tick
+ * where `current` climbs past the previous `longest`. Pure; the caller fires the
+ * flash + record sound. Because `longest >= current` always holds, `next > longest`
+ * is only true when `current` was tied with the record, i.e. this beats it.
+ */
+export function isGatheringStreakRecord(
+  before: AlchemistGuildGatheringStreak,
+  correct: boolean,
+): boolean {
+  if (!correct) return false;
+  const next = before.current + 1;
+  return next > before.longest && next >= STREAK_RECORD_MIN;
 }
 
 // --- Audio cues ------------------------------------------------------------

@@ -490,7 +490,12 @@ export const ALCHEMY_RECIPES = [
     id: "alchemy:ash",
     name: "Ash",
     output: item("material", "material:ash", "Ash"),
-    arguments: [arg("raw:wood", 1, "material")],
+    // Burns plant matter (herbs) to its mineral residue. Kept distinct from
+    // Charcoal's raw:wood input so the two recipes have different input
+    // signatures — they previously both consumed raw:wood, which collided in
+    // doesWorkbenchMatchRecipe (multiset-of-inputs match) so only the first
+    // recipe (Charcoal) could ever be crafted and Ash was unmakeable.
+    arguments: [arg("raw:herbs", 1, "material")],
     station: "kiln",
     action: "heat",
     progression: progress(1, 3, 1, 0.05),

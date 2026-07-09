@@ -65,9 +65,10 @@ export default defineConfig(async ({ mode }) => {
     base: resolveBase(),
     build: {
       // The current game is a single prerendered route, so the app entry
-      // carries the alchemy/gathering shell. Keep Vite warning-free for the
-      // present ~615 kB minified baseline while still catching larger growth.
-      chunkSizeWarningLimit: 650,
+      // carries the alchemy/gathering shell. The 3D enemy viewer lazy-loads
+      // Three.js as a separate ~735 kB chunk; keep Vite warning-free for that
+      // intentional baseline while still catching larger growth.
+      chunkSizeWarningLimit: 750,
       rollupOptions: {
         onwarn: onRollupWarn,
         output: { manualChunks },

@@ -94,8 +94,8 @@ export const GATHERING_STREAK_RARITY_STYLE: Record<
     badgeText: "text-fuchsia-50",
     badgeRing: "ring-fuchsia-200",
   },
-  // Beyond Mythical: an aurora that shimmers cyan into magenta. The strongest
-  // bloom on the ladder, plus gradient pip/badge so the tier reads as "otherworldly".
+  // Beyond Mythical: an aurora that shimmers cyan into magenta. Gradient pip/badge
+  // so the tier reads as "otherworldly" — but Divine outshines it.
   celestial: {
     label: "Celestial",
     number: "text-cyan-100",
@@ -105,6 +105,20 @@ export const GATHERING_STREAK_RARITY_STYLE: Record<
     badgeBg: "bg-gradient-to-r from-cyan-400 to-fuchsia-500",
     badgeText: "text-white",
     badgeRing: "ring-cyan-100",
+  },
+  // The god-tier apex at a 100 streak — a prismatic gold→fuchsia→cyan radiance, the
+  // brightest, widest, multi-hued bloom on the entire ladder so reaching it reads as
+  // a flat-out "godly" event. Full-rainbow gradient pip/badge with dark text so the
+  // +N still reads on the blazing pill.
+  divine: {
+    label: "Divine",
+    number: "text-amber-50",
+    glow: "[text-shadow:0_1px_0_rgba(120,53,15,0.9),0_0_26px_rgba(253,224,71,0.95),0_0_42px_rgba(255,255,255,0.8),0_0_60px_rgba(232,121,249,0.6),0_0_76px_rgba(34,211,238,0.45)]",
+    pip: "bg-gradient-to-r from-amber-300 via-fuchsia-400 to-cyan-300",
+    ring: "ring-amber-200/85 shadow-[0_0_54px_rgba(253,224,71,0.65),0_0_66px_rgba(232,121,249,0.5),0_0_80px_rgba(34,211,238,0.4)]",
+    badgeBg: "bg-gradient-to-r from-amber-300 via-fuchsia-400 to-cyan-300",
+    badgeText: "text-slate-950",
+    badgeRing: "ring-amber-100",
   },
 };
 

@@ -19,6 +19,7 @@ The architecture below is **load-bearing** — it is what makes the iPad live-re
 - **Styling**: Tailwind
 - **Animation**: anime.js v4 (named-import API only — `createTimeline`, `createAnimatable`, etc.)
 - **Canvas / 2D rendering**: PixiJS 8.18.1 — first-party for any canvas-based UI (game scenes, sprites, particle effects, custom rendering). Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `apps/<name>/app/canvas/`. Same side-channel rule as anime.js: render is pure; all `new Application()` / `Ticker` / sprite mutation lives in `useEffect`. `prefers-reduced-motion: reduce` short-circuits Ticker animations. Game **state** stays in `atomWithIDB` (Pillar 3) — Pixi DisplayObjects never own data. The 24 `pixijs-*` skills under `.claude/skills/` cover the API surface; `usePixiApp` is the dean-stack lifecycle wrapper.
+- **3D / GLB models**: Three.js (`three`) — the ONLY 3D engine, used solely for rendering generated enemy GLB models (PixiJS is 2D). Same side-channel discipline as PixiJS: the whole lifecycle lives in `useGlbMonsterViewer(canvasRef, modelUrl)` (`apps/web/app/canvas/`), three is **dynamically imported** inside the effect (own chunk — never bundled for the math/phonics paths), render stays pure, `prefers-reduced-motion` renders one static frame, and dispose tears everything down. Renderer prefers **WebGPU** (`three/webgpu`, real-adapter check) and falls back to **WebGL2** (the headless-reliable backend, like Pixi's `preference:"webgl"`). Models are produced from `enemies/<id>.webp` by the Tripo3D P-Series pipeline — see the **`/tripo-enemy-model`** command / `bun run tripo:enemy-model <id>` (needs `TRIPO3D_API_KEY` + Tripo credits) — and registered in `gathering-enemy-models.ts`. Do not reach for react-three-fiber, babylon, or `@google/model-viewer`.
 - **State**: Jotai — and only Jotai. Do not introduce Zustand, Redux, Recoil, or Context-as-state.
 - **Persistence**: IndexedDB via the `idb` library
 - **Validation**: Zod 4 — the source of truth for every type
@@ -59,6 +60,11 @@ Hydration pattern — implement exactly this, every time:
 2. After hydration resolves, every `atomWithIDB` reads its initial value **synchronously** from already-loaded in-memory state. No per-atom suspense.
 3. On atom set: validate with the Zod schema, write through to IDB (debounced ~150ms), and broadcast on a `BroadcastChannel` so other tabs/iframes (Storybook, second browser window) re-hydrate.
 4. Schema version bumps run an IDB migration **before** the root suspense promise resolves.
+
+**Adding a field to ANY schema reachable from an `atomWithIDB` value heals only if it `.default()`s.** Hydration (`apps/web/app/state/hydration.ts`) re-parses the persisted record through the *current* schema with `Schema.parse(...)` (it throws, it does not `safeParse`-and-fallback — falling back would silently wipe the kid's progress). A new **required** field therefore throws a `ZodError` for every player who saved before the field existed — a runtime crash into the "Something broke" boundary, not a test failure. So:
+
+- New fields on IDB-reachable schemas — including **nested** ones (a list element, a live sub-object like the gathering `phonicsPrompt`) — MUST be `.default(...)` or `.optional()`. If a field is derivable from a sibling (e.g. a clip path from a vowel key), default it and recompute it in a `.transform(...)` so old records both parse AND get the correct value. `selectedFactId` heals to null; `hintVoiceClipPath` heals via transform — copy those.
+- A unit test that strips the new field from a current record and re-parses (expecting success) is the cheap guard that would have caught it. See `gathering-tracks.test.ts` → "hydration safety".
 
 This pattern is what makes the iPad live-refresh workflow viable: Vite HMR or a full reload does not erase progress because IDB rehydrates the whole app on every mount. **The iPad-over-LAN workflow is the primary reason IDB-first exists** — any feature that puts state outside IDB will be discovered the moment the kid loses progress on a hot reload. Fix it at the architecture level, not by patching.
 
@@ -192,6 +198,13 @@ Wait for the user's answer before writing the test. This rule is load-bearing �
 
 There is no server runtime, but T3 env still earns its keep: it validates `VITE_*` client vars at build time and gives a typed `env` import. Set up both `client` and `server` slots so a future move beyond GH Pages does not require a refactor. The `server` slot stays empty for now.
 
+### API keys & local secrets
+
+**Tooling/MCP secrets live in the repo-root `.env.local` (gitignored), never in any tracked `.env*` file.** The committed `.env`/`.env.example` files are public (GH Pages target), so a real secret in them would leak — `.gitignore` only excludes `.env.local` and `.env.*.local`. Each tooling secret is documented (name only, empty value) in the root `.env.example`.
+
+- **`ELEVENLABS_API_KEY`** — in `.env.local`. Used by the ElevenLabs MCP + `/sfx` audio workflow, and by **`bun run fetch:phonics-audio`** (`scripts/fetch-phonics-audio.ts`), which synthesizes the phonics clips listed in `docs/phonics/AUDIO-MANIFEST.md` via ElevenLabs TTS (default voice Matilda — US accent, which phonics needs; override with `ELEVENLABS_VOICE_ID`). Bun auto-loads `.env.local`, so the script reads the key with no extra wiring. It is a **tooling-only** secret: never a `VITE_`-prefixed var and never imported by app code, so it can never reach the client bundle. If the ElevenLabs MCP server needs it, pass it through the MCP server's `env` config from `.env.local`; do not hardcode it anywhere tracked.
+- **`TRIPO3D_API_KEY`** — in `.env.local`. 3D-asset generation tooling. Same contract as above: tooling-only, never a `VITE_`-prefixed var, never imported by app code (it must not reach the client bundle / GitHub Pages).
+
 ### SEO and social — exact rules
 
 The deploy target is GitHub Pages, but the audience includes LinkedIn previews, blog post embeds, and AI assistants citing the project. The SEO contract is intentionally narrow — every piece is static or build-time, never server-rendered.
@@ -277,6 +290,7 @@ No milestone starts until the prior one ships green CI.
 
 ## Working agreements
 
+- **Before completing, run the runtime check: `bun run check:runtime`.** It probes the local ports (`5173` dev, `3010` preview); **if a server is up** it loads the app in a headless browser and fails if the app rendered the "Something broke" error boundary or logged a `ZodError` at runtime — the class of client-only failures (render crashes, hydration `ZodError`s on a re-parsed record) that `tsgo` and `bun test` cannot see because they only surface after hydration runs the client JS + IndexedDB. **If no server is running it skips (exit 0) and never starts one** — so it's always safe to run. Pair it with the unit-test guard for schema-evolution (Pillar 3). This is mandatory after any schema change and recommended after any UI change.
 - **No code before its Storybook story.**
 - **Ask before writing any Playwright test.** Every time. Surface the structural choices (story-level vs app-level, selectors, IDB seeding, network state, what to assert) and wait for the user's answer. `bun test` unit tests do not require this prompt.
 - **No state outside IDB**, except plainly ephemeral UI state.

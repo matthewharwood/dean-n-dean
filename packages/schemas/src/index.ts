@@ -3,6 +3,13 @@ import * as z from "zod";
 import { AlchemyQuestIdSchema } from "./data/alchemy-quests";
 import { AlchemyCardIdSchema, AlchemyRecipeIdSchema } from "./data/alchemy-recipes";
 import { ExtendedMoleculeRecipeIdSchema } from "./data/extended-molecule-recipes";
+import {
+  PhonicsFactIdSchema,
+  PhonicsVowelClipPathSchema,
+  PhonicsVowelHintClipPathSchema,
+  PhonicsVowelKeySchema,
+  PhonicsWordClipPathSchema,
+} from "./data/phonics";
 
 export * from "./adding-game";
 export * from "./data";
@@ -177,18 +184,27 @@ export type AlchemistGuildProfile = z.infer<typeof AlchemistGuildProfileSchema>;
 export const ALCHEMIST_GUILD_PROFILE_DEFAULT: AlchemistGuildProfile =
   AlchemistGuildProfileSchema.parse({});
 
-export const AlchemistGuildQuestDeliverySchema = z.object({
+// A quest delivery is the per-card delivered count: `{ "material:salt": 1, ... }`.
+// The set of required cards + their counts is DERIVED from the quest at runtime
+// (see `getQuestDeliverables`), not stored, so multi-item quests need no extra
+// state. The `preprocess` heals the pre-multi-item shape
+// (`{ cardId, delivered, required }`) on hydration — Pillar 3, no DB-version bump.
+const LegacyQuestDeliverySchema = z.object({
   cardId: AlchemistGuildCardIdSchema,
-  delivered: z.int().min(0).default(0),
-  required: z.int().min(1),
+  delivered: z.int().min(0),
 });
+
+export const AlchemistGuildQuestDeliverySchema = z.preprocess(
+  (value) => {
+    const legacy = LegacyQuestDeliverySchema.safeParse(value);
+    if (legacy.success) return { [legacy.data.cardId]: legacy.data.delivered };
+    return value;
+  },
+  z.record(AlchemistGuildCardIdSchema, z.int().min(0)).default({}),
+);
 export type AlchemistGuildQuestDelivery = z.infer<typeof AlchemistGuildQuestDeliverySchema>;
 
-export const ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT = {
-  cardId: ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_CARD_ID,
-  delivered: 0,
-  required: 1,
-} satisfies AlchemistGuildQuestDelivery;
+export const ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_DEFAULT: AlchemistGuildQuestDelivery = {};
 
 export const AlchemistGuildQuestDeliveriesSchema = z
   .record(AlchemyQuestIdSchema, AlchemistGuildQuestDeliverySchema)
@@ -212,15 +228,30 @@ export type AlchemistGuildBoardMode = z.infer<typeof AlchemistGuildBoardModeSche
 export const AlchemistGuildGatheringPhaseSchema = z.enum(["solving", "move", "reward"]);
 export type AlchemistGuildGatheringPhase = z.infer<typeof AlchemistGuildGatheringPhaseSchema>;
 
+// The three learning paths ("tracks"). Two are numeric and share the equation
+// shape below (only the operator + factId prefix differ); phonics is audio-match
+// and carries its own prompt shape. The active track's live state keeps today's
+// field layout so the numeric UI is untouched — addition behaves identically.
+export const GATHERING_TRACK_KINDS = ["addition", "subtraction", "phonics"] as const;
+export const AlchemistGuildGatheringTrackKindSchema = z.enum(GATHERING_TRACK_KINDS);
+export type AlchemistGuildGatheringTrackKind = z.infer<
+  typeof AlchemistGuildGatheringTrackKindSchema
+>;
+
+// Numeric fact ids encode their track so addition/subtraction facts never collide:
+// `addition:3+4`, `subtraction:7-3`. Phonics facts are `phonics:<vowel>:<word>`.
+const NUMERIC_GATHERING_FACT_ID_PATTERN = /^(?:addition|subtraction):\d+[+-]\d+$/;
+const GATHERING_FACT_ID_PATTERN = /^(?:addition|subtraction):\d+[+-]\d+$|^phonics:[a-z-]+:[a-z]+$/;
+
 export const AlchemistGuildGatheringEquationSchema = z.object({
   answer: z.int().min(0).max(40).default(9),
   choiceValues: z.array(z.int().min(0).max(40)).length(5).default([11, 8, 10, 12, 9]),
-  factId: z
-    .string()
-    .regex(/^addition:\d+\+\d+$/)
-    .default("addition:4+5"),
+  factId: z.string().regex(NUMERIC_GATHERING_FACT_ID_PATTERN).default("addition:4+5"),
   id: z.string().min(1).default("gathering-equation:1:1"),
   left: z.int().min(0).max(20).default(5),
+  // "+" for addition, "-" for subtraction. Defaulted, so pre-track saves heal to
+  // addition on hydration's re-parse without an IDB data migration.
+  operator: z.enum(["+", "-"]).default("+"),
   right: z.int().min(0).max(20).default(4),
   selectedValue: z.int().min(0).max(40).nullable().default(null),
 });
@@ -228,8 +259,46 @@ export type AlchemistGuildGatheringEquation = z.infer<typeof AlchemistGuildGathe
 export const ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT: AlchemistGuildGatheringEquation =
   AlchemistGuildGatheringEquationSchema.parse({});
 
-// Gathering combat uses a five-element counter wheel. Each enemy and attack card
-// exposes its type so the weakness and exact damage are visible before attacking.
+// Phonics "listen & match" live question. The prompt plays `promptVoiceClipPath`
+// (a vowel sound); the five `choices` are words; exactly one (`correctFactId`)
+// contains that vowel. Each choice carries its own tap-to-hear `voiceClipPath`.
+export const AlchemistGuildGatheringPhonicsChoiceSchema = z.object({
+  factId: PhonicsFactIdSchema,
+  vowelKey: PhonicsVowelKeySchema,
+  voiceClipPath: PhonicsWordClipPathSchema,
+  word: z.string().regex(/^[a-z]+$/),
+});
+export type AlchemistGuildGatheringPhonicsChoice = z.infer<
+  typeof AlchemistGuildGatheringPhonicsChoiceSchema
+>;
+
+export const AlchemistGuildGatheringPhonicsPromptSchema = z
+  .object({
+    choices: z.array(AlchemistGuildGatheringPhonicsChoiceSchema).length(5),
+    correctFactId: PhonicsFactIdSchema,
+    // The teaching-phrase clip, offered only after a couple of wrong guesses. It is
+    // always derived from `targetVowelKey` by the transform below, so it both stays
+    // correct AND heals: a prompt persisted before this field existed re-parses on
+    // hydration without throwing (Pillar 3 — new IDB-reachable fields must default).
+    hintVoiceClipPath: PhonicsVowelHintClipPathSchema.default("phonics-vowels-hint/short-a.mp3"),
+    id: z.string().min(1),
+    // The direct "phonic" clip — just the isolated vowel sound.
+    promptVoiceClipPath: PhonicsVowelClipPathSchema,
+    selectedFactId: PhonicsFactIdSchema.nullable().default(null),
+    targetLabel: z.string().min(1),
+    targetVowelKey: PhonicsVowelKeySchema,
+  })
+  .transform((prompt) => ({
+    ...prompt,
+    hintVoiceClipPath: `phonics-vowels-hint/${prompt.targetVowelKey}.mp3`,
+  }));
+export type AlchemistGuildGatheringPhonicsPrompt = z.infer<
+  typeof AlchemistGuildGatheringPhonicsPromptSchema
+>;
+
+// Gathering combat is a five-element counter wheel. Each enemy carries one type
+// and each attack card carries one type; the board shows the enemy's weakness and
+// the exact damage each available card will deal.
 export const ALCHEMIST_GUILD_GATHERING_ELEMENT_TYPES = [
   "lightning",
   "water",
@@ -259,7 +328,7 @@ export const AlchemistGuildGatheringMonsterSchema = z.object({
   // basename) on hydration's re-parse.
   imagePath: z
     .string()
-    .regex(/^enemies\/[a-z0-9-]+\.(?:webp|png)$/)
+    .regex(/^enemies\/[a-z0-9-]+(?:_L[1-3])?\.(?:webp|png)$/)
     .transform((path) => (path.endsWith(".png") ? path.replace(".png", ".webp") : path))
     .default("enemies/hadal-tide-minnow-echo.webp"),
   maxHp: z.int().min(1).default(10),
@@ -288,7 +357,7 @@ export const AlchemistGuildGatheringSpacedRepetitionFactSchema = z.object({
   currentStreak: z.int().min(0).default(0),
   difficulty: z.number().min(1).max(10).default(5),
   dueAtMs: z.number().min(0).default(0),
-  id: z.string().regex(/^addition:\d+\+\d+$/),
+  id: z.string().regex(GATHERING_FACT_ID_PATTERN),
   lapses: z.int().min(0).default(0),
   lastResult: AlchemistGuildGatheringReviewResultSchema.nullable().default(null),
   lastReviewedAtMs: z.number().min(0).nullable().default(null),
@@ -306,7 +375,7 @@ export type AlchemistGuildGatheringSpacedRepetitionFact = z.infer<
 export const AlchemistGuildGatheringSpacedRepetitionSchema = z.object({
   facts: z
     .record(
-      z.string().regex(/^addition:\d+\+\d+$/),
+      z.string().regex(GATHERING_FACT_ID_PATTERN),
       AlchemistGuildGatheringSpacedRepetitionFactSchema,
     )
     .default({}),
@@ -332,6 +401,43 @@ export type AlchemistGuildGatheringLevelProgress = z.infer<
 export const ALCHEMIST_GUILD_GATHERING_LEVEL_PROGRESS_DEFAULT: AlchemistGuildGatheringLevelProgress =
   AlchemistGuildGatheringLevelProgressSchema.parse({});
 
+// Persistent learning state for ONE track (its spaced-repetition facts + level/boss
+// progress). The currently-selected track lives in the top-level gathering fields;
+// the OTHER tracks park here so switching paths (only allowed after beating a boss)
+// never loses a track's memory. `parkedRound` remembers where a parked track left
+// off so re-selecting it resumes its enemy ladder.
+export const AlchemistGuildGatheringTrackStateSchema = z.object({
+  levelProgress: AlchemistGuildGatheringLevelProgressSchema.default(
+    ALCHEMIST_GUILD_GATHERING_LEVEL_PROGRESS_DEFAULT,
+  ),
+  parkedRound: z.int().min(1).default(1),
+  spacedRepetition: AlchemistGuildGatheringSpacedRepetitionSchema.default(
+    ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
+  ),
+});
+export type AlchemistGuildGatheringTrackState = z.infer<
+  typeof AlchemistGuildGatheringTrackStateSchema
+>;
+export const ALCHEMIST_GUILD_GATHERING_TRACK_STATE_DEFAULT: AlchemistGuildGatheringTrackState =
+  AlchemistGuildGatheringTrackStateSchema.parse({});
+
+export const AlchemistGuildGatheringTrackArchiveSchema = z.object({
+  addition: AlchemistGuildGatheringTrackStateSchema.default(
+    ALCHEMIST_GUILD_GATHERING_TRACK_STATE_DEFAULT,
+  ),
+  phonics: AlchemistGuildGatheringTrackStateSchema.default(
+    ALCHEMIST_GUILD_GATHERING_TRACK_STATE_DEFAULT,
+  ),
+  subtraction: AlchemistGuildGatheringTrackStateSchema.default(
+    ALCHEMIST_GUILD_GATHERING_TRACK_STATE_DEFAULT,
+  ),
+});
+export type AlchemistGuildGatheringTrackArchive = z.infer<
+  typeof AlchemistGuildGatheringTrackArchiveSchema
+>;
+export const ALCHEMIST_GUILD_GATHERING_TRACK_ARCHIVE_DEFAULT: AlchemistGuildGatheringTrackArchive =
+  AlchemistGuildGatheringTrackArchiveSchema.parse({});
+
 export const AlchemistGuildGatheringBossPhaseSchema = z.enum([
   "idle",
   "active",
@@ -349,6 +455,8 @@ export const AlchemistGuildGatheringBossStateSchema = z.object({
     ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT,
   ),
   failedAtMs: z.number().min(0).nullable().default(null),
+  // Set on the phonics track's boss; numeric bosses leave it null and use `equation`.
+  phonicsPrompt: AlchemistGuildGatheringPhonicsPromptSchema.nullable().default(null),
   lastAnswerCorrect: z.boolean().nullable().default(null),
   level: z.int().min(1).max(2).default(1),
   misses: z.int().min(0).max(4).default(0),
@@ -391,6 +499,16 @@ export const AlchemistGuildGatheringStateSchema = z.object({
     ALCHEMIST_GUILD_GATHERING_EQUATION_DEFAULT,
   ),
   equationIndex: z.int().min(1).default(1),
+  // The active learning path's live question. Numeric tracks use `equation`;
+  // the phonics track uses `phonicsPrompt`. Exactly one is "live" at a time,
+  // chosen by `selectedTrack`. `null` (the default) means no path is selected and
+  // the learning-path map is shown — the first thing a new player sees.
+  phonicsPrompt: AlchemistGuildGatheringPhonicsPromptSchema.nullable().default(null),
+  selectedTrack: AlchemistGuildGatheringTrackKindSchema.nullable().default(null),
+  // Parked learning state for the two tracks that are NOT currently selected.
+  trackArchive: AlchemistGuildGatheringTrackArchiveSchema.default(
+    ALCHEMIST_GUILD_GATHERING_TRACK_ARCHIVE_DEFAULT,
+  ),
   gatherLog: z.array(AlchemistGuildGatheringLogEntrySchema).default([]),
   lastAnswerCorrect: z.boolean().nullable().default(null),
   levelProgress: AlchemistGuildGatheringLevelProgressSchema.default(

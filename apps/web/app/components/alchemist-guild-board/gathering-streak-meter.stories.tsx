@@ -60,7 +60,12 @@ export const Celestial: Story = {
   args: { streak: streakState(54, 54) },
 };
 
-const GALLERY_STREAKS = [0, 3, 7, 12, 16, 22, 34, 54];
+export const Divine: Story = {
+  name: "Divine (streak 100+)",
+  args: { streak: streakState(104, 104) },
+};
+
+const GALLERY_STREAKS = [0, 3, 7, 12, 16, 22, 34, 54, 104];
 
 export const Gallery: Story = {
   name: "All tiers",
@@ -74,12 +79,22 @@ export const Gallery: Story = {
   ),
 };
 
-// Interactive: drive real increment/break beats so the tick-up pop and the
-// shatter (with flung shards) actually fire — they key off the reducer-stamped
-// timestamps, which only change on a state transition.
-function StreakPlayground() {
+// Interactive: drive real increment/break beats so the tick-up pop, the shatter
+// (with flung shards), and the "NEW HIGH SCORE" record flash actually fire — they
+// key off the reducer-stamped timestamps and the banked `longest`, which only
+// change on a state transition. Seedable so a story can start on the verge of a
+// record (current === longest) — one Correct click then overtakes the high score.
+function StreakPlayground({
+  initialCurrent = 0,
+  initialLongest = 0,
+}: {
+  initialCurrent?: number;
+  initialLongest?: number;
+}) {
   const clockRef = useRef(1);
-  const [streak, setStreak] = useState<AlchemistGuildGatheringStreak>(streakState(0, 0));
+  const [streak, setStreak] = useState<AlchemistGuildGatheringStreak>(
+    streakState(initialCurrent, Math.max(initialCurrent, initialLongest)),
+  );
 
   const tick = () => {
     clockRef.current += 1;
@@ -129,4 +144,13 @@ function StreakPlayground() {
 export const Playground: Story = {
   args: { streak: streakState(0) },
   render: () => <StreakPlayground />,
+};
+
+// Seeded one tick below a fresh record (current === longest === 12): a single
+// Correct click overtakes the high score, lighting the "NEW HIGH SCORE" banner and
+// climbing the HIGH SCORE readout live with the streak.
+export const NewRecord: Story = {
+  name: "New high score",
+  args: { streak: streakState(12, 12) },
+  render: () => <StreakPlayground initialCurrent={12} initialLongest={12} />,
 };

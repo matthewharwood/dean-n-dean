@@ -432,6 +432,22 @@ export const SOUND_REGISTRY: SoundDefinition[] = z.array(SoundDefinitionSchema).
     volume: 0.8,
   },
   {
+    bus: "ui",
+    detuneCents: 0,
+    ducking: [
+      { attackMs: 8, bus: "music", gain: 0.8, holdMs: 110, releaseMs: 200 },
+      { attackMs: 8, bus: "ambience", gain: 0.88, holdMs: 100, releaseMs: 170 },
+    ],
+    generatorPrompt:
+      "New personal-best high-score chime for a kids' game, a bright rising sparkle of glass bells cresting into a quick shimmering star-twinkle with a tiny 'ta-da' lift, proud and thrilling but light, dry centered mobile game UI, 0.8 second one-shot with a sparkling tail — designed to be pitched up as the record keeps climbing.",
+    id: "gathering.streak.record",
+    interruptFadeMs: 8,
+    maxVoices: 4,
+    replay: "overlap",
+    url: "/sfx/ui/gathering-streak-record.mp3",
+    volume: 0.78,
+  },
+  {
     bus: "sfx",
     detuneCents: 0,
     ducking: [{ attackMs: 12, bus: "music", gain: 0.8, holdMs: 120, releaseMs: 220 }],

@@ -63,7 +63,7 @@ async function seedGatheringStreak(
           req.onerror = () => reject(req.error);
         });
 
-      const open = indexedDB.open("web", 3);
+      const open = indexedDB.open("web", 4);
       const db: IDBDatabase = await new Promise((resolve, reject) => {
         open.onsuccess = () => resolve(open.result);
         open.onerror = () => reject(open.error);
@@ -86,6 +86,9 @@ async function seedGatheringStreak(
         board.completedQuestIds = [...board.completedQuestIds, input.questId];
       }
       board.gathering.unlockSeen = true;
+      // These streak tests exercise live addition play, so the seed picks the
+      // addition path rather than landing on the learning-path map.
+      board.gathering.selectedTrack = "addition";
       board.gathering.phase = input.phase;
       board.gathering.streak = {
         current: input.current,
