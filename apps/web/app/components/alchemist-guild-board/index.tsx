@@ -75,11 +75,13 @@ import {
 import { type Application, Graphics } from "pixi.js";
 import {
   type CSSProperties,
+  type Dispatch,
   type MutableRefObject,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
   type RefObject,
+  type SetStateAction,
   useEffect,
   useId,
   useLayoutEffect,
@@ -207,7 +209,12 @@ import {
   markQuestVoiceAutoPlayed,
   QUEST_AUTO_VOICE_DEBOUNCE_MS,
 } from "./quest-auto-voice";
-import { createQuestBriefingCardProps, QuestBriefingCard } from "./quest-briefing-card";
+import {
+  createQuestBriefingCardProps,
+  getQuestBriefingRecipeFocusIndex,
+  QuestBriefingCard,
+  type QuestBriefingFocusRequest,
+} from "./quest-briefing-card";
 import {
   getQuestCurrentSwipeDirection,
   getQuestCurrentSwipeIntent,
@@ -388,8 +395,34 @@ type GatheringAttackArcOverlayOptions = {
   cardRef: RefObject<HTMLDivElement | null>;
   moveRef: MutableRefObject<GatheringMove | null>;
   reducedMotion: boolean;
-  targetRef: RefObject<HTMLDivElement | null>;
+  targetRef: RefObject<HTMLElement | null>;
 };
+
+type QuestCardFocusTarget = {
+  kind: "delivery" | "recipe";
+  questId: string;
+};
+
+type QuestInventoryFocusAction = {
+  focusRequest: QuestBriefingFocusRequest;
+  questId: string;
+};
+
+type AlchemyBoardStateUpdater = (
+  update: (previous: AlchemistGuildBoardState) => AlchemistGuildBoardState,
+) => void;
+
+const QUEST_DELIVERY_ARC_MOVE = {
+  baseDamage: 0,
+  damage: 0,
+  detail: "Quest delivery",
+  element: "lightning",
+  id: "left-spark",
+  level: 1,
+  name: "Quest Delivery",
+  soundId: "gathering.attack.leftSpark",
+  unlockStreak: 0,
+} satisfies GatheringMove;
 
 type GatheringMonsterDeathAnimation = {
   id: string;
@@ -905,56 +938,209 @@ type QuestCurrentPendingTransition = {
   residualDeltaX: number;
 };
 
+type AlchemyCardKindIconPalette = {
+  fill: string;
+  icon: string;
+  stroke: string;
+};
+
+const ALCHEMY_CARD_KIND_ICON_PALETTES = {
+  crafted: { fill: "#0f766e", icon: "#ccfbf1", stroke: "#134e4a" },
+  element: { fill: "#2563eb", icon: "#e0f2fe", stroke: "#1e3a8a" },
+  emergent: { fill: "#c026d3", icon: "#fae8ff", stroke: "#701a75" },
+  extended: { fill: "#7c3aed", icon: "#ede9fe", stroke: "#4c1d95" },
+  raw: { fill: "#78716c", icon: "#fef3c7", stroke: "#44403c" },
+} satisfies Record<AlchemyBoardCard["kind"], AlchemyCardKindIconPalette>;
+
+const AlchemyCardKindGlyphPropsSchema = z.object({
+  cardKind: z.custom<AlchemyBoardCard["kind"]>(),
+});
+
+const AlchemyCardKindGlyph = defineComponent(AlchemyCardKindGlyphPropsSchema, ({ cardKind }) => {
+  switch (cardKind) {
+    case "crafted":
+      return (
+        <>
+          <path d="M19 11 H29" />
+          <path d="M22 11 V19 L15 33 C14 35 16 37 19 37 H29 C32 37 34 35 33 33 L26 19 V11" />
+          <path d="M18 31 H30" />
+        </>
+      );
+    case "element":
+      return (
+        <>
+          <circle cx="24" cy="24" r="3.4" fill="currentColor" stroke="none" />
+          <ellipse cx="24" cy="24" rx="13" ry="5.5" transform="rotate(-25 24 24)" />
+          <ellipse cx="24" cy="24" rx="13" ry="5.5" transform="rotate(25 24 24)" />
+          <ellipse cx="24" cy="24" rx="5" ry="14" />
+        </>
+      );
+    case "emergent":
+      return (
+        <path
+          d="M24 10 L27 20 L37 24 L27 28 L24 38 L21 28 L11 24 L21 20 Z"
+          fill="currentColor"
+          stroke="currentColor"
+        />
+      );
+    case "extended":
+      return (
+        <>
+          <circle cx="16" cy="24" r="4.5" />
+          <circle cx="31" cy="16" r="4.5" />
+          <circle cx="32" cy="32" r="4.5" />
+          <path d="M20 22 L27 18" />
+          <path d="M20 26 L28 30" />
+        </>
+      );
+    case "raw":
+      return (
+        <>
+          <path d="M14 31 L20 14 L31 11 L36 25 L28 37 L17 35 Z" />
+          <path d="M20 14 L24 35" />
+          <path d="M31 11 L28 37" />
+        </>
+      );
+    default:
+      return null;
+  }
+});
+
+const AlchemyCardKindIconBadgePropsSchema = z.object({
+  cardKind: z.custom<AlchemyBoardCard["kind"]>(),
+  className: z.string(),
+});
+
+const AlchemyCardKindIconBadge = defineComponent(
+  AlchemyCardKindIconBadgePropsSchema,
+  ({ cardKind, className }) => {
+    const palette = ALCHEMY_CARD_KIND_ICON_PALETTES[cardKind];
+    const shapePath = getGatheringMoveCardStatBadgePath("level");
+    const highlightPath = getGatheringMoveCardStatBadgeHighlightPath("level");
+
+    return (
+      <span
+        aria-hidden="true"
+        className={`grid place-items-center ${className}`}
+        data-alchemy-card-kind={cardKind}
+      >
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 size-full drop-shadow-[0_3px_3px_rgba(15,23,42,0.45)]"
+          viewBox="0 0 48 48"
+        >
+          <path d={shapePath} fill="#251b14" />
+          <path d={shapePath} fill={palette.fill} stroke={palette.stroke} strokeWidth="2.8" />
+          <path d={highlightPath} fill="rgba(255,255,255,0.42)" />
+          <path d={shapePath} fill="none" stroke="rgba(255,255,255,0.44)" strokeWidth="1" />
+          <g
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2.8"
+            style={{ color: palette.icon }}
+          >
+            <AlchemyCardKindGlyph cardKind={cardKind} />
+          </g>
+        </svg>
+      </span>
+    );
+  },
+);
+
 const AlchemyCardFacePropsSchema = z.object({
   card: z.custom<AlchemyBoardCard>(),
 });
 
-const AlchemyCardFace = defineComponent(AlchemyCardFacePropsSchema, ({ card }) => (
-  <>
-    <div
-      className="absolute left-1.5 right-1.5 top-1.5 h-2 rounded-full"
-      style={{ backgroundColor: card.familyColor }}
-    />
-    {card.atomicNumber ? (
-      <span className="absolute left-2 top-4 text-[13px] font-bold leading-none text-neutral-950">
-        {card.atomicNumber}
-      </span>
-    ) : (
-      <span className="absolute left-2 top-4 text-[9px] font-black uppercase leading-none text-sky-950/70">
-        {card.kindLabel}
-      </span>
-    )}
-    <span
-      className={`absolute inset-x-0 top-[19px] z-10 truncate px-1 text-center font-bold leading-none text-neutral-950 ${
-        card.kind === "extended" ? "text-[18px]" : "text-[31px]"
-      }`}
-    >
-      {card.symbol}
-    </span>
-    {card.imagePath ? (
-      <img
-        src={getAlchemyCardArtSrc(card)}
-        alt=""
+const AlchemyCardFace = defineComponent(AlchemyCardFacePropsSchema, ({ card }) => {
+  const primaryBadge = getAlchemyCardPrimaryBadge(card);
+  const detailBadge = getAlchemyCardDetailBadge(card);
+
+  return (
+    <span className="absolute inset-0 block overflow-visible rounded-[8px] bg-transparent">
+      <svg
         aria-hidden="true"
-        className="absolute left-1/2 top-[51px] size-[62px] -translate-x-1/2 object-contain"
-        draggable={false}
-      />
-    ) : (
-      <span
-        className="absolute left-1/2 top-[54px] grid size-[58px] -translate-x-1/2 place-items-center rounded-full border border-emerald-900/20 bg-emerald-100/70 px-1 text-center font-mono text-[12px] font-black leading-tight text-emerald-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
-        aria-hidden="true"
+        className="absolute inset-0 size-full"
+        preserveAspectRatio="none"
+        viewBox="0 0 105 148"
       >
-        {card.symbol}
+        <path
+          d="M15 2 H90 C99 2 103 9 103 19 V129 C103 140 97 146 86 146 H19 C8 146 2 140 2 129 V19 C2 9 7 2 15 2Z"
+          fill="#2f241d"
+        />
+        <path
+          d="M17 6 H88 C95 6 99 12 99 20 V126 C99 136 94 142 84 142 H21 C11 142 6 136 6 126 V20 C6 12 10 6 17 6Z"
+          fill={card.familyColor}
+          fillOpacity="0.88"
+          stroke="#5f3b1f"
+          strokeWidth="2"
+        />
+        <path
+          d="M14 94 C25 102 80 102 91 94 V127 C91 134 87 138 80 138 H25 C18 138 14 134 14 127Z"
+          fill="#e3ceb0"
+          stroke="#6b4a2b"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M18 10 H87 C92 10 95 14 95 20 V35 C75 25 30 25 10 35 V20 C10 14 13 10 18 10Z"
+          fill="rgba(255,255,255,0.34)"
+        />
+        <path
+          d="M24 85 H81 L90 94 L81 103 H24 L15 94Z"
+          fill="#7a5130"
+          stroke="#3f2818"
+          strokeWidth="1.4"
+        />
+      </svg>
+      <span
+        aria-hidden="true"
+        className="absolute left-3 top-3 h-[70px] w-[81px] overflow-hidden rounded-t-[42px] rounded-b-[8px] border-2 border-[#3f2818] bg-neutral-950/92 shadow-[inset_0_0_0_2px_rgba(255,255,255,0.13)]"
+      >
+        <span
+          className="absolute inset-0 rounded-t-[40px] rounded-b-[6px] opacity-25"
+          style={{ backgroundColor: card.familyColor }}
+        />
+        {card.imagePath ? (
+          <img
+            src={getAlchemyCardArtSrc(card)}
+            alt=""
+            aria-hidden="true"
+            className="absolute left-1/2 top-1/2 size-[60px] -translate-x-1/2 -translate-y-1/2 object-contain drop-shadow-[0_4px_5px_rgba(0,0,0,0.42)]"
+            draggable={false}
+          />
+        ) : (
+          <span className={getAlchemyCardSymbolClass(card)}>{card.symbol}</span>
+        )}
       </span>
-    )}
-    <span className="absolute inset-x-1 bottom-7 truncate text-center text-[12px] leading-none text-neutral-900">
-      {card.name}
+      <span className="absolute inset-x-[18px] top-[87px] z-10 truncate text-center text-[10px] font-black uppercase leading-none text-white drop-shadow-[0_2px_1px_rgba(0,0,0,0.6)]">
+        {card.name}
+      </span>
+      {primaryBadge ? (
+        <GatheringMoveCardStatBadge
+          className="absolute -left-1 -top-1 z-30 size-10"
+          fill="#d97706"
+          label={primaryBadge.label}
+          stroke="#78350f"
+          value={primaryBadge.value}
+          variant="level"
+        />
+      ) : null}
+      <AlchemyCardKindIconBadge
+        className="absolute -bottom-1.5 -left-1.5 z-30 size-10"
+        cardKind={card.kind}
+      />
+      <GatheringMoveCardStatBadge
+        className="absolute -bottom-1.5 -right-2 z-30 h-11 w-[3.35rem]"
+        fill={getAlchemyCardDetailBadgeFill(card)}
+        label={detailBadge.label}
+        stroke={getAlchemyCardDetailBadgeStroke(card)}
+        value={detailBadge.value}
+        variant="counter"
+      />
     </span>
-    <span className="absolute inset-x-1 bottom-3 text-center text-[10px] leading-none text-neutral-700">
-      {card.detailLabel}
-    </span>
-  </>
-));
+  );
+});
 
 const SlottedAlchemyCardPropsSchema = z.object({
   card: z.custom<AlchemyBoardCard | null>(),
@@ -977,7 +1163,7 @@ const SlottedAlchemyCard = defineComponent(
         data-card-id={card.id}
         className={getCardShellClass(feedback, "slotted")}
         style={{
-          contain: "layout style paint",
+          contain: "layout style",
           fontFamily: "var(--font-sans)",
         }}
         aria-label={`Pick up ${card.name} from ${slotName}`}
@@ -1342,7 +1528,7 @@ const GatheringBossRewardPanel = defineComponent(
                 key={card.id}
                 data-board-section="gathering-boss-reward-card"
                 data-card-id={card.id}
-                className="gathering-boss-reward-card relative aspect-[5/7] overflow-hidden rounded-[6px] border-2 border-emerald-800/45 bg-[#eeeeee] text-left shadow-[0_10px_18px_rgba(15,23,42,0.16)]"
+                className="gathering-boss-reward-card relative aspect-[5/7] overflow-visible rounded-[6px] border-2 border-emerald-800/45 bg-[#eeeeee] text-left shadow-[0_10px_18px_rgba(15,23,42,0.16)]"
                 style={{ animationDelay: `${index * 80}ms` }}
               >
                 <AlchemyCardFace card={card} />
@@ -1992,7 +2178,7 @@ const GatheringPhonicsMovePanel = defineComponent(
 const GatheringAttackArcCanvasPropsSchema = z.object({
   cardRef: z.custom<RefObject<HTMLDivElement | null>>(),
   move: z.custom<GatheringMove>(),
-  targetRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  targetRef: z.custom<RefObject<HTMLElement | null>>(),
 });
 
 const GatheringAttackArcCanvas = defineComponent(
@@ -2027,6 +2213,18 @@ const GatheringAttackArcCanvas = defineComponent(
       />
     );
   },
+);
+
+const QuestDeliveryArcCanvasPropsSchema = z.object({
+  cardRef: z.custom<RefObject<HTMLDivElement | null>>(),
+  move: z.custom<GatheringMove | null>(),
+  targetRef: z.custom<RefObject<HTMLElement | null>>(),
+});
+
+const QuestDeliveryArcCanvas = defineComponent(
+  QuestDeliveryArcCanvasPropsSchema,
+  ({ cardRef, move, targetRef }) =>
+    move ? <GatheringAttackArcCanvas cardRef={cardRef} move={move} targetRef={targetRef} /> : null,
 );
 
 const GatheringMonsterDeathCanvasPropsSchema = z.object({
@@ -2089,10 +2287,6 @@ const GatheringRewardCardFace = defineComponent(
   GatheringRewardCardFacePropsSchema,
   ({ card, optionIndex, selected, streakBonus, streakRarityLabel }) => {
     const totalQuantity = streakBonus + 1;
-    const typeBadgeLabel = card.atomicNumber ? "No" : "Kind";
-    const typeBadgeValue = card.atomicNumber
-      ? String(card.atomicNumber)
-      : card.kindLabel.slice(0, 3);
     let bonusFill = "#a8a29e";
     if (streakBonus > 1) {
       bonusFill = "#10b981";
@@ -2164,10 +2358,6 @@ const GatheringRewardCardFace = defineComponent(
         <span className="absolute inset-x-[18px] top-[87px] z-10 truncate text-center text-[10px] font-black uppercase leading-none text-white drop-shadow-[0_2px_1px_rgba(0,0,0,0.6)]">
           {card.name}
         </span>
-        <span className="absolute inset-x-[15px] bottom-[22px] z-10 grid gap-0.5 text-center text-[9px] font-black uppercase leading-tight text-[#3c2819]">
-          <span className="truncate">{card.kindLabel}</span>
-          <span className="truncate">{card.detailLabel}</span>
-        </span>
         <GatheringMoveCardStatBadge
           className="absolute -left-1 -top-1 z-30 size-10"
           fill="#d97706"
@@ -2190,13 +2380,9 @@ const GatheringRewardCardFace = defineComponent(
             variant="level"
           />
         )}
-        <GatheringMoveCardStatBadge
+        <AlchemyCardKindIconBadge
           className="absolute -bottom-1.5 -left-1.5 z-30 size-10"
-          fill="#475569"
-          label={typeBadgeLabel}
-          stroke="#1e293b"
-          value={typeBadgeValue}
-          variant="level"
+          cardKind={card.kind}
         />
         <GatheringMoveCardStatBadge
           className="absolute -bottom-1.5 -right-2 z-30 h-11 w-[3.35rem]"
@@ -3058,7 +3244,9 @@ const QuestDeliveryPagerPropsSchema = z.object({
   canClaim: z.boolean(),
   claimProgress: z.number().min(0).max(1),
   complete: z.boolean(),
+  deliveryDropTargetRef: z.custom<RefObject<HTMLElement | null>>(),
   dropFeedback: z.custom<DropFeedback>(),
+  focusRequest: z.custom<QuestBriefingFocusRequest | null>(),
   isClaimDragging: z.boolean(),
   items: z.array(QuestDeliveryItemSchema).min(1),
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
@@ -3076,7 +3264,9 @@ const QuestDeliveryPager = defineComponent(
     canClaim,
     claimProgress,
     complete,
+    deliveryDropTargetRef,
     dropFeedback,
+    focusRequest,
     isClaimDragging,
     items,
     onClaimPointerDown,
@@ -3086,6 +3276,13 @@ const QuestDeliveryPager = defineComponent(
     const [activePage, setActivePage] = useState(0);
     const pageCount = items.length;
     const safePage = activePage < pageCount ? activePage : pageCount - 1;
+
+    useBrowserLayoutEffect(() => {
+      if (!focusRequest) return;
+      const targetIndex = items.findIndex((item) => item.card.id === focusRequest.cardId);
+      if (targetIndex >= 0) setActivePage(targetIndex);
+    }, [focusRequest?.requestId]);
+
     const activeItem = items[safePage] ?? items[0];
     if (!activeItem) return null;
 
@@ -3098,6 +3295,7 @@ const QuestDeliveryPager = defineComponent(
     return (
       <div className="grid gap-2" data-board-section="quest-delivery-pager" data-quest-id={questId}>
         <section
+          ref={deliveryDropTargetRef}
           key={activeItem.card.id}
           data-board-section="quest-delivery-drop-zone"
           data-board-name={`${activeItem.card.name} quest delivery`}
@@ -3218,10 +3416,12 @@ const QuestPanelPropsSchema = z.object({
   canClaim: z.boolean(),
   claimedQuestIds: z.array(z.string().min(1)),
   claimProgress: z.number().min(0).max(1),
+  deliveryDropTargetRef: z.custom<RefObject<HTMLElement | null>>(),
   deliveryComplete: z.boolean(),
   deliveryDropFeedback: z.custom<DropFeedback>(),
   deliveryItems: z.array(QuestDeliveryItemSchema),
   developerNotesVisible: z.boolean(),
+  focusRequest: z.custom<QuestBriefingFocusRequest | null>(),
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
@@ -3248,10 +3448,12 @@ const QuestPanel = defineComponent(
     canClaim,
     claimedQuestIds,
     claimProgress,
+    deliveryDropTargetRef,
     deliveryComplete,
     deliveryDropFeedback,
     deliveryItems,
     developerNotesVisible,
+    focusRequest,
     hasQuestNotifications,
     isClaimDragging,
     onClaimPointerDown,
@@ -3283,7 +3485,9 @@ const QuestPanel = defineComponent(
           canClaim={canClaim}
           claimProgress={claimProgress}
           complete={deliveryComplete}
+          deliveryDropTargetRef={deliveryDropTargetRef}
           dropFeedback={deliveryDropFeedback}
+          focusRequest={focusRequest}
           isClaimDragging={isClaimDragging}
           items={deliveryItems}
           onClaimPointerDown={onClaimPointerDown}
@@ -3319,6 +3523,7 @@ const QuestPanel = defineComponent(
                 <QuestCurrentCarousel
                   claimedQuestIds={claimedQuestIds}
                   developerNotesVisible={developerNotesVisible}
+                  focusRequest={focusRequest}
                   selectedQuestId={selectedQuestId}
                   unlockedQuestIds={unlockedQuestIds}
                   onQuestSelect={onQuestSelect}
@@ -4126,6 +4331,7 @@ function formatExpeditionTargetSource(source: ExpeditionTargetOption["source"]):
 const QuestCurrentCarouselPropsSchema = z.object({
   claimedQuestIds: z.array(z.string().min(1)),
   developerNotesVisible: z.boolean(),
+  focusRequest: z.custom<QuestBriefingFocusRequest | null>(),
   onQuestSelect: z.custom<(questId: string) => void>(),
   selectedQuestId: z.string().min(1),
   unlockedQuestIds: z.array(z.string().min(1)),
@@ -4136,6 +4342,7 @@ const QuestCurrentCarousel = defineComponent(
   ({
     claimedQuestIds,
     developerNotesVisible,
+    focusRequest,
     onQuestSelect,
     selectedQuestId,
     unlockedQuestIds,
@@ -4462,6 +4669,7 @@ const QuestCurrentCarousel = defineComponent(
                     {...cardProps}
                     completed={claimedQuestIdSet.has(quest.id)}
                     developerNotesVisible={developerNotesVisible}
+                    focusRequest={offset === 0 ? focusRequest : null}
                     {...(offset === 0 ? { onCarouselEdgeSwipe: animateToQuestDirection } : {})}
                     redacted={!isUnlocked}
                   />
@@ -6478,9 +6686,11 @@ const LeftModePanelPropsSchema = z.object({
   claimedQuestIds: z.array(z.string().min(1)),
   claimProgress: z.number().min(0).max(1),
   deliveryComplete: z.boolean(),
+  deliveryDropTargetRef: z.custom<RefObject<HTMLElement | null>>(),
   deliveryDropFeedback: z.custom<DropFeedback>(),
   deliveryItems: z.array(QuestDeliveryItemSchema),
   developerNotesVisible: z.boolean(),
+  focusRequest: z.custom<QuestBriefingFocusRequest | null>(),
   gathering: z.custom<AlchemistGuildGatheringState>(),
   gatheringDropTarget: z.custom<GatheringDropTarget>(),
   hasQuestNotifications: z.boolean(),
@@ -6512,9 +6722,11 @@ const LeftModePanel = defineComponent(
     claimedQuestIds,
     claimProgress,
     deliveryComplete,
+    deliveryDropTargetRef,
     deliveryDropFeedback,
     deliveryItems,
     developerNotesVisible,
+    focusRequest,
     gathering,
     gatheringDropTarget,
     hasQuestNotifications,
@@ -6568,9 +6780,11 @@ const LeftModePanel = defineComponent(
           claimedQuestIds={claimedQuestIds}
           claimProgress={claimProgress}
           deliveryComplete={deliveryComplete}
+          deliveryDropTargetRef={deliveryDropTargetRef}
           deliveryDropFeedback={deliveryDropFeedback}
           deliveryItems={deliveryItems}
           developerNotesVisible={developerNotesVisible}
+          focusRequest={focusRequest}
           hasQuestNotifications={hasQuestNotifications}
           isClaimDragging={isClaimDragging}
           onClaimPointerDown={onClaimPointerDown}
@@ -7728,6 +7942,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const gatheringInfoPanelRef = useRef<HTMLDivElement>(null);
   const draggedCardElementRef = useRef<HTMLDivElement>(null);
   const draggedGatheringCardElementRef = useRef<HTMLDivElement>(null);
+  const questDeliveryDropTargetRef = useRef<HTMLElement>(null);
   const swapAnimationElementRef = useRef<HTMLDivElement>(null);
   const transmuteFlyAnimationElementRef = useRef<HTMLDivElement>(null);
   const transmutePadTrackRef = useRef<HTMLDivElement>(null);
@@ -7746,6 +7961,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const gatheringNudgePlayedKeyRef = useRef<string | null>(null);
   const notifiedCooldownIdsRef = useRef<Set<string> | null>(null);
   const dragSequenceRef = useRef(0);
+  const questFocusRequestSequenceRef = useRef(0);
   const gatheringDragSequenceRef = useRef(0);
   const swapAnimationSequenceRef = useRef(0);
   const transmuteFlyAnimationSequenceRef = useRef(0);
@@ -7800,6 +8016,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(initialIntroZeroState);
   const [questPanelCollapsed, setQuestPanelCollapsed] = useState(initialIntroZeroState);
   const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
+  const [questFocusRequest, setQuestFocusRequest] = useState<QuestBriefingFocusRequest | null>(
+    null,
+  );
   const [periodicTableRevealElementIds, setPeriodicTableRevealElementIds] = useState<string[]>([]);
   const [pendingRecipeNotificationIds, setPendingRecipeNotificationIds] = useState<string[]>([]);
   const [pendingExtendedRecipeNotificationIds, setPendingExtendedRecipeNotificationIds] = useState<
@@ -8339,6 +8558,22 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("card.slot.pickup");
   };
 
+  const focusQuestForInventoryCard = (card: AlchemyBoardCard) => {
+    questFocusRequestSequenceRef.current += 1;
+    applyQuestInventoryFocusAction(
+      createQuestInventoryFocusAction(
+        card,
+        boardStateRef.current,
+        activeBoardMode,
+        questFocusRequestSequenceRef.current,
+      ),
+      setQuestFocusRequest,
+      setQuestPanelCollapsed,
+      setQuestPanelTab,
+      setBoardState,
+    );
+  };
+
   const beginInventoryCardDrag = (
     slotId: AlchemistGuildInventorySlotId,
     card: AlchemyBoardCard,
@@ -8364,6 +8599,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     dropIntentRef.current = EMPTY_DROP_INTENT;
     setDropIntent(EMPTY_DROP_INTENT);
+    focusQuestForInventoryCard(card);
     setDraggedCard(nextDraggedCard);
     void sfx.play("card.slot.pickup");
   };
@@ -10348,6 +10584,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         );
       }
 
+      if (releaseDropIntent.kind === "quest" && releaseDropIntent.accepted) {
+        return getCenteredCardRect(
+          getQuestDropTargetRect(),
+          FLOATING_ELEMENT_CARD_WIDTH,
+          FLOATING_ELEMENT_CARD_HEIGHT,
+        );
+      }
+
       return null;
     };
 
@@ -10790,6 +11034,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
   const draggedGatheringMove =
     draggedGatheringCard?.kind === "move" ? draggedGatheringCard.move : null;
+  const questDeliveryArcMove = getQuestDeliveryArcMove(draggedCard, boardState, isGatheringMode);
 
   // The center board panel by mode (upgrades shop / expedition canvas / the
   // default crafting+gathering section). Computed here so the JSX stays a flat
@@ -10846,6 +11091,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           targetRef={rightPrimaryPanelRef}
         />
       ) : null}
+      <QuestDeliveryArcCanvas
+        cardRef={draggedCardElementRef}
+        move={questDeliveryArcMove}
+        targetRef={questDeliveryDropTargetRef}
+      />
       <div className={getBoardChromeClass()}>
         <section
           data-board-section="top-inventory-panel"
@@ -10936,9 +11186,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                   claimedQuestIds={boardState.completedQuestIds}
                   claimProgress={selectedQuestClaimSwipeState.progress}
                   deliveryComplete={selectedQuestDeliveryComplete}
+                  deliveryDropTargetRef={questDeliveryDropTargetRef}
                   deliveryDropFeedback={getQuestDeliveryDropFeedback(dropIntent)}
                   deliveryItems={selectedQuestUnlocked ? selectedQuestDeliveryItems : []}
                   developerNotesVisible={showBoardDebugBadges}
+                  focusRequest={questFocusRequest}
                   gathering={boardState.gathering}
                   gatheringDropTarget={gatheringDropTarget}
                   hasQuestNotifications={pendingQuestNotificationIds.length > 0}
@@ -11095,7 +11347,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             }
             className={getCardShellClass(getFloatingCardFeedback(dropIntent), "floating")}
             style={{
-              contain: "layout style paint",
+              contain: "layout style",
               fontFamily: "var(--font-sans)",
               height: `${FLOATING_ELEMENT_CARD_HEIGHT}px`,
               touchAction: "none",
@@ -11145,7 +11397,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           data-swap-to-slot={swapAnimation.toSlotId}
           className={getSwapAnimationCardClass()}
           style={{
-            contain: "layout style paint",
+            contain: "layout style",
             fontFamily: "var(--font-sans)",
             height: `${swapAnimation.fromRect.height}px`,
             left: `${swapAnimation.fromRect.left}px`,
@@ -11163,9 +11415,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           data-board-name={`${transmuteFlyAnimation.card.name} flight card`}
           data-card-id={transmuteFlyAnimation.card.id}
           data-stack-count={transmuteFlyAnimation.stackCount}
-          className="pointer-events-none fixed z-[70] overflow-hidden rounded-[3px] border-2 border-emerald-500 bg-emerald-50 shadow-[0_18px_32px_rgba(0,0,0,0.28)]"
+          className="pointer-events-none fixed z-[70] overflow-visible rounded-[3px] border-2 border-emerald-500 bg-emerald-50 shadow-[0_18px_32px_rgba(0,0,0,0.28)]"
           style={{
-            contain: "layout style paint",
+            contain: "layout style",
             fontFamily: "var(--font-sans)",
             height: `${transmuteFlyAnimation.fromRect.height}px`,
             left: `${transmuteFlyAnimation.fromRect.left}px`,
@@ -11826,6 +12078,63 @@ function getAlchemyCardSellPrice(card: AlchemyBoardCard): number {
   if (card.kind === "extended") return 18 + Math.min(24, card.symbol.length * 2);
   if (card.kind === "raw") return 6 + Math.min(10, card.name.length);
   return 10 + Math.min(18, card.name.length);
+}
+
+function getAlchemyCardPrimaryBadge(
+  card: AlchemyBoardCard,
+): { label: string; value: string } | null {
+  if (card.atomicNumber !== undefined) return { label: "No", value: String(card.atomicNumber) };
+  return null;
+}
+
+function getAlchemyCardDetailBadge(card: AlchemyBoardCard): { label: string; value: string } {
+  if (card.atomicNumber) {
+    return { label: "Mass", value: formatAlchemyCardBadgeValue(card.detailLabel) };
+  }
+  if (card.detailLabel.toLowerCase().startsWith("cid")) return { label: "CID", value: "Item" };
+
+  return { label: "Info", value: formatAlchemyCardBadgeValue(card.detailLabel) };
+}
+
+function getAlchemyCardDetailBadgeFill(card: AlchemyBoardCard): string {
+  switch (card.kind) {
+    case "crafted":
+      return "#0f766e";
+    case "emergent":
+      return "#a21caf";
+    case "extended":
+      return "#2563eb";
+    case "raw":
+      return "#78716c";
+    default:
+      return "#10b981";
+  }
+}
+
+function getAlchemyCardDetailBadgeStroke(card: AlchemyBoardCard): string {
+  switch (card.kind) {
+    case "crafted":
+      return "#134e4a";
+    case "emergent":
+      return "#701a75";
+    case "extended":
+      return "#1e3a8a";
+    case "raw":
+      return "#44403c";
+    default:
+      return "#065f46";
+  }
+}
+
+function getAlchemyCardSymbolClass(card: AlchemyBoardCard): string {
+  const textSizeClass = card.symbol.length > 4 ? "text-[16px]" : "text-[30px]";
+  return `absolute inset-x-2 top-1/2 -translate-y-1/2 truncate text-center font-mono ${textSizeClass} font-black leading-none text-white drop-shadow-[0_3px_4px_rgba(0,0,0,0.42)]`;
+}
+
+function formatAlchemyCardBadgeValue(value: string): string {
+  const normalizedValue = value.replaceAll(" ", "").toUpperCase();
+  if (normalizedValue.length <= 4) return normalizedValue;
+  return normalizedValue.slice(0, 4);
 }
 
 function getQuestInventoryMarker(
@@ -12560,8 +12869,8 @@ function isCardCenterInsideRect(cardLeft: number, cardTop: number, rect: SlotRec
 
 function getQuestDropTargetRect(): SlotRect | null {
   return (
-    getElementRect('[data-board-section="left-briefing-panel"]') ??
-    getElementRect('[data-board-section="quest-delivery-drop-zone"]')
+    getElementRect('[data-board-section="quest-delivery-drop-zone"]') ??
+    getElementRect('[data-board-section="left-briefing-panel"]')
   );
 }
 
@@ -12579,6 +12888,87 @@ function isQuestDeliveryAccepted(
     quest,
     getQuestDelivery(boardState.questDeliveries, quest.id),
     card.id,
+  );
+}
+
+function getQuestDeliveryArcMove(
+  draggedCard: DraggedAlchemyCard | null,
+  boardState: AlchemistGuildBoardState,
+  isGatheringMode: boolean,
+): GatheringMove | null {
+  if (isGatheringMode || draggedCard?.source.kind !== "inventory") return null;
+  return isQuestDeliveryAccepted(draggedCard.card, boardState) ? QUEST_DELIVERY_ARC_MOVE : null;
+}
+
+function getQuestCardFocusTarget(
+  card: AlchemyBoardCard,
+  boardState: AlchemistGuildBoardState,
+): QuestCardFocusTarget | null {
+  const quests = getFocusableAlchemyQuests(boardState);
+  const selectedQuest = quests.find((quest) => quest.id === boardState.selectedQuestId) ?? null;
+  const orderedQuests = selectedQuest
+    ? [selectedQuest, ...quests.filter((quest) => quest.id !== selectedQuest.id)]
+    : quests;
+
+  const deliveryQuest = orderedQuests.find((quest) =>
+    canDeliverCardToQuest(quest, getQuestDelivery(boardState.questDeliveries, quest.id), card.id),
+  );
+  if (deliveryQuest) return { kind: "delivery", questId: deliveryQuest.id };
+
+  const recipeQuest = orderedQuests.find(
+    (quest) => getQuestBriefingRecipeFocusIndex(quest, card.id) !== null,
+  );
+  if (recipeQuest) return { kind: "recipe", questId: recipeQuest.id };
+
+  return null;
+}
+
+function createQuestInventoryFocusAction(
+  card: AlchemyBoardCard,
+  boardState: AlchemistGuildBoardState,
+  activeBoardMode: BoardModeTab,
+  requestId: number,
+): QuestInventoryFocusAction | null {
+  if (activeBoardMode !== "crafting") return null;
+
+  const focusTarget = getQuestCardFocusTarget(card, boardState);
+  if (!focusTarget) return null;
+
+  return {
+    focusRequest: { cardId: card.id, requestId },
+    questId: focusTarget.questId,
+  };
+}
+
+function applyQuestInventoryFocusAction(
+  action: QuestInventoryFocusAction | null,
+  setQuestFocusRequest: Dispatch<SetStateAction<QuestBriefingFocusRequest | null>>,
+  setQuestPanelCollapsed: Dispatch<SetStateAction<boolean>>,
+  setQuestPanelTab: Dispatch<SetStateAction<QuestPanelTab>>,
+  setBoardState: AlchemyBoardStateUpdater,
+): void {
+  if (!action) return;
+
+  setQuestFocusRequest(action.focusRequest);
+  setQuestPanelCollapsed(false);
+  setQuestPanelTab("current");
+  setBoardState((previous) => selectAlchemyQuest(previous, action.questId));
+}
+
+function selectAlchemyQuest(
+  boardState: AlchemistGuildBoardState,
+  questId: string,
+): AlchemistGuildBoardState {
+  return boardState.selectedQuestId === questId
+    ? boardState
+    : { ...boardState, selectedQuestId: questId };
+}
+
+function getFocusableAlchemyQuests(boardState: AlchemistGuildBoardState): StaticAlchemyQuest[] {
+  return ALCHEMY_QUESTS.filter(
+    (quest) =>
+      isQuestUnlocked(quest.id, boardState.completedQuestIds) &&
+      !boardState.completedQuestIds.includes(quest.id),
   );
 }
 
@@ -13073,8 +13463,8 @@ function getExtendedLedgerFilterSlotClass(feedback: DropFeedback): string {
 function getCardShellClass(feedback: DropFeedback, placement: "floating" | "slotted"): string {
   const base =
     placement === "floating"
-      ? "absolute left-0 top-0 select-none overflow-hidden rounded-[3px] border-2 bg-[#eeeeee] shadow-[0_14px_28px_rgba(0,0,0,0.26)] transition-[border-color,box-shadow] duration-100"
-      : "absolute inset-0 z-10 cursor-grab touch-none select-none overflow-hidden rounded-[3px] border-2 p-0 text-left transition-[background-color,border-color,box-shadow,opacity] duration-100 active:cursor-grabbing";
+      ? "absolute left-0 top-0 select-none overflow-visible rounded-[3px] border-2 bg-[#eeeeee] shadow-[0_14px_28px_rgba(0,0,0,0.26)] transition-[border-color,box-shadow] duration-100"
+      : "absolute inset-0 z-10 cursor-grab touch-none select-none overflow-visible rounded-[3px] border-2 p-0 text-left transition-[background-color,border-color,box-shadow,opacity] duration-100 active:cursor-grabbing";
 
   switch (feedback) {
     case "drop":
@@ -13620,7 +14010,7 @@ function getCubicBezierPoint(
 
 function getDropGhostClass(feedback: DropFeedback): string {
   const base =
-    "pointer-events-none absolute inset-1 z-20 overflow-hidden rounded-[3px] border-2 border-dashed bg-[#eeeeee] opacity-35 shadow-[0_10px_24px_rgba(0,0,0,0.18)]";
+    "pointer-events-none absolute inset-1 z-20 overflow-visible rounded-[3px] border-2 border-dashed bg-[#eeeeee] opacity-35 shadow-[0_10px_24px_rgba(0,0,0,0.18)]";
 
   switch (feedback) {
     case "swap":
@@ -13633,7 +14023,7 @@ function getDropGhostClass(feedback: DropFeedback): string {
 }
 
 function getSwapAnimationCardClass(): string {
-  return "pointer-events-none fixed z-[60] overflow-hidden rounded-[3px] border-2 border-amber-500 bg-amber-50 shadow-[0_18px_32px_rgba(0,0,0,0.28)]";
+  return "pointer-events-none fixed z-[60] overflow-visible rounded-[3px] border-2 border-amber-500 bg-amber-50 shadow-[0_18px_32px_rgba(0,0,0,0.28)]";
 }
 
 function createCardSymbol(name: string): string {

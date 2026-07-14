@@ -6,6 +6,7 @@ import {
   createQuestBriefingCardProps,
   FIRST_QUEST_BRIEFING_CARD_PROPS,
   getQuestBriefingInitialSlideIndex,
+  getQuestBriefingRecipeFocusIndex,
   getQuestCarouselEdgeSwipeDirection,
   getQuestCarouselSwipeDirection,
   getQuestCarouselSwipeIntent,
@@ -33,6 +34,7 @@ describe("QuestBriefingCard data projection", () => {
         { cardId: "element:o", name: "Oxygen", quantity: 1, symbol: "O" },
       ],
       name: "Water",
+      outputCardId: "material:water",
     });
     expect(cardProps.hint).toContain("Water is H2O");
     expect(cardProps.rewards).toEqual([
@@ -91,6 +93,15 @@ describe("QuestBriefingCard data projection", () => {
       "Na + C + 3O",
       "Ca + C + 3O",
     ]);
+  });
+
+  test("finds the recipe page that should focus for a dragged quest card", () => {
+    const quest = getAlchemyQuestById("quest:first-water");
+    if (!quest) throw new Error("Missing first water quest");
+
+    expect(getQuestBriefingRecipeFocusIndex(quest, "material:water")).toBe(0);
+    expect(getQuestBriefingRecipeFocusIndex(quest, "element:h")).toBe(0);
+    expect(getQuestBriefingRecipeFocusIndex(quest, "raw:herbs")).toBeNull();
   });
 });
 
