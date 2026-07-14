@@ -1,6 +1,6 @@
 ---
 name: playwright-conventions
-description: "The shared conventions every Playwright spec in dean-stack obeys — the load-bearing ASK-FIRST rule (Pillar 4), selector strategy (`getByRole` > `getByTestId` > `getByText`), fixture patterns (fresh IDB, seeded IDB, offline, throttled), reduced-motion forced on, and the `playwright.config.ts` shape. Triggers on: playwright fixture, playwright selector, role selector, getByRole, test-id, fresh idb fixture, reduced motion playwright, ask first test."
+description: "The shared conventions every Playwright spec in dean-stack obeys — the load-bearing ASK-FIRST rule (Pillar 4), role-first selector strategy, fixture patterns (fresh IDB, seeded IDB, offline, throttled), reduced-motion forced on, and the `playwright.config.ts` shape. Triggers on: playwright fixture, playwright selector, role selector, getByRole, test-id, fresh idb fixture, reduced motion playwright, ask first test."
 license: MIT
 ---
 

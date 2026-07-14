@@ -8,7 +8,7 @@
 //   bun run scripts/fetch-phonics-audio.ts --vowels   # only the 18 vowel-sound clips
 //
 // Reads `ELEVENLABS_API_KEY` from the environment — Bun auto-loads it from the
-// gitignored `.env.local` (see CLAUDE.md "API keys & local secrets"). Voice/model
+// gitignored `.env.local` (see AGENTS.md "API keys & local secrets"). Voice/model
 // are overridable via `ELEVENLABS_VOICE_ID` / `ELEVENLABS_MODEL_ID`.
 //
 // Voice default: Matilda (American, informative/educational) — US accent matters
@@ -25,7 +25,7 @@ const PUBLIC_DIR = join(REPO_ROOT, "apps/web/public");
 const API_KEY = process.env.ELEVENLABS_API_KEY;
 if (!API_KEY) {
   throw new Error(
-    "ELEVENLABS_API_KEY is not set. Put it in .env.local (see CLAUDE.md 'API keys & local secrets').",
+    "ELEVENLABS_API_KEY is not set. Put it in .env.local (see AGENTS.md 'API keys & local secrets').",
   );
 }
 

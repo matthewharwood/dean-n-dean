@@ -13,7 +13,7 @@ type RollupOnWarn = NonNullable<RollupOptions["onwarn"]>;
 // prerender pass, so `dist/client/sw.js` is never written and the
 // `virtual_pwa-register-*.js` shim hardcodes `/sw.js` (root-relative) instead
 // of the deploy base path. Re-enable when offline-deep-link actually matters
-// (CLAUDE.md milestone 7) and the upstream integration is fixed; until then,
+// (AGENTS.md milestone 7) and the upstream integration is fixed; until then,
 // `playwright-pwa-offline` tests stay `test.skip`'d and there is no service
 // worker on prod.
 

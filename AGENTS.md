@@ -297,6 +297,16 @@ No milestone starts until the prior one ships green CI.
 
 ## Working agreements
 
+### API keys & local secrets
+
+Keep tooling credentials such as `ELEVENLABS_API_KEY`, `TRIPO3D_API_KEY`, and
+`LINEAR_API_KEY` in the gitignored `.env.local` or the process environment.
+Never put them in `.codex/config.toml`, committed Markdown, a `VITE_*` variable,
+source code, logs, or generated assets. Repository-local Codex configuration may
+reference environment variable names, but must not contain credential values.
+
+### Code and workflow rules
+
 - **No code before its Storybook story.**
 - **Ask before writing any Playwright test.** Every time. Surface the structural choices (story-level vs app-level, selectors, IDB seeding, network state, what to assert) and wait for the user's answer. `bun test` unit tests do not require this prompt.
 - **No state outside IDB**, except plainly ephemeral UI state.

@@ -1,6 +1,6 @@
 ---
 name: playwright-story-tests
-description: "Playwright tests pointed at Storybook story URLs in dean-stack — mount `iframe.html?id=<storyId>` for clean in-iframe rendering, exercise the play function, and assert on visible state, ARIA, or real IDB contents. Triggers on: story test, playwright story, storybook url test, story-level test, mount story."
+description: "Playwright tests pointed at Storybook story URLs in dean-stack — mount a story ID through `iframe.html` for clean in-iframe rendering, exercise the play function, and assert on visible state, ARIA, or real IDB contents. Triggers on: story test, playwright story, storybook url test, story-level test, mount story."
 license: MIT
 ---
 

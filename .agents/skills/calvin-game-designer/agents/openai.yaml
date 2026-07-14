@@ -1,0 +1,4 @@
+interface:
+  display_name: "Calvin Game Designer"
+  short_description: "Design child-friendly dean-stack game systems"
+  default_prompt: "Use $calvin-game-designer to analyze this game mechanic and propose the smallest Storybook-first experiment."

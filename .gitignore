@@ -17,6 +17,7 @@ tmp/*
 .stylelintcache
 playwright/.cache/
 .symphony/
+.codex/config.toml
 
 # Test outputs
 playwright-report/

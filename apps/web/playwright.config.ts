@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const isCI = !!process.env.CI;
 
-// `bun run check:fast` only runs `--project=storybook` (see CLAUDE.md "CLI-
+// `bun run check:fast` only runs `--project=storybook` (see AGENTS.md "CLI-
 // gate-first" section — the app/app-offline projects need a fresh build to
 // be meaningful, so they're CI-only). The preview webServer below would
 // otherwise still launch and crash trying to import `dist/server/server.js`,
