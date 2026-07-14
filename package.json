@@ -12,8 +12,8 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "APP_FILTER=$(bun scripts/resolve-app-filter.ts) && bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=$APP_FILTER && turbo run test:e2e --filter=$APP_FILTER && npx -y react-doctor@latest . --scope changed --base main && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
-    "check:fast": "APP_FILTER=$(bun scripts/resolve-app-filter.ts) && bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=$APP_FILTER && turbo run test:e2e:fast --filter=$APP_FILTER && npx -y react-doctor@latest . --scope changed --base main && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
+    "check": "APP_FILTER=$(bun scripts/resolve-app-filter.ts) && bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=$APP_FILTER && turbo run test:e2e --filter=$APP_FILTER && npx -y react-doctor@latest . --scope changed --base ${REACT_DOCTOR_BASE:-main} && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
+    "check:fast": "APP_FILTER=$(bun scripts/resolve-app-filter.ts) && bash scripts/check-lockfile.sh && bash scripts/check-template.sh && biome ci && stylelint --allow-empty-input --max-warnings 0 \"**/*.css\" && turbo run typecheck check:sonar test:unit --filter=$APP_FILTER && turbo run test:e2e:fast --filter=$APP_FILTER && npx -y react-doctor@latest . --scope changed --base ${REACT_DOCTOR_BASE:-main} && RUST_LOG=error npx -y fallow@latest dead-code --fail-on-issues",
     "build": "turbo run build",
     "convert:avatars": "bun run scripts/convert-generated-avatars.ts",
     "scaffold:phonics-audio": "bun run scripts/scaffold-phonics-audio.ts",
