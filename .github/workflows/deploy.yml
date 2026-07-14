@@ -36,6 +36,8 @@ jobs:
       VITE_TWITTER_HANDLE: ${{ vars.VITE_TWITTER_HANDLE }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
@@ -52,6 +54,8 @@ jobs:
         working-directory: apps/web
 
       - run: bun run check
+        env:
+          REACT_DOCTOR_BASE: ${{ github.event.before }}
 
       - name: Build ${{ env.APP }}
         env:
