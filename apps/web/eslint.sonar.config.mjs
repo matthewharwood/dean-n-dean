@@ -1,6 +1,6 @@
 // Sonar-only ESLint flat config for the second-opinion scan.
 //
-// dean-stack uses Biome for the primary lint pass — see CLAUDE.md
+// dean-stack uses Biome for the primary lint pass — see AGENTS.md
 // "Linting split". This config does NOT replace Biome. It loads ONLY
 // the SonarJS rule pack (cognitive complexity, code smells, bug patterns)
 // for periodic third-opinion sweeps via `bun run check:sonar` and via

@@ -13,7 +13,7 @@
 //   5. download output.model_url            -> public/enemy-models/<id>.glb
 //
 // Reads `TRIPO3D_API_KEY` from the environment — Bun auto-loads it from the
-// gitignored `.env.local` (see CLAUDE.md "API keys & local secrets").
+// gitignored `.env.local` (see AGENTS.md "API keys & local secrets").
 
 import { mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -26,7 +26,7 @@ const MODELS_DIR = join(REPO_ROOT, "apps/web/public/enemy-models");
 const API_KEY = process.env.TRIPO3D_API_KEY;
 if (!API_KEY) {
   throw new Error(
-    "TRIPO3D_API_KEY is not set. Put it in .env.local (see CLAUDE.md 'API keys & local secrets').",
+    "TRIPO3D_API_KEY is not set. Put it in .env.local (see AGENTS.md 'API keys & local secrets').",
   );
 }
 

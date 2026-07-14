@@ -26,7 +26,7 @@ Before editing code:
 
 1. Read the assigned Linear issue.
 2. Read `AGENTS.md`.
-3. Read `.claude/agents/calvin-game-designer.md`.
+3. Read `.agents/skills/calvin-game-designer/SKILL.md`.
 4. Read the relevant issue spec in `packages/symphony-first-five/src/index.ts`.
 5. Read the data anchors named by the issue, especially:
    - `packages/schemas/src/data/alchemy-quests.ts`

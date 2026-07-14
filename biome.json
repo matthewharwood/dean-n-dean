@@ -19,7 +19,6 @@
       "!**/playwright-report",
       "!**/test-results",
       "!**/routeTree.gen.ts",
-      "!.claude",
       "!.idea",
       "!potential_skills",
       "!prompts",

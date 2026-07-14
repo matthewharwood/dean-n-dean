@@ -1,6 +1,6 @@
 ---
 name: react-19-primitives
-description: "React 19 primitive APIs for dean-stack — `use(promise)`, `useTransition`, `useDeferredValue`, `useOptimistic`, `useActionState`, `useFormStatus`, and the `<Suspense>` boundary. Owns the API surface; idb owns the dean-stack root-hydration usage. Triggers on: use(promise), useTransition, useDeferredValue, useOptimistic, useActionState, useFormStatus, Suspense, react 19 hook."
+description: "React 19 primitive APIs for dean-stack — `use(promise)`, `useTransition`, `useDeferredValue`, `useOptimistic`, `useActionState`, `useFormStatus`, and Suspense boundaries. Owns the API surface; idb owns the dean-stack root-hydration usage. Triggers on: use(promise), useTransition, useDeferredValue, useOptimistic, useActionState, useFormStatus, Suspense, react 19 hook."
 license: MIT
 ---
 
