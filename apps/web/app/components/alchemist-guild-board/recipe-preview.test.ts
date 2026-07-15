@@ -12,7 +12,10 @@ import {
   getAlchemyRecipeElementFormulaKey,
   getAlchemyRecipeSlotCardIds,
   getAlchemyWorkbenchExtendedRecipePreview,
+  getAlchemyWorkbenchMachineryOptions,
   getAlchemyWorkbenchRecipePreview,
+  getNextAlchemyWorkbenchMachinery,
+  resolveAlchemyWorkbenchMachinery,
 } from "./recipe-preview";
 
 describe("alchemy workbench recipe preview", () => {
@@ -232,6 +235,56 @@ describe("alchemy workbench recipe preview", () => {
 
       expect(getAlchemyRecipeSlotCardIds(recipe)).toEqual([ingredientCardId, ingredientCardId]);
     }
+  });
+
+  test("uses machinery to resolve every duplicate ingredient signature", () => {
+    const collisionCases = [
+      {
+        cardIds: ["raw:wood", null, null, null, null],
+        options: ["kiln", "shaft-straightener"],
+        outputs: [
+          ["kiln", "alchemy:charcoal"],
+          ["shaft-straightener", "alchemy:wood-shaft"],
+        ],
+      },
+      {
+        cardIds: ["material:copper-ingot", "material:copper-ingot", null, null, null],
+        options: ["wire-drawbench", "rivet-header"],
+        outputs: [
+          ["wire-drawbench", "alchemy:copper-wire"],
+          ["rivet-header", "alchemy:copper-rivet"],
+        ],
+      },
+      {
+        cardIds: ["material:steel-ingot", "material:steel-ingot", null, null, null],
+        options: ["needle-mill", "forge"],
+        outputs: [
+          ["needle-mill", "alchemy:steel-needle"],
+          ["forge", "alchemy:ranger-arrowhead"],
+        ],
+      },
+    ] as const;
+
+    for (const collisionCase of collisionCases) {
+      expect(getAlchemyWorkbenchMachineryOptions(collisionCase.cardIds)).toEqual([
+        ...collisionCase.options,
+      ]);
+      expect(resolveAlchemyWorkbenchMachinery(collisionCase.options, null)).toBeNull();
+
+      for (const [machineryId, recipeId] of collisionCase.outputs) {
+        expect(
+          getAlchemyWorkbenchRecipePreview(collisionCase.cardIds, machineryId)?.recipe.id,
+        ).toBe(recipeId);
+      }
+    }
+  });
+
+  test("cycles only the machinery choices relevant to staged ingredients", () => {
+    const machineryIds = ["wire-drawbench", "rivet-header"] as const;
+
+    expect(getNextAlchemyWorkbenchMachinery(machineryIds, null)).toBe("wire-drawbench");
+    expect(getNextAlchemyWorkbenchMachinery(machineryIds, "wire-drawbench")).toBe("rivet-header");
+    expect(getNextAlchemyWorkbenchMachinery(machineryIds, "rivet-header")).toBe("wire-drawbench");
   });
 
   test("previews Gold Leaf from two Gold Ingots", () => {

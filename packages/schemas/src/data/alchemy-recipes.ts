@@ -44,6 +44,80 @@ export const ALCHEMY_STATIONS = [
 export type AlchemyStation = (typeof ALCHEMY_STATIONS)[number];
 export const AlchemyStationSchema = z.enum(ALCHEMY_STATIONS);
 
+export const ALCHEMY_SPECIAL_MACHINERY_IDS = [
+  "shaft-straightener",
+  "wire-drawbench",
+  "rivet-header",
+  "needle-mill",
+] as const;
+export const ALCHEMY_MACHINERY_IDS = [
+  ...ALCHEMY_STATIONS,
+  ...ALCHEMY_SPECIAL_MACHINERY_IDS,
+] as const;
+export const AlchemyMachineryIdSchema = z.enum(ALCHEMY_MACHINERY_IDS);
+export type AlchemyMachineryId = z.infer<typeof AlchemyMachineryIdSchema>;
+
+export const AlchemyMachineryDefinitionSchema = z.object({
+  id: AlchemyMachineryIdSchema,
+  label: z.string().min(1),
+  description: z.string().min(1),
+});
+export type AlchemyMachineryDefinition = z.infer<typeof AlchemyMachineryDefinitionSchema>;
+
+const machinery = <const Id extends AlchemyMachineryId>(
+  id: Id,
+  label: string,
+  description: string,
+) => ({ description, id, label }) as const;
+
+export const ALCHEMY_MACHINERY = [
+  machinery("hands", "Hand Tools", "Shape and assemble simple materials by hand."),
+  machinery("mortar", "Mortar & Pestle", "Crush, grind, and blend small batches."),
+  machinery("cauldron", "Cauldron", "Combine and heat liquid mixtures."),
+  machinery("kiln", "Kiln", "Heat clay, minerals, or wood in a controlled chamber."),
+  machinery("forge", "Forge & Anvil", "Heat and hammer metal into strong forms."),
+  machinery("glassworks", "Glassworks", "Heat, draw, and shape glass safely."),
+  machinery("distillery", "Still", "Separate liquids by boiling and condensation."),
+  machinery("scribe-desk", "Scribe Desk", "Prepare paper, ink, seals, and written artifacts."),
+  machinery("workbench", "Workbench", "Fit prepared parts into finished equipment."),
+  machinery("loom", "Loom", "Interlace fibers into thread and cloth."),
+  machinery("tannery", "Tanning Frame", "Cure and stretch hides into leather."),
+  machinery("garden-bench", "Garden Bench", "Blend soil, minerals, and garden materials."),
+  machinery("enchanter", "Enchanter", "Assemble the guild's fantasy rune-work."),
+  machinery(
+    "shaft-straightener",
+    "Shaft Straightener",
+    "Heat and straighten wood against a grooved shafting tool.",
+  ),
+  machinery(
+    "wire-drawbench",
+    "Wire Drawbench",
+    "Pull metal stock through progressively smaller drawplate holes.",
+  ),
+  machinery(
+    "rivet-header",
+    "Rivet Header",
+    "Upset cut metal stock in a heading die to form rivet heads.",
+  ),
+  machinery(
+    "needle-mill",
+    "Needle Mill",
+    "Draw, straighten, point, harden, and polish needle stock.",
+  ),
+] as const satisfies readonly AlchemyMachineryDefinition[];
+
+export function getAlchemyMachineryDefinition(
+  machineryId: AlchemyMachineryId,
+): AlchemyMachineryDefinition {
+  const definition = ALCHEMY_MACHINERY.find((candidate) => candidate.id === machineryId);
+  if (!definition) throw new Error(`Unknown alchemy machinery: ${machineryId}`);
+  return definition;
+}
+
+export function getAlchemyMachineryLabel(machineryId: AlchemyMachineryId): string {
+  return getAlchemyMachineryDefinition(machineryId).label;
+}
+
 export const ALCHEMY_ACTIONS = [
   "combine",
   "grind",
@@ -378,12 +452,19 @@ export const AlchemyRecipeSchema = z.object({
   output: AlchemyRecipeOutputSchema,
   arguments: z.array(AlchemyArgumentSchema).min(1),
   station: AlchemyStationSchema,
+  machineryId: AlchemyMachineryIdSchema.optional(),
   action: AlchemyActionSchema,
   progression: AlchemyRecipeProgressionSchema,
   education: AlchemyRecipeEducationSchema,
   fantasy: AlchemyRecipeFantasySchema,
 });
 export type AlchemyRecipe = z.infer<typeof AlchemyRecipeSchema>;
+
+export function getAlchemyRecipeMachineryId(
+  recipeToInspect: Pick<AlchemyRecipe, "machineryId" | "station">,
+): AlchemyMachineryId {
+  return recipeToInspect.machineryId ?? recipeToInspect.station;
+}
 
 type DeepReadonly<T> = T extends readonly (infer U)[]
   ? readonly DeepReadonly<U>[]
@@ -997,11 +1078,12 @@ export const ALCHEMY_RECIPES = [
     output: item("component", "component:copper-wire", "Copper Wire"),
     arguments: [arg("material:copper-ingot", 2)],
     station: "forge",
+    machineryId: "wire-drawbench",
     action: "shape",
     progression: progress(3, 11, 2, 0.29),
     education: lesson(
       ["ductility", "conductivity"],
-      "Copper can be drawn into wire and carries electricity well.",
+      "A drawbench pulls copper through smaller drawplate holes to make wire, which carries electricity well.",
       "adult-supervision",
     ),
     fantasy: request(["artificer", "wizard"], ["metal", "conductor"]),
@@ -1318,11 +1400,12 @@ export const ALCHEMY_RECIPES = [
     output: item("component", "component:steel-needle", "Steel Needle"),
     arguments: [arg("material:steel-ingot", 2)],
     station: "forge",
+    machineryId: "needle-mill",
     action: "shape",
     progression: progress(5, 6, 3, 0.47),
     education: lesson(
       ["hardness", "precision"],
-      "Steel can hold a sharper point than soft iron.",
+      "A needle mill draws, straightens, points, hardens, and polishes steel stock.",
       "adult-supervision",
     ),
     fantasy: request(["cleric", "rogue"], ["gear-part", "tool-part"]),
@@ -1333,11 +1416,12 @@ export const ALCHEMY_RECIPES = [
     output: item("component", "component:copper-rivet", "Copper Rivet"),
     arguments: [arg("material:copper-ingot", 2)],
     station: "forge",
+    machineryId: "rivet-header",
     action: "shape",
     progression: progress(5, 7, 2, 0.44),
     education: lesson(
       ["fastener", "ductility"],
-      "Softer metals can be shaped into rivets that hold parts together.",
+      "A rivet header upsets copper stock in a die, forming headed fasteners that hold parts together.",
       "adult-supervision",
     ),
     fantasy: request(["artificer", "blacksmith"], ["gear-part", "fastener"]),
@@ -1380,9 +1464,14 @@ export const ALCHEMY_RECIPES = [
     output: item("component", "component:wood-shaft", "Wood Shaft"),
     arguments: [arg("raw:wood", 1)],
     station: "workbench",
+    machineryId: "shaft-straightener",
     action: "shape",
     progression: progress(5, 10, 1, 0.42),
-    education: lesson(["grain", "shape"], "Wood can be shaped into long straight parts."),
+    education: lesson(
+      ["grain", "heat straightening"],
+      "A grooved shaft straightener uses controlled heat and pressure to correct bends without adding another material.",
+      "adult-supervision",
+    ),
     fantasy: request(["ranger", "blacksmith"], ["gear-part"]),
   }),
   recipe({
@@ -1395,7 +1484,7 @@ export const ALCHEMY_RECIPES = [
     progression: progress(5, 11, 3, 0.49),
     education: lesson(
       ["wedge", "hardness"],
-      "A hard wedge shape concentrates force at a point.",
+      "Forge-and-anvil hammering makes a hard wedge shape that concentrates force at a point.",
       "adult-supervision",
     ),
     fantasy: request(["ranger"], ["class-order", "gear-part"]),
@@ -2593,6 +2682,7 @@ export function validateAlchemyRecipeGraph(
   const parsedRecipes = AlchemyRecipesSchema.parse(recipes);
   const recipeIds = new Set<string>();
   const outputCardIds = new Set<string>();
+  const recipeIdByInputAndMachinery = new Map<string, string>();
   const knownCardIds = new Set<string>([
     ...ELEMENT_CARDS.map((elementCard) => elementCard.id),
     ...ALCHEMY_GATHERABLE_CARDS.map((gatherable) => gatherable.cardId),
@@ -2639,6 +2729,20 @@ export function validateAlchemyRecipeGraph(
         `Recipe ${currentRecipe.id} needs ${visibleSlotCount} Alchemy Workbench slots, but the max is ${ALCHEMY_MAX_TABLE_SLOT_COUNT}`,
       );
     }
+
+    const inputSignature = getAlchemyRecipeArgumentSlots(currentRecipe)
+      .map((slot) => slot.cardId)
+      .toSorted()
+      .join("|");
+    const machineryId = getAlchemyRecipeMachineryId(currentRecipe);
+    const inputAndMachineryKey = `${inputSignature}::${machineryId}`;
+    const collidingRecipeId = recipeIdByInputAndMachinery.get(inputAndMachineryKey);
+    if (collidingRecipeId) {
+      throw new Error(
+        `Alchemy recipes ${collidingRecipeId} and ${currentRecipe.id} share inputs and machinery ${machineryId}`,
+      );
+    }
+    recipeIdByInputAndMachinery.set(inputAndMachineryKey, currentRecipe.id);
 
     for (const argument of currentRecipe.arguments) {
       if (!knownCardIds.has(argument.cardId)) {

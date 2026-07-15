@@ -55,6 +55,8 @@ export type AlchemyDiscoveryOptionRole = z.infer<typeof AlchemyDiscoveryOptionRo
 export const AlchemyQuestIdSchema = z.string().regex(/^quest:[a-z0-9-]+$/);
 export type AlchemyQuestId = z.infer<typeof AlchemyQuestIdSchema>;
 
+export const ALCHEMY_MACHINERY_UNLOCK_QUEST_ID = "quest:salts-and-conductors" as const;
+
 export const AlchemyQuestRecipeIdSchema = z.string().regex(/^alchemy:[a-z0-9-]+$/);
 export type AlchemyQuestRecipeId = z.infer<typeof AlchemyQuestRecipeIdSchema>;
 
@@ -621,7 +623,8 @@ export const ALCHEMY_QUESTS = [
         "Salt, potassium, copper, and glass become the bridge to later electricity and charms.",
       need: "Craft Brine, Sea Salt Crystals, Potassium Salt, two-ingot Copper Wire, and a Glass Bead.",
       hint: "Copper Wire spends two Copper Ingots. For the Glass Bead, heat a Glass Tube with Charcoal to model cutting and hot-tumbling a real drawn bead.",
-      completion: "The guild sees that one known card can unlock many future needs.",
+      completion:
+        "The guild sees that one known card can unlock many future needs, then installs the Machinery selector beside the transmutation pad.",
     },
     progression: {
       act: 3,
@@ -855,8 +858,8 @@ export const ALCHEMY_QUESTS = [
       title: "A Tray of Useful Parts",
       requester: "artificer",
       summary: "Ingot cards become small physical parts for gear.",
-      need: "Craft two-ingot Bronze Buckle, two-ingot Steel Needle, two-ingot Copper Rivet, Chain Link, and Wood Shaft parts.",
-      hint: "Metal shaping now asks for two ingots, while wood and chain work still tell their own parts story.",
+      need: "Craft a Bronze Buckle, Steel Needle, Copper Rivet, Chain Link, and Wood Shaft using the correct machinery.",
+      hint: "Set machinery before swiping: Shaft Straightener + Wood makes the Shaft; Rivet Header + two Copper Ingots makes the Rivet; Needle Mill + two Steel Ingots makes the Needle.",
       completion: "The inventory starts to look like a maker bench.",
     },
     progression: {
@@ -874,7 +877,7 @@ export const ALCHEMY_QUESTS = [
       "alchemy:iron-chain-link",
       "alchemy:wood-shaft",
     ],
-    teachingFocus: ["materials to parts", "fasteners", "tool planning"],
+    teachingFocus: ["materials to parts", "fasteners", "machinery changes outcomes"],
     unlocks: unlocks({
       rawCardIds: ["raw:feather"],
       recipeIds: [
@@ -897,7 +900,7 @@ export const ALCHEMY_QUESTS = [
       requester: "knight",
       summary: "The forge and ranger branches converge into recognizable equipment.",
       need: "Make a Shield Boss, a two-ingot Ranger Arrowhead, and a complete Ranger Arrow.",
-      hint: "A finished object may hide several materials, parts, and extra ingot choices.",
+      hint: "Choose Forge & Anvil for two Steel Ingots to make the Arrowhead; Needle Mill makes a Needle from the same stock. Then assemble the finished Arrow at the Workbench.",
       completion: "The Knight and Ranger test the gear together, then sign the Museum ledger.",
     },
     progression: {

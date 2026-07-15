@@ -33,6 +33,7 @@ describe("QuestBriefingCard data projection", () => {
         { cardId: "element:h", name: "Hydrogen", quantity: 2, symbol: "H" },
         { cardId: "element:o", name: "Oxygen", quantity: 1, symbol: "O" },
       ],
+      machineryLabel: "Cauldron",
       name: "Water",
       outputCardId: "material:water",
     });
@@ -93,6 +94,22 @@ describe("QuestBriefingCard data projection", () => {
       "Na + C + 3O",
       "Ca + C + 3O",
     ]);
+  });
+
+  test("communicates the machinery that distinguishes Quest 15 parts", () => {
+    const quest = getAlchemyQuestById("quest:fasteners-and-parts");
+    if (!quest) throw new Error("Missing fasteners and parts quest");
+
+    const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
+    const machineryByRecipeName = Object.fromEntries(
+      cardProps.recipeLabels.map((recipe) => [recipe.name, recipe.machineryLabel]),
+    );
+
+    expect(machineryByRecipeName).toMatchObject({
+      "Copper Rivet": "Rivet Header",
+      "Steel Needle": "Needle Mill",
+      "Wood Shaft": "Shaft Straightener",
+    });
   });
 
   test("finds the recipe page that should focus for a dragged quest card", () => {

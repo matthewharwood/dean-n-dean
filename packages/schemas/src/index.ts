@@ -1,7 +1,11 @@
 import * as z from "zod";
 
 import { AlchemyQuestIdSchema } from "./data/alchemy-quests";
-import { AlchemyCardIdSchema, AlchemyRecipeIdSchema } from "./data/alchemy-recipes";
+import {
+  AlchemyCardIdSchema,
+  AlchemyMachineryIdSchema,
+  AlchemyRecipeIdSchema,
+} from "./data/alchemy-recipes";
 import { ExtendedMoleculeRecipeIdSchema } from "./data/extended-molecule-recipes";
 import {
   PhonicsFactIdSchema,
@@ -574,6 +578,9 @@ export const AlchemistGuildBoardStateSchema = z.object({
   ),
   questLogScrollTop: z.number().min(0).default(0),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
+  // The chosen treatment affects the staged recipe output, so it persists with
+  // the workbench cards across iPad reloads. `null` is the initial Default mode.
+  selectedMachineryId: AlchemyMachineryIdSchema.nullable().default(null),
   selectedQuestId: AlchemyQuestIdSchema.default(ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID),
   // Lifetime count of finished gathering sessions (a reward claimed after an enemy
   // is beaten). Drives the New Reward Slot upgrade's confirm threshold.

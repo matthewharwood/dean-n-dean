@@ -10,6 +10,7 @@ import {
   ALCHEMY_RECIPES,
   ALCHEMY_STARTING_TABLE_SLOT_COUNT,
   ALCHEMY_TABLE_SLOT_UPGRADES,
+  AlchemistGuildBoardStateSchema,
   EXTENDED_MOLECULE_KID_INFO,
   EXTENDED_MOLECULE_RECIPES,
   getAlchemyQuestBoard,
@@ -20,6 +21,7 @@ import {
   getAlchemyRecipeVisibleSlotCount,
   getAvailableAlchemyTableSlotUpgrades,
   validateAlchemyQuestGraph,
+  validateAlchemyRecipeGraph,
   validateAlchemyRecipeKidInfo,
   validateExtendedMoleculeKidInfo,
 } from "@dean-stack/schemas";
@@ -27,6 +29,27 @@ import {
 describe("alchemy quest graph", () => {
   test("validates the full deterministic quest DAG", () => {
     expect(validateAlchemyQuestGraph()).toHaveLength(ALCHEMY_QUESTS.length);
+  });
+
+  test("validates every recipe by ingredients plus effective machinery", () => {
+    expect(validateAlchemyRecipeGraph()).toHaveLength(ALCHEMY_RECIPES.length);
+  });
+
+  test("rejects recipes that still collide after machinery is considered", () => {
+    const collidingRecipes = ALCHEMY_RECIPES.map((recipe) =>
+      recipe.id === "alchemy:copper-rivet" ? { ...recipe, machineryId: "wire-drawbench" } : recipe,
+    );
+
+    expect(() => validateAlchemyRecipeGraph(collidingRecipes)).toThrow(
+      "share inputs and machinery wire-drawbench",
+    );
+  });
+
+  test("heals legacy board saves to Default machinery selection", () => {
+    const { selectedMachineryId, ...legacyBoardState } = ALCHEMIST_GUILD_BOARD_DEFAULT;
+
+    expect(selectedMachineryId).toBeNull();
+    expect(AlchemistGuildBoardStateSchema.parse(legacyBoardState).selectedMachineryId).toBeNull();
   });
 
   test("starts crafting behind fog with only Water recipe elements stocked", () => {
