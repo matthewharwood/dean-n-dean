@@ -620,7 +620,7 @@ export const ALCHEMY_QUESTS = [
       summary:
         "Salt, potassium, copper, and glass become the bridge to later electricity and charms.",
       need: "Craft Brine, Sea Salt Crystals, Potassium Salt, two-ingot Copper Wire, and a Glass Bead.",
-      hint: "Copper Wire now spends two Copper Ingots, so build a small metal buffer before shaping it.",
+      hint: "Copper Wire spends two Copper Ingots. For the Glass Bead, heat a Glass Tube with Charcoal to model cutting and hot-tumbling a real drawn bead.",
       completion: "The guild sees that one known card can unlock many future needs.",
     },
     progression: {
@@ -642,7 +642,7 @@ export const ALCHEMY_QUESTS = [
       "alchemy:copper-wire",
       "alchemy:glass-bead",
     ],
-    teachingFocus: ["salts", "conductors", "reuse web"],
+    teachingFocus: ["salts", "conductors", "drawn glass beads", "reuse web"],
     unlocks: unlocks({
       elementCardIds: ["element:k"],
       recipeIds: [
