@@ -1,11 +1,13 @@
 import {
   ALCHEMY_GATHERABLE_CARDS,
   ALCHEMY_RECIPES,
+  type AlchemyMachineryId,
   ELEMENT_CARDS,
   ELEMENT_SYMBOLS,
   EXTENDED_MOLECULE_RECIPES,
   getAlchemyRecipeArgumentSlots,
   getAlchemyRecipeKidInfoById,
+  getAlchemyRecipeMachineryId,
   getExtendedMoleculeRecipeByFormulaKey,
   type StaticAlchemyRecipe,
   type StaticAlchemyRecipeKidInfo,
@@ -65,9 +67,10 @@ for (const recipe of EXTENDED_MOLECULE_RECIPES) {
 
 export function getAlchemyWorkbenchRecipePreview(
   workbenchCardIds: readonly (string | null)[],
+  machineryId: AlchemyMachineryId | null = null,
 ): AlchemyWorkbenchRecipePreview | null {
   for (const recipe of ALCHEMY_RECIPES) {
-    if (!doesWorkbenchMatchRecipe(workbenchCardIds, recipe)) continue;
+    if (!doesWorkbenchMatchRecipe(workbenchCardIds, recipe, machineryId)) continue;
 
     return {
       formula: formatAlchemyRecipeFormula(recipe),
@@ -114,13 +117,50 @@ export function getAlchemyWorkbenchExtendedRecipePreview(
 export function doesWorkbenchMatchRecipe(
   workbenchCardIds: readonly (string | null)[],
   recipe: StaticAlchemyRecipe,
+  machineryId: AlchemyMachineryId | null = null,
 ): boolean {
   const recipeCardIds = getAlchemyRecipeSlotCardIds(recipe);
   const actualCardIds = workbenchCardIds.filter((cardId) => cardId !== null);
 
   if (actualCardIds.length !== recipeCardIds.length) return false;
+  if (machineryId !== null && getAlchemyRecipeMachineryId(recipe) !== machineryId) return false;
 
   return haveSameCardIdCounts(actualCardIds, recipeCardIds);
+}
+
+export function getAlchemyWorkbenchMachineryOptions(
+  workbenchCardIds: readonly (string | null)[],
+): AlchemyMachineryId[] {
+  const machineryIds: AlchemyMachineryId[] = [];
+  for (const recipe of ALCHEMY_RECIPES) {
+    if (!doesWorkbenchMatchRecipe(workbenchCardIds, recipe)) continue;
+
+    const machineryId = getAlchemyRecipeMachineryId(recipe);
+    if (!machineryIds.includes(machineryId)) machineryIds.push(machineryId);
+  }
+  return machineryIds;
+}
+
+export function resolveAlchemyWorkbenchMachinery(
+  machineryIds: readonly AlchemyMachineryId[],
+  selectedMachineryId: AlchemyMachineryId | null,
+): AlchemyMachineryId | null {
+  if (machineryIds.length === 1) return machineryIds[0] ?? null;
+  if (selectedMachineryId && machineryIds.includes(selectedMachineryId)) {
+    return selectedMachineryId;
+  }
+  return null;
+}
+
+export function getNextAlchemyWorkbenchMachinery(
+  machineryIds: readonly AlchemyMachineryId[],
+  currentMachineryId: AlchemyMachineryId | null,
+): AlchemyMachineryId | null {
+  if (machineryIds.length === 0) return null;
+
+  const currentIndex = currentMachineryId ? machineryIds.indexOf(currentMachineryId) : -1;
+  const nextIndex = (currentIndex + 1) % machineryIds.length;
+  return machineryIds[nextIndex] ?? null;
 }
 
 export function getAlchemyRecipeSlotCardIds(recipe: StaticAlchemyRecipe): string[] {

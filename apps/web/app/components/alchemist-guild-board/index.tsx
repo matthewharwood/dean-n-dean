@@ -1,6 +1,7 @@
 import {
   ALCHEMY_CRAFTED_CARDS,
   ALCHEMY_GATHERABLE_CARDS,
+  ALCHEMY_MACHINERY_UNLOCK_QUEST_ID,
   ALCHEMY_QUESTS,
   ALCHEMY_RECIPES,
   type AlchemistGuildBoardMode,
@@ -25,16 +26,20 @@ import {
   type AlchemistGuildQuestDelivery,
   type AlchemistGuildReagentSlotId,
   AlchemistGuildReagentSlotIdSchema,
+  type AlchemyMachineryId,
+  AlchemyMachineryIdSchema,
   type AlchemyQuestRewards,
   ELEMENT_CARDS,
   EXTENDED_MOLECULE_RECIPES,
   getAlchemyCharactersByRequester,
+  getAlchemyMachineryLabel,
   getAlchemyQuestBoard,
   getAlchemyQuestById,
   getAlchemyRecipeById,
   getAlchemyRecipeByOutput,
   getAlchemyRecipeKidInfoById,
   getAlchemyRecipeKidInfoSourceById,
+  getAlchemyRecipeMachineryId,
   getAvailableAlchemyQuests,
   getExtendedMoleculeKidInfoById,
   getQuestRequesterVoiceClipPath,
@@ -58,6 +63,7 @@ import {
   ChevronRight,
   ChevronUp,
   CloudFog,
+  Cog,
   Coins,
   Compass,
   FlaskConical,
@@ -231,7 +237,10 @@ import {
   type AlchemyWorkbenchRecipePreview,
   formatAlchemyRecipeFormula,
   getAlchemyWorkbenchExtendedRecipePreview,
+  getAlchemyWorkbenchMachineryOptions,
   getAlchemyWorkbenchRecipePreview,
+  getNextAlchemyWorkbenchMachinery,
+  resolveAlchemyWorkbenchMachinery,
 } from "./recipe-preview";
 import { AlchemistGuildBoardPropsSchema } from "./schema";
 import {
@@ -6018,7 +6027,9 @@ const AlchemyWorkbenchElementPanel = defineComponent(
             </h2>
             <div className="mt-1 flex flex-wrap gap-1">
               <InfoBadge label={formatTokenLabel(preview.recipe.action)} />
-              <InfoBadge label={formatTokenLabel(preview.recipe.station)} />
+              <InfoBadge
+                label={getAlchemyMachineryLabel(getAlchemyRecipeMachineryId(preview.recipe))}
+              />
               <InfoBadge label={formatTokenLabel(preview.recipe.output.kind)} />
             </div>
           </div>
@@ -6806,7 +6817,92 @@ const LeftModePanel = defineComponent(
   },
 );
 
+const MachineryCycleButtonPropsSchema = z.object({
+  choiceRequired: z.boolean(),
+  currentMachineryId: AlchemyMachineryIdSchema.nullable(),
+  interactionLocked: z.boolean(),
+  machineryIds: z.array(AlchemyMachineryIdSchema),
+  onChange: z.custom<(machineryId: AlchemyMachineryId | null) => void>(),
+  unlocked: z.boolean(),
+});
+
+function getMachineryCycleLabel(
+  currentMachineryId: AlchemyMachineryId | null,
+  choiceRequired: boolean,
+): string {
+  if (currentMachineryId) return getAlchemyMachineryLabel(currentMachineryId);
+  if (choiceRequired) return "Choose Machine";
+  return "Default";
+}
+
+function getMachineryCycleStatus(
+  unlocked: boolean,
+  choiceRequired: boolean,
+  machineryIds: readonly AlchemyMachineryId[],
+  currentPosition: number,
+): string {
+  if (!unlocked) return "After Quest 10";
+  if (choiceRequired) return `${machineryIds.length} choices`;
+  if (machineryIds.length > 1) return `${currentPosition}/${machineryIds.length}`;
+  return "Auto";
+}
+
+function getMachineryCycleAriaLabel(unlocked: boolean, label: string, canCycle: boolean): string {
+  if (!unlocked) return "Machinery selector unlocks after Quest 10";
+  if (canCycle) return `Current machinery: ${label}. Activate to cycle machinery.`;
+  return `Current machinery: ${label}. Selected automatically for these ingredients.`;
+}
+
+function getMachineryCycleToneClass(choiceRequired: boolean, unlocked: boolean): string {
+  if (choiceRequired) {
+    return "border-amber-700 bg-amber-100/90 text-amber-950 shadow-[0_0_0_2px_rgba(217,119,6,0.25)]";
+  }
+  if (unlocked) return "border-sky-800/70 bg-sky-50/55 text-sky-950";
+  return "cursor-not-allowed border-neutral-600/70 bg-white/25 text-neutral-700 opacity-75";
+}
+
+const MachineryCycleButton = defineComponent(
+  MachineryCycleButtonPropsSchema,
+  ({ choiceRequired, currentMachineryId, interactionLocked, machineryIds, onChange, unlocked }) => {
+    const canCycle = unlocked && machineryIds.length > 1 && !interactionLocked;
+    const label = getMachineryCycleLabel(currentMachineryId, choiceRequired);
+    const currentPosition = currentMachineryId ? machineryIds.indexOf(currentMachineryId) + 1 : 0;
+    const status = getMachineryCycleStatus(unlocked, choiceRequired, machineryIds, currentPosition);
+    const toneClass = getMachineryCycleToneClass(choiceRequired, unlocked);
+
+    return (
+      <button
+        type="button"
+        data-board-section="machinery-selector"
+        data-machinery-id={currentMachineryId ?? "default"}
+        disabled={!canCycle}
+        aria-label={getMachineryCycleAriaLabel(unlocked, label, canCycle)}
+        className={`grid h-full min-h-0 w-full place-items-center rounded-[6px] border px-1 py-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] transition-[background-color,border-color,opacity] duration-200 ${toneClass} ${canCycle ? "cursor-pointer active:bg-amber-100" : "cursor-default"}`}
+        onClick={() => {
+          onChange(getNextAlchemyWorkbenchMachinery(machineryIds, currentMachineryId));
+        }}
+      >
+        <span className="grid min-w-0 content-center justify-items-center gap-1.5">
+          {unlocked ? (
+            <Cog aria-hidden="true" className="size-5" strokeWidth={2.4} />
+          ) : (
+            <LockKeyhole aria-hidden="true" className="size-5" strokeWidth={2.4} />
+          )}
+          <span
+            className="max-w-full text-[9px] font-black uppercase leading-[1.05] tracking-normal"
+            aria-live="polite"
+          >
+            {label}
+          </span>
+          <span className="text-[8px] font-bold leading-none opacity-70">{status}</span>
+        </span>
+      </button>
+    );
+  },
+);
+
 const CenterBoardPanelsPropsSchema = z.object({
+  activeMachineryId: AlchemyMachineryIdSchema.nullable(),
   boardState: z.custom<AlchemistGuildBoardState>(),
   canTransmutePreview: z.boolean(),
   gatheringConfirmPadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
@@ -6821,6 +6917,9 @@ const CenterBoardPanelsPropsSchema = z.object({
   isOutputAlreadyMade: z.boolean(),
   isGatheringMode: z.boolean(),
   isTransmuteDragging: z.boolean(),
+  machineryChoiceRequired: z.boolean(),
+  machineryOptions: z.array(AlchemyMachineryIdSchema),
+  machineryUnlocked: z.boolean(),
   nowMs: z.number().min(0),
   onGatheringAnswerPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
   onGatheringBossAnswer: z.custom<GatheringBossAnswerHandler>(),
@@ -6832,6 +6931,7 @@ const CenterBoardPanelsPropsSchema = z.object({
   onPhonicsBossAnswer: z.custom<(factId: string) => void>(),
   onPhonicsMovePick: z.custom<(moveId: GatheringMoveId) => void>(),
   onPhonicsWordPick: z.custom<(factId: string) => void>(),
+  onMachineryChange: z.custom<(machineryId: AlchemyMachineryId | null) => void>(),
   onSelectGatheringTrack: z.custom<(track: AlchemistGuildGatheringTrackKind) => void>(),
   onSlottedCardPointerDown: z.custom<SlottedCardPointerDownHandler>(),
   onTransmutationSwipePointerDown: z.custom<ButtonPointerDownHandler>(),
@@ -6849,6 +6949,7 @@ const CenterBoardPanelsPropsSchema = z.object({
 const CenterBoardPanels = defineComponent(
   CenterBoardPanelsPropsSchema,
   ({
+    activeMachineryId,
     boardState,
     canTransmutePreview,
     gatheringConfirmPadTrackRef,
@@ -6863,6 +6964,9 @@ const CenterBoardPanels = defineComponent(
     isOutputAlreadyMade,
     isGatheringMode,
     isTransmuteDragging,
+    machineryChoiceRequired,
+    machineryOptions,
+    machineryUnlocked,
     nowMs,
     onGatheringAnswerPointerDown,
     onGatheringBossAnswer,
@@ -6874,6 +6978,7 @@ const CenterBoardPanels = defineComponent(
     onPhonicsBossAnswer,
     onPhonicsMovePick,
     onPhonicsWordPick,
+    onMachineryChange,
     onSelectGatheringTrack,
     onSlottedCardPointerDown,
     onTransmutationSwipePointerDown,
@@ -7070,73 +7175,92 @@ const CenterBoardPanels = defineComponent(
                 />
               ))}
 
-              <div
-                ref={transmutePadTrackRef}
-                data-board-section="transmutation-pad"
-                data-board-name="Transmutation Pad"
-                data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
-                data-transmutation-ready={canTransmutePreview ? "true" : "false"}
-                data-swipe-progress={transmuteSwipeProgress.toFixed(2)}
-                className={`relative col-span-full min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm sm:col-span-2 xl:col-span-4 ${
-                  canTransmutePreview
-                    ? "cursor-ew-resize border-sky-800/70 bg-sky-50/35"
-                    : "border-neutral-600/80 bg-white/25"
-                }`}
-              >
-                <BoardDebugBadge
-                  description={BOARD_DESCRIPTIONS.transmutationPad}
-                  label="Transmutation Pad"
-                  visible={showBoardDebugBadges}
+              <div className="col-span-full grid min-h-0 grid-cols-[4.75rem_minmax(0,1fr)] gap-3 sm:col-span-2 xl:col-span-4">
+                <MachineryCycleButton
+                  choiceRequired={machineryChoiceRequired}
+                  currentMachineryId={activeMachineryId}
+                  interactionLocked={isTransmuteDragging || transmuteSwipeProgress > 0}
+                  machineryIds={machineryOptions}
+                  onChange={onMachineryChange}
+                  unlocked={machineryUnlocked}
                 />
-                <span
-                  className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
-                  aria-hidden="true"
-                >
-                  <span
-                    className="block h-full rounded-[5px] bg-emerald-400/28 transition-[width] duration-75"
-                    style={{ width: `${Math.round(transmuteSwipeProgress * 100)}%` }}
-                  />
-                </span>
-                <p
-                  className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-2xl italic lg:text-3xl ${
-                    canTransmutePreview ? "text-sky-950" : "text-neutral-700"
-                  }`}
-                >
-                  {getTransmutationPadPrompt(
-                    recipePreview,
-                    isOutputAlreadyMade,
-                    questAssemblyGuide,
-                  )}
-                </p>
-                <QuestTransmutationHint guide={questAssemblyGuide} preview={recipePreview} />
-                <button
-                  type="button"
-                  data-board-section="swipe-rune-handle"
-                  data-board-name="Swipe rune handle"
-                  disabled={!canTransmutePreview}
-                  tabIndex={canTransmutePreview ? 0 : -1}
-                  aria-label={getTransmutationPadAriaLabel(recipePreview, isOutputAlreadyMade)}
-                  className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${
+
+                <div
+                  ref={transmutePadTrackRef}
+                  data-board-section="transmutation-pad"
+                  data-board-name="Transmutation Pad"
+                  data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
+                  data-transmutation-ready={canTransmutePreview ? "true" : "false"}
+                  data-swipe-progress={transmuteSwipeProgress.toFixed(2)}
+                  className={`relative min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm ${
                     canTransmutePreview
-                      ? "cursor-grab bg-neutral-800"
-                      : "cursor-not-allowed bg-neutral-700/55 opacity-70"
+                      ? "cursor-ew-resize border-sky-800/70 bg-sky-50/35"
+                      : "border-neutral-600/80 bg-white/25"
                   }`}
-                  style={{
-                    left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
-                    transform: `translateX(${transmuteSwipeProgress * transmuteKnobTravelPx}px)`,
-                    transition: isTransmuteDragging
-                      ? "none"
-                      : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
-                    width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
-                  }}
-                  onPointerDown={onTransmutationSwipePointerDown}
                 >
-                  <div className="flex h-14 items-center gap-3 lg:h-18 lg:gap-4" aria-hidden="true">
-                    <span className="h-full w-0.5 bg-neutral-300" />
-                    <span className="h-full w-0.5 bg-neutral-300" />
-                    <span className="h-full w-0.5 bg-neutral-300" />
-                  </div>
-                </button>
+                  <BoardDebugBadge
+                    description={BOARD_DESCRIPTIONS.transmutationPad}
+                    label="Transmutation Pad"
+                    visible={showBoardDebugBadges}
+                  />
+                  <span
+                    className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
+                    aria-hidden="true"
+                  >
+                    <span
+                      className="block h-full rounded-[5px] bg-emerald-400/28 transition-[width] duration-75"
+                      style={{ width: `${Math.round(transmuteSwipeProgress * 100)}%` }}
+                    />
+                  </span>
+                  <p
+                    className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-2xl italic lg:text-3xl ${
+                      canTransmutePreview ? "text-sky-950" : "text-neutral-700"
+                    }`}
+                  >
+                    {getTransmutationPadPrompt(
+                      recipePreview,
+                      isOutputAlreadyMade,
+                      questAssemblyGuide,
+                      machineryChoiceRequired,
+                    )}
+                  </p>
+                  <QuestTransmutationHint guide={questAssemblyGuide} preview={recipePreview} />
+                  <button
+                    type="button"
+                    data-board-section="swipe-rune-handle"
+                    data-board-name="Swipe rune handle"
+                    disabled={!canTransmutePreview}
+                    tabIndex={canTransmutePreview ? 0 : -1}
+                    aria-label={getTransmutationPadAriaLabel(
+                      recipePreview,
+                      isOutputAlreadyMade,
+                      machineryChoiceRequired,
+                    )}
+                    className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${
+                      canTransmutePreview
+                        ? "cursor-grab bg-neutral-800"
+                        : "cursor-not-allowed bg-neutral-700/55 opacity-70"
+                    }`}
+                    style={{
+                      left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
+                      transform: `translateX(${transmuteSwipeProgress * transmuteKnobTravelPx}px)`,
+                      transition: isTransmuteDragging
+                        ? "none"
+                        : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
+                      width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
+                    }}
+                    onPointerDown={onTransmutationSwipePointerDown}
+                  >
+                    <div
+                      className="flex h-14 items-center gap-3 lg:h-18 lg:gap-4"
+                      aria-hidden="true"
+                    >
+                      <span className="h-full w-0.5 bg-neutral-300" />
+                      <span className="h-full w-0.5 bg-neutral-300" />
+                      <span className="h-full w-0.5 bg-neutral-300" />
+                    </div>
+                  </button>
+                </div>
               </div>
 
               <div
@@ -7932,6 +8056,42 @@ function getMainBoardGridClass(questPanelCollapsed: boolean, isGatheringMode: bo
     : `${baseClass} lg:grid-cols-[minmax(12rem,240px)_minmax(0,1fr)_minmax(12rem,240px)] xl:grid-cols-[minmax(14rem,316px)_minmax(30rem,1fr)_minmax(14rem,316px)]`;
 }
 
+function getAlchemyWorkbenchTransmutationState(
+  boardState: AlchemistGuildBoardState,
+  workbenchCardIds: readonly (string | null)[],
+) {
+  const machineryUnlocked = boardState.completedQuestIds.includes(
+    ALCHEMY_MACHINERY_UNLOCK_QUEST_ID,
+  );
+  const machineryOptions = machineryUnlocked
+    ? getAlchemyWorkbenchMachineryOptions(workbenchCardIds)
+    : [];
+  const activeMachineryId = machineryUnlocked
+    ? resolveAlchemyWorkbenchMachinery(machineryOptions, boardState.selectedMachineryId)
+    : null;
+  const machineryChoiceRequired =
+    machineryUnlocked && machineryOptions.length > 1 && activeMachineryId === null;
+  const recipePreview = machineryChoiceRequired
+    ? null
+    : getAlchemyWorkbenchRecipePreview(workbenchCardIds, activeMachineryId);
+  const extendedRecipePreview =
+    !recipePreview && !machineryChoiceRequired
+      ? getAlchemyWorkbenchExtendedRecipePreview(workbenchCardIds)
+      : null;
+  const emergentRecipePreview =
+    !recipePreview && !extendedRecipePreview && !machineryChoiceRequired
+      ? getAlchemyWorkbenchEmergentPreview(workbenchCardIds)
+      : null;
+
+  return {
+    activeMachineryId,
+    machineryChoiceRequired,
+    machineryOptions,
+    machineryUnlocked,
+    transmutationPreview: recipePreview ?? extendedRecipePreview ?? emergentRecipePreview,
+  };
+}
+
 export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchema, () => {
   const boardState = useAtomValue(alchemistGuildBoardAtom);
   const setBoardState = useSetAtom(alchemistGuildBoardAtom);
@@ -8043,15 +8203,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const nowMs = useInventoryClock();
   const workbenchCardIds = getWorkbenchCardIds(boardState);
   const hasWorkbenchCards = workbenchCardIds.some((cardId) => cardId !== null);
-  const recipePreview = getAlchemyWorkbenchRecipePreview(workbenchCardIds);
-  const extendedRecipePreview = recipePreview
-    ? null
-    : getAlchemyWorkbenchExtendedRecipePreview(workbenchCardIds);
-  const emergentRecipePreview =
-    recipePreview || extendedRecipePreview
-      ? null
-      : getAlchemyWorkbenchEmergentPreview(workbenchCardIds);
-  const transmutationPreview = recipePreview ?? extendedRecipePreview ?? emergentRecipePreview;
+  const {
+    activeMachineryId,
+    machineryChoiceRequired,
+    machineryOptions,
+    machineryUnlocked,
+    transmutationPreview,
+  } = getAlchemyWorkbenchTransmutationState(boardState, workbenchCardIds);
   const isOutputAlreadyMade = isExtendedPreviewAlreadyDiscovered(
     transmutationPreview,
     boardState.discoveredExtendedRecipeIds,
@@ -9144,6 +9302,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         ...previous,
         discoveredExtendedRecipeIds: appendUniqueId(previous.discoveredExtendedRecipeIds, recipeId),
         reagentSlots: clearReagentSlots(),
+        selectedMachineryId: null,
       };
     });
     announceExtendedRecipeDiscovery(recipeId);
@@ -9207,6 +9366,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         ...previous,
         discoveredEmergentRecipes: next.discoveredEmergentRecipes,
         reagentSlots: clearReagentSlots(),
+        selectedMachineryId: null,
       };
     });
     setEmergentTransmutationNotice({
@@ -9383,6 +9543,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           startedAtMs,
         ),
         reagentSlots: clearReagentSlots(),
+        selectedMachineryId: null,
       };
     });
     if (isNewRecipeDiscovery) {
@@ -10406,6 +10567,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 activeDraggedCard.card.id,
               ),
               reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+              selectedMachineryId: null,
             }));
             void sfx.play("card.drop");
             return;
@@ -10422,6 +10584,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 1,
               ),
               reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+              selectedMachineryId: null,
             }));
             void sfx.play("card.drop");
             return;
@@ -10455,6 +10618,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 cooldownId,
               ),
               reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+              selectedMachineryId: null,
             }));
             void sfx.play("card.drop");
             return;
@@ -10463,6 +10627,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           setBoardState((previous) => ({
             ...previous,
             reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
+            selectedMachineryId: null,
           }));
           void sfx.play("card.dissolve");
           return;
@@ -10494,6 +10659,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             ...previous.reagentSlots,
             [dropSlotId]: activeDraggedCard.card.id,
           },
+          selectedMachineryId: null,
         }));
         void sfx.play("card.drop");
         return;
@@ -10515,6 +10681,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               ...previous.reagentSlots,
               [dropSlotId]: activeDraggedCard.card.id,
             },
+            selectedMachineryId: null,
           };
         });
         if (activeDraggedCard.card.id === ALCHEMIST_GUILD_INTRO_FOCUS_ELEMENT_ID) {
@@ -11220,6 +11387,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             </aside>
 
             <CenterBoardPanels
+              activeMachineryId={activeMachineryId}
               boardState={boardState}
               canTransmutePreview={canTransmutePreview}
               gatheringConfirmPadTrackRef={gatheringConfirmPadTrackRef}
@@ -11234,6 +11402,9 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               isOutputAlreadyMade={isOutputAlreadyMade}
               isGatheringMode={isGatheringMode}
               isTransmuteDragging={isTransmuteDragging}
+              machineryChoiceRequired={machineryChoiceRequired}
+              machineryOptions={machineryOptions}
+              machineryUnlocked={machineryUnlocked}
               nowMs={nowMs}
               onGatheringAnswerPointerDown={beginGatheringAnswerDrag}
               onGatheringBossAnswer={handleGatheringBossAnswer}
@@ -11245,6 +11416,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               onPhonicsBossAnswer={handlePhonicsBossAnswer}
               onPhonicsMovePick={handlePhonicsMovePick}
               onPhonicsWordPick={handlePhonicsWordPick}
+              onMachineryChange={(machineryId) => {
+                setBoardState((previous) => ({
+                  ...previous,
+                  selectedMachineryId: machineryId,
+                }));
+              }}
               onSelectGatheringTrack={handleSelectGatheringTrack}
               periodicTableViewportRef={periodicTableViewportRef}
               questAssemblyGuide={selectedQuestAssemblyGuide}
@@ -11553,13 +11730,14 @@ function createAlchemyRecipeDiscoveryDetail(recipe: RecipeLedgerRecipe): Workben
   const uniqueIngredientCount = new Set(recipe.arguments.map((ingredient) => ingredient.cardId))
     .size;
   const conceptLabel = recipe.education.concepts.slice(0, 2).join(" + ");
+  const machineryLabel = getAlchemyMachineryLabel(getAlchemyRecipeMachineryId(recipe));
 
   return {
     formula: formatAlchemyRecipeFormula(recipe),
     funFacts: [
       `${recipe.output.name} belongs on the ${formatTokenLabel(recipe.output.kind)} shelf.`,
       `It uses ${ingredientCount} total ingredient card${ingredientCount === 1 ? "" : "s"} and ${uniqueIngredientCount} kind${uniqueIngredientCount === 1 ? "" : "s"} of ingredient.`,
-      `The guild station is ${formatTokenLabel(recipe.station)}, with a ${formatTokenLabel(recipe.action)} action.`,
+      `The guild uses ${machineryLabel} for its ${formatTokenLabel(recipe.action)} action.`,
       `Science idea: ${conceptLabel}.`,
     ],
     id: recipe.id,
@@ -11571,7 +11749,7 @@ function createAlchemyRecipeDiscoveryDetail(recipe: RecipeLedgerRecipe): Workben
     subtitle: `${formatTokenLabel(recipe.action)} · ${formatTokenLabel(recipe.output.kind)}`,
     tags: [
       formatTokenLabel(recipe.output.kind),
-      formatTokenLabel(recipe.station),
+      machineryLabel,
       formatTokenLabel(recipe.education.safetyTier),
     ],
     title: recipe.output.name,
@@ -12263,8 +12441,10 @@ function getTransmutationPadPrompt(
   preview: AlchemyWorkbenchAnyRecipePreview | null,
   alreadyMade: boolean,
   guide: QuestAssemblyGuide | null,
+  machineryChoiceRequired: boolean,
 ): string {
   if (alreadyMade) return "Already made";
+  if (machineryChoiceRequired) return "Choose machinery";
   if (preview && isEmergentRecipePreview(preview)) return "Swipe to stabilize";
   if (
     preview &&
@@ -12282,8 +12462,10 @@ function getTransmutationPadPrompt(
 function getTransmutationPadAriaLabel(
   preview: AlchemyWorkbenchAnyRecipePreview | null,
   alreadyMade: boolean,
+  machineryChoiceRequired: boolean,
 ): string {
   if (alreadyMade) return "Extended recipe already made";
+  if (machineryChoiceRequired) return "Choose machinery before transmuting";
   if (preview && isEmergentRecipePreview(preview)) return "Swipe to stabilize emergent output";
   return preview ? "Swipe to transmute output" : "Match a recipe before transmuting";
 }

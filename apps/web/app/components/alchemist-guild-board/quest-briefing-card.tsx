@@ -2,9 +2,11 @@ import {
   ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
   ELEMENT_CARDS,
   getAlchemyCharactersByRequester,
+  getAlchemyMachineryLabel,
   getAlchemyQuestById,
   getAlchemyRecipeById,
   getAlchemyRecipeByOutput,
+  getAlchemyRecipeMachineryId,
   getQuestRequesterVoiceClipPath,
   type StaticAlchemyQuest,
   type StaticAlchemyRecipe,
@@ -117,6 +119,7 @@ const QuestBriefingRecipeSchema = z.object({
   formula: z.string().min(1),
   imagePath: z.string().regex(PUBLIC_PATH_PATTERN),
   ingredients: z.array(QuestBriefingRecipeIngredientSchema).min(1),
+  machineryLabel: z.string().min(1),
   name: z.string().min(1),
   outputCardId: z.string().min(1),
 });
@@ -955,7 +958,7 @@ const QuestBriefingRecipeDeck = defineComponent(
         className={`grid h-full min-h-0 overflow-hidden ${
           showRecipeRail ? "grid-cols-[minmax(0,1fr)_1.75rem]" : "grid-cols-1"
         }`}
-        aria-label={`${activeRecipe.name}: ${formatIngredientList(activeRecipe.ingredients)}`}
+        aria-label={`${activeRecipe.name}: ${formatIngredientList(activeRecipe.ingredients)}; process: ${activeRecipe.machineryLabel}`}
       >
         <div
           ref={scrollerRef}
@@ -995,7 +998,7 @@ const QuestBriefingRecipeCard = defineComponent(
       data-quest-recipe-card={recipe.name}
       data-output-card-id={recipe.outputCardId}
       className="grid h-full min-h-0 snap-start grid-rows-[auto_minmax(0,1fr)] gap-2 p-3"
-      aria-label={`${recipe.name}: ${formatIngredientList(recipe.ingredients)}`}
+      aria-label={`${recipe.name}: ${formatIngredientList(recipe.ingredients)}; process: ${recipe.machineryLabel}`}
     >
       <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-2">
         <img
@@ -1017,6 +1020,10 @@ const QuestBriefingRecipeCard = defineComponent(
       </div>
 
       <div className="grid min-h-0 content-start overflow-y-auto rounded-[4px] border border-sky-950/20 bg-sky-50/90 p-2">
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-[3px] border border-amber-700/20 bg-amber-100/70 px-2 py-1 text-[10px] font-bold text-amber-950">
+          <span className="uppercase tracking-normal">Process</span>
+          <strong className="text-right font-black">{recipe.machineryLabel}</strong>
+        </div>
         <span className="sr-only">{recipe.formula}</span>
         <QuestBriefingFormula ingredients={recipe.ingredients} recipeName={recipe.name} />
       </div>
@@ -1203,6 +1210,7 @@ function buildQuestBriefingCardProps(quest: StaticAlchemyQuest): QuestBriefingCa
       formula: formatRecipeFormula(recipe),
       imagePath: recipe.output.imagePath,
       ingredients: recipe.arguments.map(formatRecipeIngredient),
+      machineryLabel: getAlchemyMachineryLabel(getAlchemyRecipeMachineryId(recipe)),
       name: recipe.name,
       outputCardId: recipe.output.cardId,
     };
