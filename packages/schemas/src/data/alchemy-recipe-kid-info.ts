@@ -71,6 +71,11 @@ export const ALCHEMY_RECIPE_KID_INFO_SOURCES = [
   ),
   source("source:glass", "Glass - Britannica", "https://www.britannica.com/technology/glass"),
   source(
+    "source:glass-beads",
+    "Bead Types at Fort Vancouver - National Park Service",
+    "https://www.nps.gov/articles/fovabeads.htm",
+  ),
+  source(
     "source:calcium-oxide",
     "Calcium oxide - Encyclopedia.com",
     "https://www.encyclopedia.com/science-and-technology/chemistry/compounds-and-elements/calcium-oxide",
@@ -555,11 +560,11 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     "alchemy:glass-bead",
     "Glass Bead",
     [
-      "A Glass Bead is a small shaped piece of glass.",
-      "The same glass can be a bottle, a tube, or a bead depending on the shape.",
-      "It matters because repeated little parts can become decorations, charms, and circuit-like pieces.",
+      "This Glass Bead starts as a Glass Tube, following the real drawn-bead method.",
+      "Real drawn beads are cut from glass tubes, then reheated or hot-tumbled to smooth their sharp edges.",
+      "The Charcoal card represents that heat; real hot glasswork always needs trained adult supervision.",
     ],
-    ["source:glass"],
+    ["source:glass", "source:glass-beads"],
   ),
   kidInfo(
     "alchemy:empty-potion-bottle",

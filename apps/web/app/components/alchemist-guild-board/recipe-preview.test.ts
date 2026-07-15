@@ -183,7 +183,7 @@ describe("alchemy workbench recipe preview", () => {
     expect(preview?.ingredientRows.map((row) => [row.label, row.quantity])).toEqual([["Water", 2]]);
   });
 
-  test("distinguishes the Glass Tube and Glass Flask shaping recipes", () => {
+  test("distinguishes Glass Tube, Glass Flask, and drawn Glass Bead recipes", () => {
     const tubePreview = getAlchemyWorkbenchRecipePreview([
       "material:glass",
       null,
@@ -198,11 +198,20 @@ describe("alchemy workbench recipe preview", () => {
       null,
       null,
     ]);
+    const beadPreview = getAlchemyWorkbenchRecipePreview([
+      "component:glass-tube",
+      "material:charcoal",
+      null,
+      null,
+      null,
+    ]);
 
     expect(tubePreview?.recipe.id).toBe("alchemy:glass-tube");
     expect(tubePreview?.formula).toBe("Glass");
     expect(flaskPreview?.recipe.id).toBe("alchemy:glass-flask");
     expect(flaskPreview?.formula).toBe("2 Glass");
+    expect(beadPreview?.recipe.id).toBe("alchemy:glass-bead");
+    expect(beadPreview?.formula).toBe("Glass Tube + Charcoal");
   });
 
   test("requires two ingots for metal-shaping component recipes", () => {
