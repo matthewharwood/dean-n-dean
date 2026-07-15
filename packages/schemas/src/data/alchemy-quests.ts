@@ -468,7 +468,7 @@ export const ALCHEMY_QUESTS = [
       requester: "wizard",
       summary: "The glass chain compresses a large material path into practical containers.",
       need: "Make Glass, a Glass Tube, and a Glass Flask for the workshop shelf.",
-      hint: "A Flask is one visible card, but it remembers the glass chain inside it.",
+      hint: "Shape one Glass card into a Glass Tube. Shape two more Glass cards together into a Glass Flask, then deliver both finished pieces.",
       completion: "The table now feels like a workshop, not just a counting mat.",
     },
     progression: {

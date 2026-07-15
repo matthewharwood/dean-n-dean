@@ -183,6 +183,28 @@ describe("alchemy workbench recipe preview", () => {
     expect(preview?.ingredientRows.map((row) => [row.label, row.quantity])).toEqual([["Water", 2]]);
   });
 
+  test("distinguishes the Glass Tube and Glass Flask shaping recipes", () => {
+    const tubePreview = getAlchemyWorkbenchRecipePreview([
+      "material:glass",
+      null,
+      null,
+      null,
+      null,
+    ]);
+    const flaskPreview = getAlchemyWorkbenchRecipePreview([
+      "material:glass",
+      "material:glass",
+      null,
+      null,
+      null,
+    ]);
+
+    expect(tubePreview?.recipe.id).toBe("alchemy:glass-tube");
+    expect(tubePreview?.formula).toBe("Glass");
+    expect(flaskPreview?.recipe.id).toBe("alchemy:glass-flask");
+    expect(flaskPreview?.formula).toBe("2 Glass");
+  });
+
   test("requires two ingots for metal-shaping component recipes", () => {
     const metalShapeRecipeExpectations = [
       ["alchemy:copper-wire", "material:copper-ingot"],

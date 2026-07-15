@@ -394,7 +394,7 @@ export const ALCHEMY_RECIPE_KID_INFO = [
     "alchemy:glass-flask",
     "Glass Flask",
     [
-      "A Glass Flask is a shaped glass container.",
+      "A Glass Flask is a shaped glass container made from two Glass cards because it is larger than a Glass Tube.",
       "Glass is useful for bottles because it is hard, smooth, and does not soak up water like cloth or wood.",
       "In the guild, the flask is the first container that feels like real alchemy gear.",
     ],
