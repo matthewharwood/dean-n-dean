@@ -19,6 +19,7 @@ The architecture below is **load-bearing** — it is what makes the iPad live-re
 - **Styling**: Tailwind
 - **Animation**: anime.js v4 (named-import API only — `createTimeline`, `createAnimatable`, etc.)
 - **Canvas / 2D rendering**: PixiJS 8.18.1 — first-party for any canvas-based UI (game scenes, sprites, particle effects, custom rendering). Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `apps/<name>/app/canvas/`. Same side-channel rule as anime.js: render is pure; all `new Application()` / `Ticker` / sprite mutation lives in `useEffect`. `prefers-reduced-motion: reduce` short-circuits Ticker animations. Game **state** stays in `atomWithIDB` (Pillar 3) — Pixi DisplayObjects never own data. The 24 `pixijs-*` skills under `.agents/skills/` cover the API surface; `usePixiApp` is the dean-stack lifecycle wrapper.
+- **On-device ML inference**: LiteRT.js 2.5.x via `@litertjs/core` — browser-only `.tflite` inference with WebGPU acceleration and Wasm CPU fallback. Initialize through `app/ml/litert-runtime.ts` from an effect, event handler, or browser worker; never during render or prerender. Models, tensors, and compiled runtimes are mutable native resources, not React/Jotai state. LiteRT.js is for bounded task-specific inference where privacy, latency, or offline use matters; it is not a reason to add a backend or replace deterministic game logic.
 - **State**: Jotai — and only Jotai. Do not introduce Zustand, Redux, Recoil, or Context-as-state.
 - **Persistence**: IndexedDB via the `idb` library
 - **Validation**: Zod 4 — the source of truth for every type
@@ -159,6 +160,48 @@ PixiJS is a **side channel** the same way anime.js is. The Pixi scene graph muta
 - Pixi's `Application.init` is browser-only. Importing types/values from `pixi.js` at module load is safe (no Canvas/WebGL touched until `init`); the `useEffect`-only init keeps SSR / TanStack Start prerender safe — they emit an empty `<canvas>` and the SPA paints into it on hydration.
 - Use the **single `pixi.js` package** (v8) — never the deprecated `@pixi/*` sub-packages. Import names: `Application`, `Container`, `Sprite`, `Graphics`, `Text`, `Ticker`, `Assets`, etc. The 24 `pixijs-*` skills under `.agents/skills/` cover every surface area (scene graph, application options, assets, events, color, math, ticker, accessibility, performance, environments, filters, blend modes, custom rendering, migration from v7).
 - Headless test reliability: `preference: "webgl"` is the default in `usePixiApp` because Playwright's headless Chromium runs WebGL via SwiftShader more reliably than WebGPU. Pixi falls back to canvas if WebGL is unavailable.
+
+### On-device ML inference (LiteRT.js 2.5.x)
+
+LiteRT.js is the first-party path for running task-specific `.tflite` models entirely in the browser. Use it when inference genuinely benefits from staying on-device: small image/audio classifiers, pose or gesture recognition, embeddings, or other bounded models where privacy, low latency, and eventual offline execution matter. Keep ordinary game rules, scoring, lookup tables, and authored content deterministic TypeScript; do not use an ML model where explicit logic is clearer or more reliable. LiteRT.js does not authorize a server, cloud inference API, or secret-bearing client configuration.
+
+- Install and import **`@litertjs/core` only**. Add `@litertjs/tfjs-interop` or TensorFlow.js only when a real model pipeline requires TFJS pre/post-processing, and ask first because those packages materially increase the client payload.
+- Initialize through **`initializeLiteRt` in `apps/<name>/app/ml/litert-runtime.ts`**. The wrapper Zod-validates the Wasm path, dynamically imports the runtime, rejects TanStack prerender/Node execution, and reuses LiteRT's page-wide singleton. Call it from `useEffect`, an event handler, or a dedicated browser worker—never in render. Do not call `unloadLiteRt()` on component unmount because that invalidates every model and tensor sharing the runtime.
+- `loadLiteRt()` needs the package's Wasm loader files at a public URL. A throwaway prototype may use a **version-pinned** CDN URL. A shippable feature must self-host the exact loader `.js` + `.wasm` pairs from `node_modules/@litertjs/core/wasm/` under a base-aware public path such as `${import.meta.env.BASE_URL}litert-wasm/`; automate that copy in the app's dev/build scripts instead of committing generated npm artifacts. Put model files under a similarly base-aware path such as `${import.meta.env.BASE_URL}models/<model>.tflite`.
+- Dean-stack's default accelerator policy is **WebGPU when `isWebGPUSupported()` is true, otherwise Wasm**. Compilation can still fail when a model uses unsupported operators, so catch WebGPU compilation failure and retry the whole model on Wasm. Do not split one model across delegates—LiteRT.js does not support partial delegation. WebNN/JSPI remains experimental and is not the default iPad path. Threaded Wasm is disabled because GitHub Pages cannot supply the cross-origin-isolation headers it requires.
+- Load the runtime and model lazily, after the player enters the feature or opts in; do not add ~10 MB Wasm binaries plus a model to the initial route bundle. Show a deterministic loading/fallback state and keep the rest of the game usable when WebGPU, Wasm compilation, or model loading fails.
+- LiteRT objects use manual memory management. Delete every input tensor, output tensor, and compiled model in `finally` blocks when its owning feature is finished. Never put `Tensor`, `CompiledModel`, `GPUBuffer`, or the LiteRT instance in React state, Jotai atoms, or IDB. Convert results to small serializable values, validate them with Zod, then persist only player-visible progress/settings through `atomWithIDB`.
+- Validate a converted model with Google's LiteRT.js Model Tester and fake inputs before building preprocessing/UI around it. Unit-test pure preprocessing, post-processing, and Zod result contracts with `bun test`. Browser accelerator, worker, model-fetch, and offline-cache behavior belongs in Playwright—and still requires the repository's ASK-FIRST conversation before any Playwright test is written.
+- The PWA must not precache model or LiteRT Wasm files as part of the shell. When the PWA layer is enabled, runtime-cache versioned `.tflite`, `.wasm`, and matching loader `.js` assets with `CacheFirst`; bump the URL/version whenever model bytes change so a stale cache cannot silently run the wrong contract.
+
+Minimal browser-side shape (resource cleanup is load-bearing):
+
+```ts
+import { initializeLiteRt } from "~/ml/litert-runtime";
+
+const runtime = await initializeLiteRt({
+  wasmPath: `${import.meta.env.BASE_URL}litert-wasm/`,
+});
+const { Tensor, isWebGPUSupported } = await import("@litertjs/core");
+const model = await runtime.loadAndCompile(`${import.meta.env.BASE_URL}models/example.tflite`, {
+  accelerator: isWebGPUSupported() ? "webgpu" : "wasm",
+});
+const input = new Tensor(new Float32Array(inputValues), [1, inputValues.length]);
+
+try {
+  const outputs = await model.run(input);
+  try {
+    // Copy/convert the needed output to serializable data, then Zod-parse it.
+  } finally {
+    for (const output of outputs) output.delete();
+  }
+} finally {
+  input.delete();
+  model.delete();
+}
+```
+
+Follow `.agents/skills/litertjs/SKILL.md` for model integration work and the current [official LiteRT.js web guide](https://ai.google.dev/edge/litert/web/get_started) for upstream API/platform details.
 
 ### Linting split
 

@@ -23,7 +23,7 @@ describe("quest auto voice", () => {
     expect(
       getQuestAutoVoiceClipPath({
         autoPlayedQuestVoiceIds: [],
-        questId: "quest:first-water",
+        voiceKey: "quest:first-water",
         unlocked: true,
         voiceClipPath,
       }),
@@ -31,7 +31,7 @@ describe("quest auto voice", () => {
     expect(
       getQuestAutoVoiceClipPath({
         autoPlayedQuestVoiceIds: [],
-        questId: "quest:first-water",
+        voiceKey: "quest:first-water",
         unlocked: false,
         voiceClipPath,
       }),
@@ -39,7 +39,7 @@ describe("quest auto voice", () => {
     expect(
       getQuestAutoVoiceClipPath({
         autoPlayedQuestVoiceIds: ["quest:first-water"],
-        questId: "quest:first-water",
+        voiceKey: "quest:first-water",
         unlocked: true,
         voiceClipPath,
       }),
@@ -47,7 +47,7 @@ describe("quest auto voice", () => {
     expect(
       getQuestAutoVoiceClipPath({
         autoPlayedQuestVoiceIds: [],
-        questId: "quest:first-water",
+        voiceKey: "quest:first-water",
         unlocked: true,
         voiceClipPath: null,
       }),

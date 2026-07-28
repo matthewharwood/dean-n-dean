@@ -5,6 +5,7 @@ import {
   ALCHEMIST_GUILD_GATHERING_MONSTER_DEFAULT,
   ALCHEMIST_GUILD_GATHERING_SPACED_REPETITION_DEFAULT,
   ALCHEMY_GATHERING_ENEMIES,
+  type AlchemistGuildBoardState,
   GATHERING_ENEMY_LADDER_LENGTH,
   getGatheringEnemyImagePath,
 } from "@dean-stack/schemas";
@@ -377,7 +378,7 @@ describe("gathering loop", () => {
   });
 
   test("the New Reward Slot upgrade can add a 4th reward option after a kill", () => {
-    const withUpgrade = {
+    const withUpgrade: AlchemistGuildBoardState = {
       ...ALCHEMIST_GUILD_BOARD_DEFAULT,
       unlockedUpgradeIds: [NEW_REWARD_SLOT_UPGRADE_ID],
     };
@@ -403,7 +404,7 @@ describe("gathering loop", () => {
     // isolation. The real kill path runs the plan through
     // AlchemistGuildGatheringStateSchema.parse in selectGatheringMove, which capped
     // rewardOptionCardIds at 3 — so a 4-option plan threw on the killing blow.
-    const context = {
+    const context: AlchemistGuildBoardState = {
       ...ALCHEMIST_GUILD_BOARD_DEFAULT,
       unlockedUpgradeIds: [NEW_REWARD_SLOT_UPGRADE_ID],
     };
@@ -431,7 +432,7 @@ describe("gathering loop", () => {
         ...ALCHEMIST_GUILD_BOARD_DEFAULT.elementQuantities,
         "element:cu": 1,
       },
-      selectedQuestId: "quest:metal-samples",
+      selectedQuestId: "quest:metal-samples-iron-ingot",
     };
 
     const firstDefeat = createGatheringRewardPlan(2, metalQuestContext);
@@ -452,7 +453,7 @@ describe("gathering loop", () => {
     expect(thirdDefeat.targetDropChances["element:fe"]).toBe(1600);
   });
 
-  test("targets Glass Batch primitive dependencies through its component recipes", () => {
+  test("targets only the selected one-recipe quest's primitive dependencies", () => {
     const glassQuestContext = {
       ...ALCHEMIST_GUILD_BOARD_DEFAULT,
       completedQuestIds: [
@@ -460,20 +461,17 @@ describe("gathering loop", () => {
         "quest:kitchen-salt-and-fuel",
         "quest:field-kit-basics",
       ],
-      selectedQuestId: "quest:glass-minerals",
+      selectedQuestId: "quest:glass-minerals-silica",
     };
 
     const firstDefeat = createGatheringRewardPlan(6, glassQuestContext);
 
     expect(Object.keys(firstDefeat.targetDropChances).toSorted()).toEqual([
-      "element:c",
-      "element:ca",
-      "element:na",
       "element:o",
       "element:si",
     ]);
     expect(firstDefeat.targetDropChances["element:si"]).toBe(600);
-    expect(firstDefeat.targetDropChances["element:ca"]).toBe(600);
+    expect(firstDefeat.targetDropChances["element:ca"]).toBeUndefined();
 
     const coveredSilicon = createGatheringRewardPlan(
       7,
@@ -488,7 +486,7 @@ describe("gathering loop", () => {
     );
 
     expect(coveredSilicon.targetDropChances["element:si"]).toBe(600);
-    expect(coveredSilicon.targetDropChances["element:ca"]).toBe(1100);
+    expect(coveredSilicon.targetDropChances["element:o"]).toBe(1100);
   });
 
   test("keeps the selected quest target when its persisted drop chance hits the jackpot", () => {
@@ -499,7 +497,7 @@ describe("gathering loop", () => {
         ...ALCHEMIST_GUILD_BOARD_DEFAULT.elementQuantities,
         "element:cu": 1,
       },
-      selectedQuestId: "quest:metal-samples",
+      selectedQuestId: "quest:metal-samples-iron-ingot",
     };
 
     const rewardPlan = createGatheringRewardPlan(5, metalQuestContext, {

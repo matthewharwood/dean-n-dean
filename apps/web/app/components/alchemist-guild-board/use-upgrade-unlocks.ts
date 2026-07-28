@@ -1,4 +1,4 @@
-import type { AlchemistGuildBoardState } from "@dean-stack/schemas";
+import type { AlchemistGuildBoardState, AlchemistGuildUpgradeId } from "@dean-stack/schemas";
 import { useEffect, useRef } from "react";
 
 import { notifyGameEvent } from "~/components/notification-toast/game-events";
@@ -23,13 +23,13 @@ export function useUpgradeUnlocks(
   discoveredEmergentCount: number,
   discoveredExtendedCount: number,
   longestStreak: number,
-  unlockedUpgradeIds: readonly string[],
+  unlockedUpgradeIds: readonly AlchemistGuildUpgradeId[],
   setBoardState: (
     updater: (previous: AlchemistGuildBoardState) => AlchemistGuildBoardState,
   ) => void,
 ): void {
   useEffect(() => {
-    const earned: string[] = [];
+    const earned: AlchemistGuildUpgradeId[] = [];
     if (isExpeditionQueueUnlockEarned(discoveredEmergentCount)) {
       earned.push(EXPEDITION_QUEUE_UPGRADE_ID);
     }

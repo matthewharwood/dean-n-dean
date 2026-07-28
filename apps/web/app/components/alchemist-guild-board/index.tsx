@@ -1,4 +1,7 @@
 import {
+  ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
+  ALCHEMIST_GUILD_QUICK_INVENTORY_SLOT_IDS,
+  ALCHEMIST_GUILD_RESERVE_INVENTORY_SLOT_IDS,
   ALCHEMY_CRAFTED_CARDS,
   ALCHEMY_GATHERABLE_CARDS,
   ALCHEMY_MACHINERY_UNLOCK_QUEST_ID,
@@ -26,17 +29,17 @@ import {
   type AlchemistGuildQuestDelivery,
   type AlchemistGuildReagentSlotId,
   AlchemistGuildReagentSlotIdSchema,
+  AlchemistGuildUpgradeIdSchema,
   type AlchemyMachineryId,
   AlchemyMachineryIdSchema,
   type AlchemyQuestRewards,
   ELEMENT_CARDS,
   EXTENDED_MOLECULE_RECIPES,
-  getAlchemyCharactersByRequester,
+  getAlchemyCharacterForQuest,
   getAlchemyMachineryLabel,
   getAlchemyQuestBoard,
   getAlchemyQuestById,
   getAlchemyRecipeById,
-  getAlchemyRecipeByOutput,
   getAlchemyRecipeKidInfoById,
   getAlchemyRecipeKidInfoSourceById,
   getAlchemyRecipeMachineryId,
@@ -68,9 +71,9 @@ import {
   Compass,
   FlaskConical,
   Gem,
+  GripVertical,
   LockKeyhole,
   type LucideIcon,
-  PackageOpen,
   Pickaxe,
   ScrollText,
   Sparkles,
@@ -129,6 +132,12 @@ import {
   startOrEnqueueExpedition,
 } from "./expedition-queue";
 import { getExpeditionTabCountdownLabel } from "./expedition-tab-countdown";
+import { ExpeditionTargetPicker } from "./expedition-target-picker";
+import {
+  ExpeditionTargetDefinitionSchema,
+  getDiscoveredElementIdsAfterExpeditionReward,
+  getExpeditionTargetDefinitions,
+} from "./expedition-targets";
 import {
   formatGatheringDamageFloaterLabel,
   type GatheringDamageFloaterTier,
@@ -195,6 +204,12 @@ import {
   type AlchemistGuildIntroPhase,
   isAlchemyIntroZeroState,
 } from "./intro-choreography";
+import {
+  InventoryBagButton,
+  InventoryBagPanel,
+  InventorySurfaceSchema,
+} from "./inventory-bag-panel";
+import { getInventoryDestinationSlotId, getInventoryStackSummary } from "./inventory-capacity";
 import { OrbitForgeOverlay } from "./orbit-forge-overlay";
 import type { ForgeRoundResult } from "./orbit-forge-scoring";
 import {
@@ -290,6 +305,7 @@ const QUEST_CLAIM_TRACK_PADDING_PX = 6;
 const QUEST_REWARD_FLY_DURATION_MS = 560;
 const QUEST_REWARD_FLY_STAGGER_MS = 72;
 const OUTPUT_CARD_COOLDOWN_MS = 1000;
+const INVENTORY_FIELD_BAG_PANEL_ID = "inventory-field-bag-panel";
 const OUTPUT_COOLDOWN_PREFIXES = new Map<string, number>([["material:", OUTPUT_CARD_COOLDOWN_MS]]);
 const MAX_VISIBLE_COOLDOWN_BARS = 4;
 const INVENTORY_CLOCK_INTERVAL_MS = 250;
@@ -350,7 +366,8 @@ const BOARD_DESCRIPTIONS = {
     "The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items.",
   alchemyWorkbenchInfo:
     "Explains the recipe or output currently previewed by the Alchemy Workbench output slot.",
-  inventory: "Stores crafted cards, gathered materials, and quest outputs in the top board strip.",
+  inventory:
+    "Keeps eight stacks on the quick shelf and opens twenty-four more Field Bag pockets in the right panel.",
   boardModeTabs: "Switches between the currently unlocked board modes.",
   outputSlot: "Previews what the current Alchemy Workbench card arrangement is about to make.",
   periodicTableVault: "Holds the unlocked elemental cards that can be picked up for crafting.",
@@ -367,16 +384,14 @@ const reagentSlots = [
   { id: "reagent-slot-5", name: "Reagent slot 5" },
 ] satisfies readonly { id: AlchemistGuildReagentSlotId; name: string }[];
 
-const inventorySlots = [
-  { id: "inventory-slot-1", name: "Inventory slot 1" },
-  { id: "inventory-slot-2", name: "Inventory slot 2" },
-  { id: "inventory-slot-3", name: "Inventory slot 3" },
-  { id: "inventory-slot-4", name: "Inventory slot 4" },
-  { id: "inventory-slot-5", name: "Inventory slot 5" },
-  { id: "inventory-slot-6", name: "Inventory slot 6" },
-  { id: "inventory-slot-7", name: "Inventory slot 7" },
-  { id: "inventory-slot-8", name: "Inventory slot 8" },
-] satisfies readonly { id: AlchemistGuildInventorySlotId; name: string }[];
+const quickInventorySlots = ALCHEMIST_GUILD_QUICK_INVENTORY_SLOT_IDS.map((id, index) => ({
+  id,
+  name: `Quick inventory slot ${index + 1}`,
+}));
+const reserveInventorySlots = ALCHEMIST_GUILD_RESERVE_INVENTORY_SLOT_IDS.map((id, index) => ({
+  id,
+  name: `Field Bag reserve pocket ${index + 1}`,
+}));
 
 const gatheringGameCardSlots = [
   "gathering-card-slot-1",
@@ -384,6 +399,9 @@ const gatheringGameCardSlots = [
   "gathering-card-slot-3",
   "gathering-card-slot-4",
   "gathering-card-slot-5",
+] as const;
+const alchemyQuestArcIds = [
+  ...new Set(ALCHEMY_QUESTS.map((quest) => quest.continuation.arcId)),
 ] as const;
 
 type GatheringMoveVisual = {
@@ -684,13 +702,22 @@ type AlchemyWorkbenchAnyRecipePreview =
 
 type QuestInventoryMarker = {
   label: string;
-  tone: "delivery" | "prep";
+  tone: "carryover" | "delivery" | "prep";
 };
 
-type ExpeditionTargetOption = {
-  card: AlchemyBoardCard;
-  source: "quest" | "vault" | "both";
+export type QuestCarryoverReservation = {
+  arcId: string;
+  cardId: string;
+  sourceQuestId: string;
+  targetQuestId: string;
 };
+
+type QuestCarryoverUse = "sell" | "workbench";
+
+const ExpeditionTargetOptionSchema = ExpeditionTargetDefinitionSchema.and(
+  z.object({ card: z.custom<AlchemyBoardCard>() }),
+);
+type ExpeditionTargetOption = z.infer<typeof ExpeditionTargetOptionSchema>;
 
 type EmergentTransmutationNotice = {
   id: string;
@@ -3249,125 +3276,90 @@ const QuestDeliveryItemSchema = z.object({
   delivered: z.int().min(0),
   required: z.int().min(1),
 });
-const QuestDeliveryPagerPropsSchema = z.object({
+const QuestDeliveryTargetPropsSchema = z.object({
   canClaim: z.boolean(),
+  carriesOutputForward: z.boolean(),
   claimProgress: z.number().min(0).max(1),
   complete: z.boolean(),
+  continuesArc: z.boolean(),
   deliveryDropTargetRef: z.custom<RefObject<HTMLElement | null>>(),
   dropFeedback: z.custom<DropFeedback>(),
-  focusRequest: z.custom<QuestBriefingFocusRequest | null>(),
   isClaimDragging: z.boolean(),
-  items: z.array(QuestDeliveryItemSchema).min(1),
+  item: QuestDeliveryItemSchema,
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
   questId: z.string().min(1),
   requesterName: z.string().min(1),
 });
 
-// One drop-zone page per deliverable. Dots (one per item) show which parts are in;
-// when every part is delivered, the swipe-to-deliver claim slider appears. The drop
-// itself auto-routes (any matching card delivers to its part), so the active page is
-// purely a view — see `isQuestDeliveryAccepted`.
-const QuestDeliveryPager = defineComponent(
-  QuestDeliveryPagerPropsSchema,
+// One quest, one recipe output, one drop target. Once that card is presented, the
+// continuation/final claim slider appears.
+const QuestDeliveryTarget = defineComponent(
+  QuestDeliveryTargetPropsSchema,
   ({
     canClaim,
+    carriesOutputForward,
     claimProgress,
     complete,
+    continuesArc,
     deliveryDropTargetRef,
     dropFeedback,
-    focusRequest,
     isClaimDragging,
-    items,
+    item,
     onClaimPointerDown,
     questId,
     requesterName,
   }) => {
-    const [activePage, setActivePage] = useState(0);
-    const pageCount = items.length;
-    const safePage = activePage < pageCount ? activePage : pageCount - 1;
-
-    useBrowserLayoutEffect(() => {
-      if (!focusRequest) return;
-      const targetIndex = items.findIndex((item) => item.card.id === focusRequest.cardId);
-      if (targetIndex >= 0) setActivePage(targetIndex);
-    }, [focusRequest?.requestId]);
-
-    const activeItem = items[safePage] ?? items[0];
-    if (!activeItem) return null;
-
-    const activeDelivered = Math.min(activeItem.delivered, activeItem.required);
-    const activeItemComplete = activeDelivered >= activeItem.required;
+    const delivered = Math.min(item.delivered, item.required);
+    const itemComplete = delivered >= item.required;
+    const claimAction = continuesArc ? "Continue request" : "Finish request";
+    const cardNoun = item.required === 1 ? "card" : "cards";
+    const deliveryAriaLabel = carriesOutputForward
+      ? `Present ${item.required} ${item.card.name} ${cardNoun} to ${requesterName} for inspection`
+      : `Deliver ${item.required} ${item.card.name} ${cardNoun} to ${requesterName}`;
+    const deliveryStatus = getQuestDeliveryStatus(carriesOutputForward, itemComplete);
     const claimKnobLeft = `calc(${QUEST_CLAIM_TRACK_PADDING_PX}px + ${
       claimProgress * 100
     }% - ${claimProgress * (QUEST_CLAIM_KNOB_WIDTH_PX + QUEST_CLAIM_TRACK_PADDING_PX * 2)}px)`;
 
     return (
-      <div className="grid gap-2" data-board-section="quest-delivery-pager" data-quest-id={questId}>
+      <div
+        className="grid gap-2"
+        data-board-section="quest-delivery-target"
+        data-quest-id={questId}
+      >
         <section
           ref={deliveryDropTargetRef}
-          key={activeItem.card.id}
           data-board-section="quest-delivery-drop-zone"
-          data-board-name={`${activeItem.card.name} quest delivery`}
-          data-card-id={activeItem.card.id}
+          data-board-name={`${item.card.name} quest delivery`}
+          data-card-id={item.card.id}
           data-quest-id={questId}
-          data-delivery-complete={activeItemComplete ? "true" : "false"}
+          data-delivery-complete={itemComplete ? "true" : "false"}
+          data-carried-output={carriesOutputForward ? "true" : "false"}
           data-drop-feedback={dropFeedback}
-          className={getQuestDeliverySlotClass(dropFeedback, activeItemComplete, false)}
-          aria-label={`Deliver ${activeItem.required} ${activeItem.card.name} card${activeItem.required === 1 ? "" : "s"} to ${requesterName}`}
+          className={getQuestDeliverySlotClass(dropFeedback, itemComplete, false)}
+          aria-label={deliveryAriaLabel}
         >
-          <div className={getQuestDeliveryClaimTrackClass(activeItemComplete)}>
+          <div className={getQuestDeliveryClaimTrackClass(itemComplete)}>
             <span
               className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/40 transition-[width] duration-150"
-              style={{ width: activeItemComplete ? "100%" : "0%" }}
+              style={{ width: itemComplete ? "100%" : "0%" }}
               aria-hidden="true"
             />
             <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
               <span className="min-w-0">
                 <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
-                  {activeItemComplete ? "Delivered" : "Drop here"}
+                  {deliveryStatus}
                 </span>
                 <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
-                  {activeItem.card.name}
+                  {item.card.name}
                 </span>
               </span>
               <span className="rounded-full border border-amber-900/25 bg-white/78 px-2 py-1 font-mono text-xs font-black leading-none text-amber-950 shadow-[0_1px_0_rgba(72,45,16,0.1)]">
-                {activeDelivered}/{activeItem.required}
+                {delivered}/{item.required}
               </span>
             </span>
           </div>
         </section>
-
-        {pageCount > 1 ? (
-          <div
-            role="tablist"
-            aria-label="Quest delivery parts"
-            className="flex items-center justify-center gap-1.5"
-          >
-            {items.map((item, index) => {
-              const itemComplete = item.delivered >= item.required;
-              return (
-                <button
-                  key={item.card.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={index === safePage}
-                  aria-label={`${item.card.name}${itemComplete ? " — delivered" : ""}`}
-                  data-quest-delivery-dot=""
-                  data-delivered={itemComplete ? "true" : "false"}
-                  data-active={index === safePage ? "true" : "false"}
-                  className={`size-3 rounded-full border transition-colors ${
-                    itemComplete
-                      ? "border-emerald-700 bg-emerald-500"
-                      : "border-amber-800/45 bg-white/80"
-                  } ${index === safePage ? "ring-2 ring-amber-500/55 ring-offset-1" : ""}`}
-                  onClick={() => {
-                    setActivePage(index);
-                  }}
-                />
-              );
-            })}
-          </div>
-        ) : null}
 
         {complete ? (
           <div
@@ -3383,10 +3375,10 @@ const QuestDeliveryPager = defineComponent(
             <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
               <span className="min-w-0 pl-[4.85rem]">
                 <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
-                  All parts ready
+                  {itemComplete && carriesOutputForward ? "Recipe inspected" : "Recipe ready"}
                 </span>
                 <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
-                  Swipe to deliver to {requesterName}
+                  {claimAction} with {requesterName}
                 </span>
               </span>
             </span>
@@ -3394,7 +3386,7 @@ const QuestDeliveryPager = defineComponent(
               type="button"
               data-quest-claim-knob=""
               tabIndex={canClaim ? 0 : -1}
-              aria-label={`Swipe to deliver to ${requesterName}`}
+              aria-label={`Swipe to ${claimAction.toLowerCase()} with ${requesterName}`}
               className={`absolute top-1/2 z-20 grid h-8 -translate-y-1/2 touch-none select-none place-items-center rounded-full border shadow-[0_5px_14px_rgba(72,45,16,0.22)] transition-[background-color,border-color,opacity] ${
                 canClaim
                   ? "cursor-grab border-emerald-950/30 bg-emerald-600 text-white active:cursor-grabbing"
@@ -3417,6 +3409,11 @@ const QuestDeliveryPager = defineComponent(
     );
   },
 );
+
+function getQuestDeliveryStatus(carriesOutputForward: boolean, complete: boolean): string {
+  if (carriesOutputForward) return complete ? "Inspected" : "Present here";
+  return complete ? "Delivered" : "Drop here";
+}
 
 const QuestPanelPropsSchema = z.object({
   activeQuestIds: z.array(z.string().min(1)),
@@ -3480,6 +3477,7 @@ const QuestPanel = defineComponent(
     unlockedQuestIds,
   }) => {
     const currentQuestViewportRef = useRef<HTMLDivElement>(null);
+    const selectedQuest = getRequiredAlchemyQuest(selectedQuestId);
     const selectedQuestClaimed = claimedQuestIds.includes(selectedQuestId);
 
     useBrowserLayoutEffect(() => {
@@ -3487,18 +3485,20 @@ const QuestPanel = defineComponent(
       currentQuestViewportRef.current?.scrollTo({ top: 0 });
     }, [activeTab, selectedQuestId]);
 
+    const deliveryItem = deliveryItems[0];
     const deliverySlot =
-      !selectedQuestClaimed && deliveryItems.length > 0 ? (
-        <QuestDeliveryPager
+      !selectedQuestClaimed && deliveryItem ? (
+        <QuestDeliveryTarget
           key={selectedQuestId}
           canClaim={canClaim}
+          carriesOutputForward={selectedQuest.continuation.carriesOutputForward}
           claimProgress={claimProgress}
           complete={deliveryComplete}
+          continuesArc={selectedQuest.continuation.nextQuestId !== null}
           deliveryDropTargetRef={deliveryDropTargetRef}
           dropFeedback={deliveryDropFeedback}
-          focusRequest={focusRequest}
           isClaimDragging={isClaimDragging}
-          items={deliveryItems}
+          item={deliveryItem}
           onClaimPointerDown={onClaimPointerDown}
           questId={selectedQuestId}
           requesterName={getQuestRequesterName(selectedQuestId)}
@@ -4270,71 +4270,23 @@ function getExpeditionTargetOptions(
   boardState: AlchemistGuildBoardState,
   quest: StaticAlchemyQuest | null,
 ): ExpeditionTargetOption[] {
-  const discoveredElementIds = new Set(boardState.discoveredElementIds);
-  const questElementIds = quest ? getQuestRequiredElementIds(quest) : new Set<string>();
-
-  return ELEMENT_CARDS.flatMap((elementCard) => {
-    const inVault = discoveredElementIds.has(elementCard.id);
-    const inQuest = questElementIds.has(elementCard.id);
-    if (!inVault && !inQuest) return [];
-
-    const card = getAlchemyCard(elementCard.id);
+  const targetOptions = getExpeditionTargetDefinitions(boardState, quest).flatMap((definition) => {
+    const card = getAlchemyCard(definition.cardId);
     if (!card) return [];
 
-    let source: ExpeditionTargetOption["source"] = "vault";
-    if (inVault && inQuest) source = "both";
-    if (!inVault && inQuest) source = "quest";
-
-    return [{ card, source }];
+    return [{ ...definition, card }];
   });
+
+  return z.array(ExpeditionTargetOptionSchema).parse(targetOptions);
 }
 
-function getQuestRequiredElementIds(quest: StaticAlchemyQuest): Set<string> {
-  const elementIds = new Set<string>();
-  for (const recipeId of quest.recipeIds) {
-    const recipe = getAlchemyRecipeById(recipeId);
-    if (!recipe) continue;
-    collectRequiredElementIds(recipe.output.cardId, elementIds, new Set());
-  }
-  return elementIds;
-}
-
-function collectRequiredElementIds(
-  cardId: string,
-  elementIds: Set<string>,
-  stack: Set<string>,
-): void {
-  if (isElementCardId(cardId)) {
-    elementIds.add(cardId);
-    return;
-  }
-  if (stack.has(cardId)) return;
-
-  const recipe = getAlchemyRecipeByOutput(cardId);
-  if (!recipe) return;
-
-  stack.add(cardId);
-  for (const argument of recipe.arguments) {
-    collectRequiredElementIds(argument.cardId, elementIds, stack);
-  }
-  stack.delete(cardId);
-}
-
-function isElementCardId(cardId: string): boolean {
-  return ELEMENT_CARDS.some((card) => card.id === cardId);
-}
-
-function formatExpeditionTargetSource(source: ExpeditionTargetOption["source"]): string {
-  switch (source) {
-    case "both":
-      return "Vault + Quest";
-    case "quest":
-      return "Quest";
-    case "vault":
-      return "Vault";
-    default:
-      return "Vault";
-  }
+function getExpeditionTargetPickerCardBase(option: ExpeditionTargetOption) {
+  return {
+    cardId: option.cardId,
+    imageSrc: option.card.imagePath ? getAlchemyCardArtSrc(option.card) : null,
+    name: option.card.name,
+    symbol: option.card.symbol,
+  };
 }
 
 const QuestCurrentCarouselPropsSchema = z.object({
@@ -4363,9 +4315,10 @@ const QuestCurrentCarousel = defineComponent(
     const removePointerListenersRef = useRef<(() => void) | null>(null);
     const pendingTransitionRef = useRef<QuestCurrentPendingTransition | null>(null);
     const selectedQuestIndex = getQuestIndexById(selectedQuestId);
+    const selectedQuest = getQuestAtWrappedIndex(selectedQuestIndex);
     const claimedQuestIdSet = new Set(claimedQuestIds);
     const unlockedQuestIdSet = new Set(unlockedQuestIds);
-    const selectedQuestNumber = selectedQuestIndex + 1;
+    const selectedArcNumber = alchemyQuestArcIds.indexOf(selectedQuest.continuation.arcId) + 1;
 
     const centerTrack = () => {
       const slideWidth = viewportRef.current?.getBoundingClientRect().width ?? 0;
@@ -4637,7 +4590,10 @@ const QuestCurrentCarousel = defineComponent(
             className="min-w-0 text-center font-mono text-[11px] font-black leading-none text-amber-950"
             aria-live="polite"
           >
-            Quest {selectedQuestNumber}/{ALCHEMY_QUESTS.length}
+            Story {selectedArcNumber}/{alchemyQuestArcIds.length}
+            {selectedQuest.continuation.stepCount > 1
+              ? ` • Part ${selectedQuest.continuation.step}/${selectedQuest.continuation.stepCount}`
+              : ""}
           </p>
           <button
             type="button"
@@ -4967,6 +4923,7 @@ const ReagentSlot = defineComponent(
 
 const InventorySlotPropsSchema = z.object({
   card: z.custom<AlchemyBoardCard | null>(),
+  carryoverProtected: z.boolean(),
   cooldowns: z.array(z.custom<AlchemistGuildInventoryCooldown>()),
   draggedCard: z.custom<DraggedAlchemyCard | null>(),
   isFlyDestination: z.boolean(),
@@ -4984,12 +4941,14 @@ const InventorySlotPropsSchema = z.object({
   sellPrice: z.number().min(0),
   slotId: AlchemistGuildInventorySlotIdSchema,
   slotName: z.string(),
+  surface: InventorySurfaceSchema,
 });
 
 const InventorySlot = defineComponent(
   InventorySlotPropsSchema,
   ({
     card,
+    carryoverProtected,
     cooldowns,
     draggedCard,
     isFlyDestination,
@@ -4999,12 +4958,19 @@ const InventorySlot = defineComponent(
     sellPrice,
     slotId,
     slotName,
+    surface,
   }) => {
     const stackCount = cooldowns.length;
     const readyCount = getReadyCooldownCount(cooldowns, nowMs);
     const isDraggingSource =
       draggedCard?.source.kind === "inventory" && draggedCard.source.slotId === slotId;
     const stateClass = getInventoryCardStateClass(marker, readyCount);
+    let pickupAriaLabel = `${card?.name ?? "Card"} cooling down in ${slotName}`;
+    if (card && readyCount > 0) {
+      pickupAriaLabel = carryoverProtected
+        ? `Pick up protected carried quest part ${card.name} from ${slotName}`
+        : `Pick up ${readyCount} ready ${card.name} from ${slotName}`;
+    }
 
     return (
       <div
@@ -5015,45 +4981,63 @@ const InventorySlot = defineComponent(
         className="relative h-14 min-w-0 rounded-[6px] border border-dashed border-neutral-700/50 bg-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
       >
         {card && !isFlyDestination ? (
-          <button
-            type="button"
+          <div
             data-board-section="inventory-card"
             data-board-name={`${card.name} inventory card`}
             data-card-id={card.id}
+            data-carryover-protected={carryoverProtected ? "true" : "false"}
+            data-inventory-surface={surface}
             data-ready-count={readyCount}
             data-stack-count={stackCount}
-            className={`absolute inset-1 grid touch-none select-none grid-cols-[2rem_minmax(0,1fr)] items-center gap-1 rounded-[5px] border bg-white/70 px-1 text-left transition-[border-color,opacity,box-shadow] sm:grid-cols-[2.3rem_minmax(0,1fr)] sm:gap-1.5 sm:px-1.5 [-webkit-user-drag:none] active:cursor-grabbing ${stateClass} ${
+            className={`absolute inset-1 grid touch-pan-y select-none grid-cols-[2rem_minmax(0,1fr)] items-center gap-1 rounded-[5px] border bg-white/70 px-1 text-left transition-[border-color,opacity,box-shadow] sm:grid-cols-[2.3rem_minmax(0,1fr)] sm:gap-1.5 sm:px-1.5 [-webkit-user-drag:none] ${stateClass} ${
               isDraggingSource ? "opacity-45" : ""
             }`}
-            aria-label={
-              readyCount > 0
-                ? `Pick up ${readyCount} ready ${card.name} from ${slotName}`
-                : `${card.name} cooling down in ${slotName}`
-            }
-            onPointerDown={(event) => {
-              if (readyCount > 0) onPointerDown(slotId, card, readyCount, event);
-            }}
-            onDragStart={(event) => {
-              event.preventDefault();
-            }}
           >
+            <button
+              type="button"
+              disabled={readyCount < 1}
+              aria-label={
+                surface === "field-bag"
+                  ? `${pickupAriaLabel}. Drag using this handle.`
+                  : pickupAriaLabel
+              }
+              className={
+                surface === "field-bag"
+                  ? "absolute inset-y-0 right-0 z-30 grid w-11 touch-none place-items-center rounded-r-[5px] border-l border-sky-900/15 bg-sky-50/70 text-sky-900 transition-colors hover:bg-sky-100 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+                  : "absolute inset-0 z-30 touch-none rounded-[5px] active:cursor-grabbing disabled:cursor-not-allowed"
+              }
+              onPointerDown={(event) => {
+                if (readyCount > 0) onPointerDown(slotId, card, readyCount, event);
+              }}
+              onDragStart={(event) => {
+                event.preventDefault();
+              }}
+            >
+              {surface === "field-bag" ? (
+                <GripVertical className="size-5 stroke-[2.5]" aria-hidden="true" />
+              ) : (
+                <span className="sr-only">{pickupAriaLabel}</span>
+              )}
+            </button>
             {card.imagePath ? (
               <img
                 src={getAlchemyCardArtSrc(card)}
                 alt=""
                 aria-hidden="true"
-                className="size-8 object-contain sm:size-9"
+                className="pointer-events-none size-8 object-contain sm:size-9"
                 draggable={false}
               />
             ) : (
               <span
                 aria-hidden="true"
-                className="grid size-8 place-items-center rounded-[4px] border border-amber-800/35 bg-amber-100 text-[10px] font-black uppercase leading-none text-amber-950 sm:size-9"
+                className="pointer-events-none grid size-8 place-items-center rounded-[4px] border border-amber-800/35 bg-amber-100 text-[10px] font-black uppercase leading-none text-amber-950 sm:size-9"
               >
                 {card.symbol}
               </span>
             )}
-            <span className="min-w-0">
+            <span
+              className={`pointer-events-none min-w-0 ${surface === "field-bag" ? "pr-10" : ""}`}
+            >
               <span className="block truncate text-[12px] font-black leading-tight text-sky-950">
                 {card.name}
               </span>
@@ -5063,27 +5047,38 @@ const InventorySlot = defineComponent(
                 </span>
                 <span
                   className="inline-flex shrink-0 items-center gap-0.5 text-amber-800"
-                  title={`Sell price ${sellPrice} gold`}
+                  title={
+                    carryoverProtected
+                      ? "One carried quest part is protected"
+                      : `Sell price ${sellPrice} gold`
+                  }
                 >
-                  <Coins className="size-2.5 stroke-[3]" aria-hidden="true" />
-                  {sellPrice}
+                  {carryoverProtected ? (
+                    <>
+                      <LockKeyhole className="size-2.5 stroke-[3]" aria-hidden="true" />
+                      Held
+                    </>
+                  ) : (
+                    <>
+                      <Coins className="size-2.5 stroke-[3]" aria-hidden="true" />
+                      {sellPrice}
+                    </>
+                  )}
                 </span>
               </span>
             </span>
-            <span className="absolute -right-1.5 -top-1.5 rounded-full bg-sky-950 px-1.5 py-0.5 text-[10px] font-black leading-none text-white">
+            <span className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full bg-sky-950 px-1.5 py-0.5 text-[10px] font-black leading-none text-white">
               x{stackCount}
             </span>
             {marker ? (
               <span
-                className={`absolute -bottom-1.5 left-1 rounded-[3px] px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-normal text-white ${
-                  marker.tone === "delivery" ? "bg-amber-700" : "bg-emerald-700"
-                }`}
+                className={`pointer-events-none absolute -bottom-1.5 left-1 rounded-[3px] px-1.5 py-0.5 text-[8px] font-black uppercase leading-none tracking-normal text-white ${getQuestInventoryMarkerBadgeClass(marker.tone)}`}
               >
                 {marker.label}
               </span>
             ) : null}
             <CooldownStack cooldowns={cooldowns} nowMs={nowMs} />
-          </button>
+          </div>
         ) : null}
       </div>
     );
@@ -5102,6 +5097,9 @@ function getInventoryCardStateClass(
   if (marker?.tone === "delivery") {
     return "border-amber-500/80 shadow-[0_0_0_2px_rgba(245,158,11,0.24),0_5px_14px_rgba(15,23,42,0.14)]";
   }
+  if (marker?.tone === "carryover") {
+    return "border-violet-600/75 shadow-[0_0_0_2px_rgba(124,58,237,0.22),0_5px_14px_rgba(15,23,42,0.14)]";
+  }
   if (marker?.tone === "prep") {
     return "border-emerald-600/70 shadow-[0_0_0_2px_rgba(16,185,129,0.2),0_5px_14px_rgba(15,23,42,0.14)]";
   }
@@ -5110,6 +5108,17 @@ function getInventoryCardStateClass(
   }
 
   return "cursor-not-allowed border-amber-500/60 opacity-80 shadow-[0_5px_14px_rgba(15,23,42,0.14)]";
+}
+
+function getQuestInventoryMarkerBadgeClass(tone: QuestInventoryMarker["tone"]): string {
+  switch (tone) {
+    case "carryover":
+      return "bg-violet-700";
+    case "delivery":
+      return "bg-amber-700";
+    default:
+      return "bg-emerald-700";
+  }
 }
 
 const InventorySellZone = defineComponent(
@@ -6841,14 +6850,14 @@ function getMachineryCycleStatus(
   machineryIds: readonly AlchemyMachineryId[],
   currentPosition: number,
 ): string {
-  if (!unlocked) return "After Quest 10";
+  if (!unlocked) return "After Salts & Conductors";
   if (choiceRequired) return `${machineryIds.length} choices`;
   if (machineryIds.length > 1) return `${currentPosition}/${machineryIds.length}`;
   return "Auto";
 }
 
 function getMachineryCycleAriaLabel(unlocked: boolean, label: string, canCycle: boolean): string {
-  if (!unlocked) return "Machinery selector unlocks after Quest 10";
+  if (!unlocked) return "Machinery selector unlocks after Salts & Conductors";
   if (canCycle) return `Current machinery: ${label}. Activate to cycle machinery.`;
   return `Current machinery: ${label}. Selected automatically for these ingredients.`;
 }
@@ -7361,6 +7370,17 @@ const ExpeditionCanvasPanel = defineComponent(
     const targetCard = getAlchemyCard(expedition.targetCardId);
     const expeditionRunning = Boolean(expedition.targetCardId && expedition.readyAtMs);
     const canQueueMore = canQueueExpedition(expedition, queueUpgradeUnlocked);
+    const targetSelectionDisabled = !available || (expeditionRunning && !canQueueMore);
+    const questHelpTargets = targetOptions.flatMap((option) =>
+      option.group === "quest-help"
+        ? [{ ...getExpeditionTargetPickerCardBase(option), source: option.source }]
+        : [],
+    );
+    const elementTargets = targetOptions.flatMap((option) =>
+      option.group === "elements"
+        ? [{ ...getExpeditionTargetPickerCardBase(option), source: option.source }]
+        : [],
+    );
     const queuedCards = expedition.queuedTargetCardIds.map((cardId, slot) => ({
       cardId,
       key: `${cardId}-${slot}`,
@@ -7376,11 +7396,11 @@ const ExpeditionCanvasPanel = defineComponent(
           ref={periodicTableViewportRef}
           data-board-section="expedition-canvas-panel"
           data-board-name="Expedition Canvas"
-          data-board-description="Select a known or quest-needed element and send one fixed expedition."
+          data-board-description="Select a missing quest drop or element and send one focused expedition."
           className={`${CLEAR_TABLE_WINDOW_CLASS} ${GATHERING_PANEL_TRANSITION_CLASS} pointer-events-auto relative overflow-hidden p-4`}
         >
           <BoardDebugBadge
-            description="Select a known or quest-needed element and send one fixed expedition."
+            description="Select a missing quest drop or element and send one focused expedition."
             label="Expedition Canvas"
             visible={showBoardDebugBadges}
           />
@@ -7396,44 +7416,41 @@ const ExpeditionCanvasPanel = defineComponent(
               </h2>
               <p className="max-w-3xl text-sm font-semibold leading-snug text-neutral-800">
                 {available
-                  ? "Pick one element. The scout locks onto it for three minutes, then brings back one card."
-                  : "Craft Glass first. Once the guild has glass lenses, expeditions can search for known or quest-needed elements."}
+                  ? "Pick one target. The scout searches for three minutes, then brings back one ready card."
+                  : "Craft Glass first. Once the guild has glass lenses, scouts can search for known elements and hard-to-find quest drops."}
               </p>
             </header>
 
             <div className="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
-              <section className="min-h-0 overflow-hidden rounded-[7px] border border-sky-950/15 bg-white/60 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="font-serif text-lg leading-none text-sky-950">Element Targets</h3>
-                  <span className="rounded-full border border-sky-900/20 bg-sky-50/80 px-2 py-1 font-mono text-[10px] font-black leading-none text-sky-950">
-                    {targetOptions.length}
-                  </span>
-                </div>
-                <div className="grid max-h-full grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2 overflow-y-auto pr-1">
-                  {targetOptions.map((option) => (
-                    <ExpeditionTargetButton
-                      key={option.card.id}
-                      disabled={!available || (expeditionRunning && !canQueueMore)}
-                      option={option}
-                      selected={option.card.id === expedition.targetCardId}
-                      onStart={onStart}
-                    />
-                  ))}
-                </div>
-              </section>
+              <ExpeditionTargetPicker
+                disabled={targetSelectionDisabled}
+                elementTargets={elementTargets}
+                onSelectTarget={onStart}
+                questHelpTargets={questHelpTargets}
+                selectedCardId={expedition.targetCardId}
+              />
 
               <aside className="grid content-start gap-3 rounded-[7px] border border-amber-900/15 bg-white/65 p-3">
                 <h3 className="font-serif text-lg leading-none text-amber-950">Current Run</h3>
                 {targetCard ? (
                   <div className="grid gap-3">
                     <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-3 rounded-[6px] border border-amber-900/15 bg-white/75 p-2">
-                      <img
-                        src={getAlchemyCardArtSrc(targetCard)}
-                        alt=""
-                        aria-hidden="true"
-                        className="size-12 object-contain"
-                        draggable={false}
-                      />
+                      {targetCard.imagePath ? (
+                        <img
+                          src={getAlchemyCardArtSrc(targetCard)}
+                          alt=""
+                          aria-hidden="true"
+                          className="size-12 object-contain"
+                          draggable={false}
+                        />
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="grid size-12 place-items-center rounded-[6px] border border-amber-800/25 bg-amber-100 font-mono text-sm font-black text-amber-950"
+                        >
+                          {targetCard.symbol}
+                        </span>
+                      )}
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-black leading-tight text-sky-950">
                           {targetCard.name}
@@ -7463,7 +7480,7 @@ const ExpeditionCanvasPanel = defineComponent(
                   </div>
                 ) : (
                   <p className="rounded-[6px] border border-dashed border-neutral-900/20 bg-white/55 p-3 text-sm font-bold leading-snug text-neutral-700">
-                    No expedition is running. Choose one target from the list.
+                    No expedition is running. Choose a Quest Help item or element.
                   </p>
                 )}
                 {queueUpgradeUnlocked ? (
@@ -7476,55 +7493,6 @@ const ExpeditionCanvasPanel = defineComponent(
       </section>
     );
   },
-);
-
-const ExpeditionTargetButtonPropsSchema = z.object({
-  disabled: z.boolean(),
-  onStart: z.custom<(cardId: string) => void>(),
-  option: z.custom<ExpeditionTargetOption>(),
-  selected: z.boolean(),
-});
-
-const ExpeditionTargetButton = defineComponent(
-  ExpeditionTargetButtonPropsSchema,
-  ({ disabled, onStart, option, selected }) => (
-    <button
-      type="button"
-      data-board-section="expedition-target"
-      data-card-id={option.card.id}
-      data-selected={selected ? "true" : undefined}
-      disabled={disabled}
-      className={`pointer-events-auto grid min-h-24 grid-rows-[1fr_auto] gap-1 rounded-[6px] border p-2 text-left transition-[background-color,border-color,box-shadow,opacity] ${
-        selected
-          ? "border-emerald-600/70 bg-emerald-50 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]"
-          : "border-sky-950/15 bg-white/70 hover:bg-white/90"
-      } disabled:cursor-not-allowed disabled:opacity-55`}
-      onClick={() => {
-        onStart(option.card.id);
-      }}
-    >
-      <span className="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-2">
-        <img
-          src={getAlchemyCardArtSrc(option.card)}
-          alt=""
-          aria-hidden="true"
-          className="size-9 object-contain"
-          draggable={false}
-        />
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-black leading-tight text-sky-950">
-            {option.card.name}
-          </span>
-          <span className="block truncate font-mono text-[11px] font-black leading-none text-sky-950/70">
-            {option.card.symbol}
-          </span>
-        </span>
-      </span>
-      <span className="justify-self-start rounded-full border border-sky-900/15 bg-sky-50/90 px-1.5 py-0.5 text-[9px] font-black uppercase leading-none text-sky-950">
-        {formatExpeditionTargetSource(option.source)}
-      </span>
-    </button>
-  ),
 );
 
 const ExpeditionRewardModalPropsSchema = z.object({
@@ -7584,13 +7552,23 @@ const ExpeditionRewardModal = defineComponent(
             data-board-section="expedition-reward-card"
             className="expedition-reward-card-shader mx-auto grid size-28 place-items-center rounded-[7px] border-2 border-emerald-600/55 bg-emerald-50"
           >
-            <img
-              src={getAlchemyCardArtSrc(card)}
-              alt=""
-              aria-hidden="true"
-              className="size-20 object-contain"
-              draggable={false}
-            />
+            {card.imagePath ? (
+              <img
+                src={getAlchemyCardArtSrc(card)}
+                alt=""
+                aria-hidden="true"
+                className="size-20 object-contain"
+                draggable={false}
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                data-expedition-art-fallback="true"
+                className="grid size-20 place-items-center rounded-[7px] border border-amber-800/25 bg-amber-100 font-mono text-2xl font-black text-amber-950"
+              >
+                {card.symbol}
+              </span>
+            )}
           </div>
           <div>
             <h2
@@ -7646,6 +7624,8 @@ const RightModePanelsPropsSchema = z.object({
   hasExtendedRecipeNotifications: z.boolean(),
   hasRecipeNotifications: z.boolean(),
   infoPanelCollapsed: z.boolean(),
+  inventoryBagOpen: z.boolean(),
+  inventoryBagPanel: z.custom<ReactNode>(),
   isGatheringMode: z.boolean(),
   isGatheringRewardMode: z.boolean(),
   onDeathAnimationComplete: z.custom<GatheringMonsterDeathCompleteHandler>(),
@@ -7683,6 +7663,8 @@ const RightModePanels = defineComponent(
     hasExtendedRecipeNotifications,
     hasRecipeNotifications,
     infoPanelCollapsed,
+    inventoryBagOpen,
+    inventoryBagPanel,
     isGatheringMode,
     isGatheringRewardMode,
     onDeathAnimationComplete,
@@ -7721,6 +7703,8 @@ const RightModePanels = defineComponent(
           onDeathAnimationComplete={onDeathAnimationComplete}
         />
       );
+    } else if (inventoryBagOpen) {
+      primaryPanelContent = inventoryBagPanel;
     } else if (infoPanelCollapsed) {
       primaryPanelContent = null;
     } else {
@@ -7755,27 +7739,36 @@ const RightModePanels = defineComponent(
       );
     }
 
+    let primaryPanelSection: string = "alchemy-workbench-info-panel";
+    let primaryPanelName: string = "Alchemy Workbench Info";
+    let primaryPanelDescription: string = BOARD_DESCRIPTIONS.alchemyWorkbenchInfo;
+
+    if (isGatheringMode) {
+      primaryPanelSection = "gathering-monster-panel";
+      primaryPanelName = "Monster Panel";
+      primaryPanelDescription = "Gathering encounter monster slots.";
+    } else if (inventoryBagOpen) {
+      primaryPanelSection = "inventory-field-bag-panel";
+      primaryPanelName = "Field Bag";
+      primaryPanelDescription = "Scrollable reserve inventory with touch-safe drag handles.";
+    }
+
     return (
       <aside className={getRightModePanelsClass(isGatheringMode)}>
         <div
           ref={rightPrimaryPanelRef}
-          data-board-section={
-            isGatheringMode ? "gathering-monster-panel" : "alchemy-workbench-info-panel"
-          }
-          data-board-name={isGatheringMode ? "Monster Panel" : "Alchemy Workbench Info"}
-          data-board-description={
-            isGatheringMode
-              ? "Gathering encounter monster slots."
-              : BOARD_DESCRIPTIONS.alchemyWorkbenchInfo
-          }
+          data-board-section={primaryPanelSection}
+          data-board-name={primaryPanelName}
+          data-board-description={primaryPanelDescription}
           data-gathering-mastery-ready={
             isGatheringMode && gatheringLevelMastery.bossReady ? "true" : undefined
           }
           data-gathering-mastery-feedback={isGatheringMode ? masteryFeedback : undefined}
           aria-hidden={isGatheringRewardMode ? true : undefined}
-          className={`${getRightPrimaryPanelClass(isGatheringMode, infoPanelCollapsed)} ${
-            isGatheringMode ? "gathering-mastery-frame" : ""
-          } ${
+          className={`${getRightPrimaryPanelClass(
+            isGatheringMode,
+            infoPanelCollapsed && !inventoryBagOpen,
+          )} ${isGatheringMode ? "gathering-mastery-frame" : ""} ${
             isGatheringRewardMode
               ? "pointer-events-none opacity-0 scale-[0.98]"
               : "opacity-100 scale-100"
@@ -8174,6 +8167,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   );
   const [infoPanelTab, setInfoPanelTab] = useState<InfoPanelTab>("element");
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(initialIntroZeroState);
+  const [inventoryBagOpen, setInventoryBagOpen] = useState(false);
   const [questPanelCollapsed, setQuestPanelCollapsed] = useState(initialIntroZeroState);
   const [questPanelTab, setQuestPanelTab] = useState<QuestPanelTab>("current");
   const [questFocusRequest, setQuestFocusRequest] = useState<QuestBriefingFocusRequest | null>(
@@ -8214,7 +8208,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     transmutationPreview,
     boardState.discoveredExtendedRecipeIds,
   );
-  const canTransmutePreview = Boolean(transmutationPreview) && !isOutputAlreadyMade;
+  const transmutationRecipeId =
+    transmutationPreview && !isEmergentRecipePreview(transmutationPreview)
+      ? transmutationPreview.recipe.id
+      : null;
+  const canTransmutePreview =
+    Boolean(transmutationPreview) &&
+    !isOutputAlreadyMade &&
+    canTransmuteWithQuestCarryovers(boardState, transmutationRecipeId, nowMs);
   const activeQuestIds = getAlchemyQuestBoard(boardState.completedQuestIds).map(
     (quest) => quest.id,
   );
@@ -8225,8 +8226,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   const selectedQuestId = getQuestAtWrappedIndex(getQuestIndexById(boardState.selectedQuestId)).id;
   const selectedQuest = getRequiredAlchemyQuest(selectedQuestId);
   const selectedQuestDelivery = getQuestDelivery(boardState.questDeliveries, selectedQuestId);
-  // One page per deliverable: a bundle quest yields its components (Salt/Charcoal/Ash);
-  // a simple quest a single item. The delivery state holds the per-card delivered count.
+  // Every quest delivers exactly the output of its one displayed recipe.
   const selectedQuestDeliveryItems = getQuestDeliverables(selectedQuest).flatMap((deliverable) => {
     const card = getAlchemyCard(deliverable.cardId);
     return card
@@ -8255,6 +8255,12 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     selectedQuestUnlocked && !claimedSelectedQuest
       ? createQuestAssemblyGuide(boardState, selectedQuest, nowMs)
       : null;
+  const questCarryoverReservations = getQuestCarryoverReservations(boardState);
+  const inventoryBagUnlocked = hasUpgrade(
+    boardState.unlockedUpgradeIds,
+    ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
+  );
+  const inventoryStackSummary = getInventoryStackSummary(boardState);
   const questPanelAccepted = isQuestPanelAcceptedDrop(dropIntent);
   const expeditionAvailable = isExpeditionAvailable(boardState);
   const gatheringAvailable = isGatheringAvailable(boardState.completedQuestIds);
@@ -8381,14 +8387,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     const voiceClipPath = quest
       ? getQuestAutoVoiceClipPath({
           autoPlayedQuestVoiceIds: boardStateRef.current.autoPlayedQuestVoiceIds,
-          questId: selectedQuestId,
+          voiceKey: quest.continuation.arcId,
           unlocked: selectedQuestUnlocked,
           voiceClipPath: getQuestRequesterVoiceClipPath(quest),
         })
       : null;
-    if (!voiceClipPath) return stopAutoQuestVoice;
+    if (!quest || !voiceClipPath) return stopAutoQuestVoice;
 
-    setBoardState((previous) => markQuestVoiceAutoPlayed(previous, selectedQuestId));
+    setBoardState((previous) => markQuestVoiceAutoPlayed(previous, quest.continuation.arcId));
     autoQuestVoiceTimeoutRef.current = window.setTimeout(() => {
       autoQuestVoiceTimeoutRef.current = null;
       const audio = new Audio(resolvePublicAssetPath(voiceClipPath));
@@ -8644,7 +8650,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     setBoardState((previous) => ({
       ...previous,
-      discoveredElementIds: appendUniqueId(previous.discoveredElementIds, targetCardId),
+      discoveredElementIds: getDiscoveredElementIdsAfterExpeditionReward(
+        previous.discoveredElementIds,
+        targetCardId,
+      ),
       // Free the dock and auto-start the next queued run (Expedition Queue upgrade).
       expedition: advanceExpeditionQueue(previous.expedition, claimedAtMs, EXPEDITION_DURATION_MS),
       inventorySlots: addReadyInventoryCopy(
@@ -8741,7 +8750,13 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (event.button !== 0 || readyCount < 1) return;
     event.preventDefault();
     capturePointer(event.currentTarget, event.pointerId);
-    const rect = event.currentTarget.getBoundingClientRect();
+    const inventoryCardElement = event.currentTarget.closest(
+      '[data-board-section="inventory-card"]',
+    );
+    const rect =
+      inventoryCardElement instanceof HTMLElement
+        ? inventoryCardElement.getBoundingClientRect()
+        : event.currentTarget.getBoundingClientRect();
     const grabOffset = getScaledPointerOffset(event, rect);
     dragSequenceRef.current += 1;
     const nextDraggedCard: DraggedAlchemyCard = {
@@ -8788,6 +8803,11 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   };
 
   const handleInfoPanelToggle = () => {
+    if (inventoryBagOpen) {
+      setInventoryBagOpen(false);
+      setInfoPanelCollapsed(false);
+      return;
+    }
     setInfoPanelCollapsed((collapsed) => !collapsed);
   };
 
@@ -8817,6 +8837,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (nextTab === "gathering" && gatheringNudgeKey) {
       setGatheringNudgeDismissedKey(gatheringNudgeKey);
     }
+    if (nextTab !== "crafting") setInventoryBagOpen(false);
     if (nextTab === activeBoardMode) {
       if (nextTab === "gathering" && !boardStateRef.current.gathering.unlockSeen) {
         setBoardState((previous) => ({
@@ -8867,6 +8888,19 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           : previous.expedition,
     }));
     void sfx.play(boardModeTabSoundIds[nextTab]);
+  };
+
+  const handleInventoryBagToggle = () => {
+    if (!inventoryBagUnlocked) return;
+    if (inventoryBagOpen) {
+      setInventoryBagOpen(false);
+      void sfx.play("card.drop");
+      return;
+    }
+
+    setInventoryBagOpen(true);
+    if (activeBoardMode !== "crafting") handleBoardModeTabChange("crafting");
+    void sfx.play("card.slot.pickup");
   };
 
   const handleGatheringSessionStay = () => {
@@ -8972,12 +9006,15 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
   };
 
   const handleConfirmUpgrade = (upgradeId: string) => {
+    const parsedUpgradeId = AlchemistGuildUpgradeIdSchema.safeParse(upgradeId);
+    if (!parsedUpgradeId.success) return;
+
     setBoardState((previous) =>
-      previous.unlockedUpgradeIds.includes(upgradeId)
+      previous.unlockedUpgradeIds.includes(parsedUpgradeId.data)
         ? previous
         : {
             ...previous,
-            unlockedUpgradeIds: appendUniqueId(previous.unlockedUpgradeIds, upgradeId),
+            unlockedUpgradeIds: appendUniqueId(previous.unlockedUpgradeIds, parsedUpgradeId.data),
           },
     );
     void sfx.play("card.drop");
@@ -9478,6 +9515,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     if (!transmutationPreview) return;
 
     const currentBoardState = boardStateRef.current;
+    const currentRecipeId = isEmergentRecipePreview(transmutationPreview)
+      ? null
+      : transmutationPreview.recipe.id;
+    if (!canTransmuteWithQuestCarryovers(currentBoardState, currentRecipeId, Date.now())) {
+      void sfx.play("card.drop");
+      return;
+    }
+
     if (isEmergentRecipePreview(transmutationPreview)) {
       commitEmergentTransmutation(transmutationPreview);
       return;
@@ -10189,8 +10234,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     const presentCooldownIds = new Set<string>();
     const readyCooldownIds: string[] = [];
 
-    for (const slot of inventorySlots) {
-      const item = boardState.inventorySlots[slot.id];
+    for (const item of Object.values(boardState.inventorySlots)) {
       if (!item) continue;
 
       for (const cooldown of item.cooldowns) {
@@ -10388,6 +10432,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         isCardCenterInsideExtendedLedgerFilterDropZone(currentLeft, currentTop),
         boardStateRef.current,
         extendedLedgerFilterCardIdsRef.current,
+        Date.now(),
       );
 
     const syncDropIntent = () => {
@@ -10438,12 +10483,18 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       };
 
       if (releaseDropIntent.kind === "sell") {
+        const soldAtMs = Date.now();
         if (
           releaseDropIntent.accepted &&
           source.kind === "inventory" &&
-          releaseDropIntent.price > 0
+          releaseDropIntent.price > 0 &&
+          canSpendQuestCarryoverInventoryCopy(
+            currentBoardState,
+            activeDraggedCard.card.id,
+            soldAtMs,
+            "sell",
+          )
         ) {
-          const soldAtMs = Date.now();
           // Merchant's Eye: doubles the sale once unlocked. The FIRST sale unlocks
           // it (at the base price) + raises the toast; the bonus applies from the
           // next sale on.
@@ -10516,62 +10567,19 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           isQuestDeliveryAccepted(activeDraggedCard.card, currentBoardState)
         ) {
           const deliveredAtMs = Date.now();
-          if (source.kind === "inventory") {
-            queueInventoryRemainderReturn(1);
-            setBoardState((previous) => ({
-              ...previous,
-              inventorySlots: consumeReadyInventoryCopies(
-                previous.inventorySlots,
-                source.slotId,
-                1,
-                deliveredAtMs,
-              ),
-              questDeliveries: addSelectedQuestDelivery(
-                previous.questDeliveries,
-                currentBoardState.selectedQuestId,
-                activeDraggedCard.card.id,
-              ),
-            }));
-            void sfx.play("card.drop");
-            return;
-          }
-
-          if (source.kind === "table") {
-            setBoardState((previous) => {
-              const nextElementQuantities = consumeElementQuantity(
-                previous.elementQuantities,
-                activeDraggedCard.card.id,
-              );
-              if (!nextElementQuantities) return previous;
-
-              return {
-                ...previous,
-                elementQuantities: nextElementQuantities,
-                questDeliveries: addSelectedQuestDelivery(
-                  previous.questDeliveries,
-                  currentBoardState.selectedQuestId,
-                  activeDraggedCard.card.id,
-                ),
-              };
-            });
-            void sfx.play("card.drop");
-            return;
-          }
-
-          if (source.kind === "slot") {
-            setBoardState((previous) => ({
-              ...previous,
-              questDeliveries: addSelectedQuestDelivery(
-                previous.questDeliveries,
-                currentBoardState.selectedQuestId,
-                activeDraggedCard.card.id,
-              ),
-              reagentSlots: { ...previous.reagentSlots, [source.slotId]: null },
-              selectedMachineryId: null,
-            }));
-            void sfx.play("card.drop");
-            return;
-          }
+          const deliveryQuest = getRequiredAlchemyQuest(currentBoardState.selectedQuestId);
+          const carriesOutputForward = deliveryQuest.continuation.carriesOutputForward;
+          queueInventoryRemainderReturn(carriesOutputForward ? 0 : 1);
+          setBoardState((previous) =>
+            applyAcceptedQuestDelivery(previous, {
+              cardId: activeDraggedCard.card.id,
+              deliveredAtMs,
+              quest: deliveryQuest,
+              source,
+            }),
+          );
+          void sfx.play("card.drop");
+          return;
         }
 
         if (source.kind === "slot") {
@@ -10645,22 +10653,48 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           return;
         }
 
-        queueInventoryRemainderReturn(1);
         const releasedAtMs = Date.now();
-        setBoardState((previous) => ({
-          ...previous,
-          inventorySlots: consumeReadyInventoryCopies(
-            previous.inventorySlots,
-            source.slotId,
-            1,
+        if (
+          !canSpendQuestCarryoverInventoryCopy(
+            currentBoardState,
+            activeDraggedCard.card.id,
             releasedAtMs,
-          ),
-          reagentSlots: {
-            ...previous.reagentSlots,
-            [dropSlotId]: activeDraggedCard.card.id,
-          },
-          selectedMachineryId: null,
-        }));
+            "workbench",
+          )
+        ) {
+          queueInventoryRemainderReturn(0);
+          void sfx.play("card.drop");
+          return;
+        }
+
+        queueInventoryRemainderReturn(1);
+        setBoardState((previous) => {
+          if (
+            !canSpendQuestCarryoverInventoryCopy(
+              previous,
+              activeDraggedCard.card.id,
+              releasedAtMs,
+              "workbench",
+            )
+          ) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            inventorySlots: consumeReadyInventoryCopies(
+              previous.inventorySlots,
+              source.slotId,
+              1,
+              releasedAtMs,
+            ),
+            reagentSlots: {
+              ...previous.reagentSlots,
+              [dropSlotId]: activeDraggedCard.card.id,
+            },
+            selectedMachineryId: null,
+          };
+        });
         void sfx.play("card.drop");
         return;
       }
@@ -11276,19 +11310,21 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
             label="Inventory"
             visible={showBoardDebugBadges}
           />
-          <div
-            className={`${GLASS_CONTROL_CLASS} grid size-10 place-items-center justify-self-start text-sky-950`}
-            aria-hidden="true"
-          >
-            <PackageOpen className="size-5" strokeWidth={2.25} aria-hidden="true" />
-          </div>
+          <InventoryBagButton
+            controlsId={INVENTORY_FIELD_BAG_PANEL_ID}
+            expanded={inventoryBagOpen}
+            itemCount={inventoryStackSummary.occupiedStackCount}
+            onToggle={handleInventoryBagToggle}
+            unlocked={inventoryBagUnlocked}
+            unlockHint="Finish Sir Bubbleton Needs Water"
+          />
           <span className="h-10 w-px bg-[#6b4a2b]/22" aria-hidden="true" />
           <div
             data-board-section="inventory-shelf"
             data-board-name="Inventory shelf"
             className="grid min-h-14 min-w-0 grid-cols-[repeat(8,minmax(0,1fr))] items-center gap-1.5 rounded-[8px] border border-[#6b4a2b]/12 bg-white/22 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.52)] sm:gap-2"
           >
-            {inventorySlots.map((slot) => {
+            {quickInventorySlots.map((slot) => {
               const item = boardState.inventorySlots[slot.id];
               const card = getAlchemyCard(item?.cardId ?? null);
 
@@ -11296,6 +11332,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                 <InventorySlot
                   key={slot.id}
                   card={card}
+                  carryoverProtected={
+                    card
+                      ? questCarryoverReservations.some(
+                          (reservation) => reservation.cardId === card.id,
+                        ) &&
+                        !canSpendQuestCarryoverInventoryCopy(boardState, card.id, nowMs, "sell")
+                      : false
+                  }
                   cooldowns={item?.cooldowns ?? []}
                   draggedCard={draggedCard}
                   isFlyDestination={
@@ -11307,12 +11351,14 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                     selectedQuestAssemblyGuide,
                     selectedQuest,
                     selectedQuestDelivery,
+                    questCarryoverReservations,
                   )}
                   nowMs={nowMs}
                   onPointerDown={beginInventoryCardDrag}
                   sellPrice={card ? getAlchemyCardSellPrice(card) : 0}
                   slotId={slot.id}
                   slotName={slot.name}
+                  surface="quick-strip"
                 />
               );
             })}
@@ -11331,7 +11377,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
           gatheringNudgeActive={gatheringNudgeActive}
           gatheringRevealActive={gatheringRevealActive}
           gatheringRevealKey={gatheringRevealKey}
-          infoPanelCollapsed={infoPanelCollapsed}
+          infoPanelCollapsed={infoPanelCollapsed && !inventoryBagOpen}
           questPanelCollapsed={questPanelCollapsed}
           onInfoPanelToggle={handleInfoPanelToggle}
           onQuestPanelToggle={() => {
@@ -11455,6 +11501,60 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               hasExtendedRecipeNotifications={pendingExtendedRecipeNotificationIds.length > 0}
               hasRecipeNotifications={pendingRecipeNotificationIds.length > 0}
               infoPanelCollapsed={infoPanelCollapsed}
+              inventoryBagOpen={inventoryBagOpen}
+              inventoryBagPanel={
+                <InventoryBagPanel
+                  id={INVENTORY_FIELD_BAG_PANEL_ID}
+                  itemCount={inventoryStackSummary.occupiedStackCount}
+                  onClose={() => setInventoryBagOpen(false)}
+                  reserveCapacity={reserveInventorySlots.length}
+                  surface="field-bag"
+                >
+                  {reserveInventorySlots.map((slot) => {
+                    const item = boardState.inventorySlots[slot.id];
+                    const card = getAlchemyCard(item?.cardId ?? null);
+
+                    return (
+                      <InventorySlot
+                        key={slot.id}
+                        card={card}
+                        carryoverProtected={
+                          card
+                            ? questCarryoverReservations.some(
+                                (reservation) => reservation.cardId === card.id,
+                              ) &&
+                              !canSpendQuestCarryoverInventoryCopy(
+                                boardState,
+                                card.id,
+                                nowMs,
+                                "sell",
+                              )
+                            : false
+                        }
+                        cooldowns={item?.cooldowns ?? []}
+                        draggedCard={draggedCard}
+                        isFlyDestination={
+                          transmuteFlyAnimation?.toInventorySlotId === slot.id &&
+                          transmuteFlyAnimation.card.id === item?.cardId
+                        }
+                        marker={getQuestInventoryMarker(
+                          card,
+                          selectedQuestAssemblyGuide,
+                          selectedQuest,
+                          selectedQuestDelivery,
+                          questCarryoverReservations,
+                        )}
+                        nowMs={nowMs}
+                        onPointerDown={beginInventoryCardDrag}
+                        sellPrice={card ? getAlchemyCardSellPrice(card) : 0}
+                        slotId={slot.id}
+                        slotName={slot.name}
+                        surface="field-bag"
+                      />
+                    );
+                  })}
+                </InventoryBagPanel>
+              }
               isGatheringMode={isGatheringMode}
               isGatheringRewardMode={isGatheringRewardMode}
               preview={transmutationPreview}
@@ -11940,7 +12040,10 @@ function getQuestAtWrappedIndex(index: number): StaticAlchemyQuest {
 
 function getQuestRequesterName(questId: string): string {
   const quest = getRequiredAlchemyQuest(questId);
-  const requesterCharacter = getAlchemyCharactersByRequester(quest.narrative.requester)[0];
+  const requesterCharacter = getAlchemyCharacterForQuest(
+    quest.narrative.requester,
+    quest.continuation.arcId,
+  );
   return requesterCharacter?.name ?? formatTokenLabel(quest.narrative.requester);
 }
 
@@ -12320,10 +12423,14 @@ function getQuestInventoryMarker(
   guide: QuestAssemblyGuide | null,
   quest: StaticAlchemyQuest,
   delivery: AlchemistGuildQuestDelivery,
+  carryoverReservations: readonly QuestCarryoverReservation[],
 ): QuestInventoryMarker | null {
   if (!card) return null;
   if (canDeliverCardToQuest(quest, delivery, card.id))
     return { label: "Turn in", tone: "delivery" };
+  if (carryoverReservations.some((reservation) => reservation.cardId === card.id)) {
+    return { label: "Carried part", tone: "carryover" };
+  }
 
   const ingredient = guide?.ingredients.find((candidate) => candidate.cardId === card.id);
   if (!ingredient) return null;
@@ -12896,7 +13003,13 @@ function getSlotRect(slotId: AlchemistGuildReagentSlotId): SlotRect | null {
 }
 
 function getInventorySlotRect(slotId: AlchemistGuildInventorySlotId): SlotRect | null {
-  return getElementRect(`[data-inventory-slot-id="${slotId}"]`);
+  const visibleSlotRect = getElementRect(`[data-inventory-slot-id="${slotId}"]`);
+  if (visibleSlotRect) return visibleSlotRect;
+
+  const isReserveSlot = ALCHEMIST_GUILD_RESERVE_INVENTORY_SLOT_IDS.some(
+    (reserveSlotId) => reserveSlotId === slotId,
+  );
+  return isReserveSlot ? getElementRect('[data-board-section="inventory-bag-button"]') : null;
 }
 
 function getGatheringDropTargetAtCardCenter(
@@ -13064,8 +13177,8 @@ function isQuestDeliveryAccepted(
   if (!isQuestUnlocked(quest.id, boardState.completedQuestIds)) return false;
   if (boardState.completedQuestIds.includes(quest.id)) return false;
 
-  // Auto-route: any of the quest's still-needed deliverables is accepted, whichever
-  // delivery page happens to be showing.
+  // The selected quest accepts only its one recipe output while that output is
+  // still needed.
   return canDeliverCardToQuest(
     quest,
     getQuestDelivery(boardState.questDeliveries, quest.id),
@@ -13166,11 +13279,183 @@ function addSelectedQuestDelivery(
   };
 }
 
+type AcceptedQuestDelivery = {
+  cardId: string;
+  deliveredAtMs: number;
+  quest: StaticAlchemyQuest;
+  source: DragSource;
+};
+
+function applyAcceptedQuestDelivery(
+  boardState: AlchemistGuildBoardState,
+  delivery: AcceptedQuestDelivery,
+): AlchemistGuildBoardState {
+  const carriesOutputForward = delivery.quest.continuation.carriesOutputForward;
+  const deliveredBoardState = {
+    ...boardState,
+    questDeliveries: addSelectedQuestDelivery(
+      boardState.questDeliveries,
+      delivery.quest.id,
+      delivery.cardId,
+    ),
+  };
+
+  if (delivery.source.kind === "inventory") {
+    return {
+      ...deliveredBoardState,
+      inventorySlots: carriesOutputForward
+        ? boardState.inventorySlots
+        : consumeReadyInventoryCopies(
+            boardState.inventorySlots,
+            delivery.source.slotId,
+            1,
+            delivery.deliveredAtMs,
+          ),
+    };
+  }
+
+  if (delivery.source.kind === "table") {
+    if (carriesOutputForward) return deliveredBoardState;
+    const elementQuantities = consumeElementQuantity(boardState.elementQuantities, delivery.cardId);
+    return elementQuantities ? { ...deliveredBoardState, elementQuantities } : boardState;
+  }
+
+  return {
+    ...deliveredBoardState,
+    reagentSlots: carriesOutputForward
+      ? boardState.reagentSlots
+      : { ...boardState.reagentSlots, [delivery.source.slotId]: null },
+    selectedMachineryId: null,
+  };
+}
+
 function getQuestDelivery(
   questDeliveries: AlchemistGuildQuestDeliveries,
   questId: string,
 ): AlchemistGuildQuestDelivery {
   return questDeliveries[questId] ?? {};
+}
+
+export function getQuestCarryoverReservations(
+  boardState: AlchemistGuildBoardState,
+): QuestCarryoverReservation[] {
+  const completedQuestIds = new Set(boardState.completedQuestIds);
+  const reservationsByCardId = new Map<string, QuestCarryoverReservation>();
+
+  for (const sourceQuest of ALCHEMY_QUESTS) {
+    if (!sourceQuest.continuation.carriesOutputForward) continue;
+    if (
+      !completedQuestIds.has(sourceQuest.id) &&
+      !isQuestDeliveryComplete(
+        sourceQuest,
+        getQuestDelivery(boardState.questDeliveries, sourceQuest.id),
+      )
+    ) {
+      continue;
+    }
+
+    const sourceRecipe = getAlchemyRecipeById(sourceQuest.recipeId);
+    if (!sourceRecipe) continue;
+    const outputCardId = sourceRecipe.output.cardId;
+    if (reservationsByCardId.has(outputCardId)) continue;
+
+    const targetQuest = ALCHEMY_QUESTS.find((candidate) => {
+      if (
+        candidate.continuation.arcId !== sourceQuest.continuation.arcId ||
+        candidate.continuation.step <= sourceQuest.continuation.step ||
+        completedQuestIds.has(candidate.id) ||
+        isQuestDeliveryComplete(
+          candidate,
+          getQuestDelivery(boardState.questDeliveries, candidate.id),
+        )
+      ) {
+        return false;
+      }
+
+      return getAlchemyRecipeById(candidate.recipeId)?.arguments.some(
+        (argument) => argument.cardId === outputCardId,
+      );
+    });
+    if (!targetQuest) continue;
+
+    reservationsByCardId.set(outputCardId, {
+      arcId: sourceQuest.continuation.arcId,
+      cardId: outputCardId,
+      sourceQuestId: sourceQuest.id,
+      targetQuestId: targetQuest.id,
+    });
+  }
+
+  return [...reservationsByCardId.values()];
+}
+
+export function canSpendQuestCarryoverInventoryCopy(
+  boardState: AlchemistGuildBoardState,
+  cardId: string,
+  nowMs: number,
+  use: QuestCarryoverUse,
+): boolean {
+  const reservation = getQuestCarryoverReservations(boardState).find(
+    (candidate) => candidate.cardId === cardId,
+  );
+  if (!reservation) return true;
+
+  const readyInventoryCount = getReadyInventoryCardCount(boardState, cardId, nowMs);
+  const slottedCount = getSlottedCardCount(boardState.reagentSlots, cardId);
+  if (readyInventoryCount + slottedCount > 1) return true;
+  if (
+    use === "sell" ||
+    boardState.selectedQuestId !== reservation.targetQuestId ||
+    !isQuestUnlocked(reservation.targetQuestId, boardState.completedQuestIds)
+  ) {
+    return false;
+  }
+
+  const targetQuest = getAlchemyQuestById(reservation.targetQuestId);
+  const targetRecipe = targetQuest ? getAlchemyRecipeById(targetQuest.recipeId) : undefined;
+  const requiredCount =
+    targetRecipe?.arguments
+      .filter((argument) => argument.cardId === cardId)
+      .reduce((total, argument) => total + argument.quantity, 0) ?? 0;
+  return slottedCount < requiredCount;
+}
+
+export function canTransmuteWithQuestCarryovers(
+  boardState: AlchemistGuildBoardState,
+  recipeId: string | null,
+  nowMs: number,
+): boolean {
+  for (const reservation of getQuestCarryoverReservations(boardState)) {
+    if (getSlottedCardCount(boardState.reagentSlots, reservation.cardId) === 0) continue;
+    if (getReadyInventoryCardCount(boardState, reservation.cardId, nowMs) > 0) continue;
+
+    const targetQuest = getAlchemyQuestById(reservation.targetQuestId);
+    if (
+      boardState.selectedQuestId !== reservation.targetQuestId ||
+      !isQuestUnlocked(reservation.targetQuestId, boardState.completedQuestIds) ||
+      targetQuest?.recipeId !== recipeId
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getReadyInventoryCardCount(
+  boardState: AlchemistGuildBoardState,
+  cardId: string,
+  nowMs: number,
+): number {
+  let readyCount = 0;
+  for (const item of Object.values(boardState.inventorySlots)) {
+    if (item?.cardId === cardId) readyCount += getReadyCooldownCount(item.cooldowns, nowMs);
+  }
+  return readyCount;
+}
+
+function getSlottedCardCount(slots: AlchemistGuildBoardSlots, cardId: string): number {
+  return Object.values(slots).filter((slottedCardId) => slottedCardId === cardId).length;
 }
 
 function getQuestClaimSwipeState(
@@ -13205,21 +13490,6 @@ function updateQuestClaimSwipeStateByQuestId(
 function isQuestUnlocked(questId: string, completedQuestIds: readonly string[]): boolean {
   if (completedQuestIds.includes(questId)) return true;
   return getAvailableAlchemyQuests(completedQuestIds).some((quest) => quest.id === questId);
-}
-
-function getInventoryDestinationSlotId(
-  boardState: AlchemistGuildBoardState,
-  cardId: string,
-): AlchemistGuildInventorySlotId | null {
-  for (const slot of inventorySlots) {
-    if (boardState.inventorySlots[slot.id]?.cardId === cardId) return slot.id;
-  }
-
-  for (const slot of inventorySlots) {
-    if (!boardState.inventorySlots[slot.id]) return slot.id;
-  }
-
-  return null;
 }
 
 function addInventoryCooldown(
@@ -13390,7 +13660,7 @@ function consumeElementQuantity(
   };
 }
 
-function appendUniqueId(ids: string[], id: string): string[] {
+function appendUniqueId<T extends string>(ids: T[], id: T): T[] {
   return ids.includes(id) ? ids : [...ids, id];
 }
 
@@ -13448,11 +13718,15 @@ function resolveDropIntent(
   isExtendedLedgerFilterHit: boolean,
   boardState: AlchemistGuildBoardState,
   extendedLedgerFilterCardIds: readonly string[],
+  nowMs: number,
 ): DropIntent {
   if (isInventorySellHit) {
     const sellPrice = getAlchemyCardSellPrice(draggedCard.card);
     return {
-      accepted: draggedCard.source.kind === "inventory" && sellPrice > 0,
+      accepted:
+        draggedCard.source.kind === "inventory" &&
+        sellPrice > 0 &&
+        canSpendQuestCarryoverInventoryCopy(boardState, draggedCard.card.id, nowMs, "sell"),
       kind: "sell",
       price: sellPrice,
     };
@@ -13475,7 +13749,10 @@ function resolveDropIntent(
         : EMPTY_DROP_INTENT;
     }
 
-    return boardState.reagentSlots[slotId] ? { kind: "blocked", slotId } : { kind: "drop", slotId };
+    if (boardState.reagentSlots[slotId]) return { kind: "blocked", slotId };
+    return canSpendQuestCarryoverInventoryCopy(boardState, draggedCard.card.id, nowMs, "workbench")
+      ? { kind: "drop", slotId }
+      : { kind: "blocked", slotId };
   }
 
   if (!slotId && isQuestDeliveryHit) {

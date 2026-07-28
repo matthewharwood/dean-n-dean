@@ -1,5 +1,6 @@
 import {
   ALCHEMIST_GUILD_BOARD_DEFAULT,
+  ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
   ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID,
   type AlchemistGuildBoardState,
 } from "@dean-stack/schemas";
@@ -41,6 +42,7 @@ const GATHERING_READY_BOARD_STATE: AlchemistGuildBoardState = {
     selectedTrack: "addition",
     unlockSeen: true,
   },
+  unlockedUpgradeIds: [ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID],
 };
 
 const GATHERING_CONFIRM_READY_BOARD_STATE: AlchemistGuildBoardState = {
@@ -62,7 +64,7 @@ const GLASSBLOWER_QUEST_BOARD_STATE: AlchemistGuildBoardState = {
     ...ALCHEMIST_GUILD_BOARD_DEFAULT.gathering,
     unlockSeen: true,
   },
-  selectedQuestId: "quest:glass-minerals",
+  selectedQuestId: "quest:glass-minerals-silica",
 };
 
 const EXPEDITION_READY_BOARD_STATE: AlchemistGuildBoardState = {

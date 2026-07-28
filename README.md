@@ -51,6 +51,7 @@ Every change in this repo is judged against these four rules. Anything that viol
 | Styling | Tailwind | `v4` (CSS-first via `@theme`) |
 | Animation | anime.js | `v4` (named imports only) |
 | Canvas / 2D rendering | PixiJS | `8.18.1` — first-party for all canvas-based UI. Mounted via the `usePixiApp(canvasRef, setup, deps)` hook in `app/canvas/`. Same side-channel discipline as anime.js: render stays pure; all `Application.init` / `Ticker` / sprite mutation lives in `useEffect`; `prefers-reduced-motion: reduce` short-circuits Ticker animations. See the 24 `pixijs-*` skills under `.agents/skills/` for the full API surface. |
+| On-device ML inference | LiteRT.js | `2.5.x` via `@litertjs/core` — lazy, browser-only `.tflite` inference with WebGPU acceleration and Wasm CPU fallback. The shared runtime boundary lives at `app/ml/litert-runtime.ts`; models and Wasm stay out of the initial route bundle. |
 | State | Jotai | `2.x` (parameterized atoms via the `atomWithIDB` key + a module-scope `Map<id, atom>`; `selectAtom` from `jotai/utils` for derived per-id slices — dean-stack does not use `atomFamily`) |
 | Persistence | IndexedDB via `idb` | `8.x` |
 | Validation | Zod | `4` |
@@ -172,6 +173,25 @@ Edit `apps/web/app/components/<name>/index.tsx` — its sibling `index.stories.t
 **Fix the cause, not the symptom.** Manual `useMemo` / `useCallback` / `React.memo` is forbidden in dean-stack (the React Compiler handles memoization — see `.agents/skills/react-compiler-rules/SKILL.md`). Suppressing the highlight by adding manual memo defeats the diagnostic.
 
 react-scan has no version-specific deprecations, no opinionated patterns, no migration cliffs — there is intentionally **no skill for it**. Just look at the boxes; fix what's bad.
+
+### LiteRT.js — on-device inference only when it earns its weight
+
+`@litertjs/core` is installed in the live app and generator template. Use it for small, bounded `.tflite` models when local privacy, latency, or offline execution matters—not for scoring rules, authored game logic, or as a back door to a server dependency.
+
+The runtime is intentionally lazy. `app/ml/litert-runtime.ts` validates the Wasm URL, dynamically imports LiteRT.js, stays out of TanStack prerender, and shares one runtime for the page session. No model or ~10 MB Wasm binary is shipped until a feature actually uses one.
+
+```ts
+import { initializeLiteRt } from "~/ml/litert-runtime";
+
+const runtime = await initializeLiteRt({
+  wasmPath: `${import.meta.env.BASE_URL}litert-wasm/`,
+});
+const model = await runtime.loadAndCompile(`${import.meta.env.BASE_URL}models/example.tflite`, {
+  accelerator: "wasm",
+});
+```
+
+For a committed feature, self-host the matching LiteRT loader `.js`/`.wasm` files and model under `public/`, keep every path behind `import.meta.env.BASE_URL`, prefer WebGPU with a whole-model Wasm fallback, and delete every tensor/model in `finally`. Do not store native LiteRT objects in React, Jotai, or IDB; persist only Zod-validated serializable results. See [AGENTS.md](./AGENTS.md) and `.agents/skills/litertjs/SKILL.md` for the complete accelerator, caching, cleanup, and testing contract.
 
 ### Running watchers individually
 
@@ -498,6 +518,7 @@ dean-stack/
 │       │   ├── state/                # db, hydration, persist, atoms, migrations
 │       │   ├── motion/               # useAnime + presets + engine defaults (anime.js side channel)
 │       │   ├── canvas/                # usePixiApp hook (PixiJS side channel for canvas UI)
+│       │   ├── ml/                    # LiteRT.js browser runtime boundary
 │       │   ├── lib/                  # defineComponent, atomWithIDB
 │       │   ├── styles/               # Tailwind entry + @theme tokens
 │       │   └── env.ts                # T3 env (build-time validation)
@@ -571,6 +592,15 @@ Every PR is reviewed against the Four Pillars. Anything that violates one is rev
 - [ ] No anime.js or PixiJS call inside render — both are side channels; all `animate()`, `new Application()`, `Ticker.add(...)`, sprite mutation, and DOM/canvas reads live inside `useEffect` / `useLayoutEffect` / event handlers?
 - [ ] No `ref.current = ...` during render?
 - [ ] Every animation site uses `useAnime` (anime.js) or `usePixiApp` (PixiJS) — both short-circuit on `prefers-reduced-motion`?
+
+### LiteRT.js inference
+
+- [ ] Is ML justified over deterministic TypeScript for this behavior?
+- [ ] Does initialization go through `app/ml/litert-runtime.ts` outside render/prerender?
+- [ ] Are Wasm/model URLs self-hosted, versioned, and based on `import.meta.env.BASE_URL`?
+- [ ] Is WebGPU feature-detected with a whole-model Wasm fallback?
+- [ ] Are all tensors and compiled models deleted, with only Zod-validated serializable results entering Jotai/IDB?
+- [ ] Are large ML assets runtime-cached rather than added to the PWA shell precache?
 
 ### TanStack Router boundaries
 

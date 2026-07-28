@@ -1,0 +1,4 @@
+interface:
+  display_name: "LiteRT.js"
+  short_description: "Browser-native on-device ML with LiteRT.js"
+  default_prompt: "Use $litertjs to add a browser-side LiteRT model pipeline safely."

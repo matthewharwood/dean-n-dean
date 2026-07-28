@@ -1,6 +1,7 @@
 import {
   ALCHEMIST_GUILD_BOARD_DEFAULT,
   type AlchemistGuildBoardState,
+  AlchemistGuildBoardStateSchema,
   type Progress,
   SETTINGS_DEFAULT,
   type Settings,
@@ -14,7 +15,7 @@ export interface AppDB extends DBSchema {
 }
 
 const DB_NAME = "web";
-const DB_VERSION = 4;
+const DB_VERSION = 6;
 
 // A pre-track save carries its addition progress in the live gathering fields with
 // no `selectedTrack`. Hydration would default `selectedTrack` to null and bounce
@@ -70,6 +71,26 @@ export function getDB(): Promise<IDBPDatabase<AppDB>> {
             gathering: { ...record.gathering, selectedTrack: "addition" },
           });
         }
+      }
+      if (oldVersion < 5) {
+        // One-recipe quests: parse + rewrite every persisted board before root
+        // hydration resolves. The schema migration preserves completed arcs,
+        // ready deliveries, and partial-delivery refunds atomically in this tx.
+        const store = tx.objectStore("alchemistGuildBoards");
+        const records = await store.getAll();
+        await Promise.all(
+          records.map((record) => store.put(AlchemistGuildBoardStateSchema.parse(record))),
+        );
+      }
+      if (oldVersion < 6) {
+        // Field Bag: reconcile the First Water unlock and expand every legacy
+        // eight-slot Inventory to its 32-slot persisted shape in the same
+        // versionchange transaction, before any atom can hydrate.
+        const store = tx.objectStore("alchemistGuildBoards");
+        const records = await store.getAll();
+        await Promise.all(
+          records.map((record) => store.put(AlchemistGuildBoardStateSchema.parse(record))),
+        );
       }
     },
     blocked() {

@@ -11,7 +11,6 @@ import {
   getQuestCarouselSwipeDirection,
   getQuestCarouselSwipeIntent,
   QuestBriefingCardPropsSchema,
-  shouldUseRecipeDeckFractionPagination,
 } from "./quest-briefing-card";
 
 describe("QuestBriefingCard data projection", () => {
@@ -25,8 +24,9 @@ describe("QuestBriefingCard data projection", () => {
     expect(cardProps.requesterVoiceClipPath).toBe("alchemy-quest-voices/first-water.mp3");
     expect(cardProps.developerNotesVisible).toBe(false);
     expect(cardProps.completed).toBeUndefined();
+    expect(cardProps.completion).toContain("fresh Water");
     expect(cardProps.redacted).toBe(false);
-    expect(cardProps.recipeLabels).toContainEqual({
+    expect(cardProps.recipe).toEqual({
       formula: "2H + O",
       imagePath: "alchemy-card-art/material-water.webp",
       ingredients: [
@@ -53,19 +53,18 @@ describe("QuestBriefingCard data projection", () => {
     });
 
     expect(cardProps.completed).toBe(true);
+    expect(cardProps.completion).toContain("fresh Water");
     expect(cardProps.title).toBe("Sir Bubbleton Needs Water");
-    expect(cardProps.recipeLabels.map((recipe) => recipe.name)).toContain("Water");
+    expect(cardProps.recipe.name).toBe("Water");
   });
 
   test("labels raw and crafted ingredients by full names instead of pseudo element symbols", () => {
-    const quest = getAlchemyQuestById("quest:field-kit-basics");
+    const quest = getAlchemyQuestById("quest:field-kit-basics-herbal-mash");
     if (!quest) throw new Error("Missing field kit quest");
 
     const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
-    const herbalMash = cardProps.recipeLabels[0];
-    if (!herbalMash) throw new Error("Missing Herbal Mash briefing recipe");
 
-    expect(herbalMash).toMatchObject({
+    expect(cardProps.recipe).toMatchObject({
       formula: "Herbs + Water",
       ingredients: [
         { cardId: "raw:herbs", name: "Herbs", quantity: 1, symbol: "Herbs" },
@@ -75,34 +74,31 @@ describe("QuestBriefingCard data projection", () => {
     });
   });
 
-  test("projects the Glass Batch capstone before its component recipes", () => {
+  test("projects only the Glass Batch recipe without a vertical dependency deck", () => {
     const quest = getAlchemyQuestById("quest:glass-minerals");
     if (!quest) throw new Error("Missing glass minerals quest");
 
     const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
 
     expect(cardProps.need).toContain("Glass Batch");
-    expect(cardProps.recipeLabels.map((recipe) => recipe.name)).toEqual([
-      "Glass Batch",
-      "Silica",
-      "Soda Ash",
-      "Calcium Carbonate",
-    ]);
-    expect(cardProps.recipeLabels.map((recipe) => recipe.formula)).toEqual([
-      "Silica + Soda Ash + Calcium Carbonate",
-      "Si + 2O",
-      "Na + C + 3O",
-      "Ca + C + 3O",
-    ]);
+    expect(cardProps.actLabel).toContain("Part 4/4");
+    expect(cardProps.recipe.name).toBe("Glass Batch");
+    expect(cardProps.recipe.formula).toBe("Silica + Soda Ash + Calcium Carbonate");
   });
 
-  test("communicates the machinery that distinguishes Quest 15 parts", () => {
-    const quest = getAlchemyQuestById("quest:fasteners-and-parts");
-    if (!quest) throw new Error("Missing fasteners and parts quest");
-
-    const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
+  test("communicates the machinery that distinguishes continuation recipes", () => {
+    const questIds = [
+      "quest:fasteners-and-parts-steel-needle",
+      "quest:fasteners-and-parts-copper-rivet",
+      "quest:fasteners-and-parts",
+    ];
     const machineryByRecipeName = Object.fromEntries(
-      cardProps.recipeLabels.map((recipe) => [recipe.name, recipe.machineryLabel]),
+      questIds.map((questId) => {
+        const quest = getAlchemyQuestById(questId);
+        if (!quest) throw new Error(`Missing quest ${questId}`);
+        const cardProps = QuestBriefingCardPropsSchema.parse(createQuestBriefingCardProps(quest));
+        return [cardProps.recipe.name, cardProps.recipe.machineryLabel];
+      }),
     );
 
     expect(machineryByRecipeName).toMatchObject({
@@ -110,6 +106,10 @@ describe("QuestBriefingCard data projection", () => {
       "Steel Needle": "Needle Mill",
       "Wood Shaft": "Shaft Straightener",
     });
+
+    const fastenersQuest = getAlchemyQuestById("quest:fasteners-and-parts-steel-needle");
+    if (!fastenersQuest) throw new Error("Missing fasteners continuation quest");
+    expect(createQuestBriefingCardProps(fastenersQuest).requesterName).toBe("Mina Pickbright");
   });
 
   test("finds the recipe page that should focus for a dragged quest card", () => {
@@ -137,7 +137,7 @@ describe("QuestBriefingCard carousel behavior", () => {
     expect(getQuestCarouselEdgeSwipeDirection(2, 1)).toBe(1);
   });
 
-  test("lets vertical recipe-deck gestures scroll instead of hijacking them", () => {
+  test("lets vertical detail gestures scroll instead of hijacking them", () => {
     expect(getQuestCarouselSwipeIntent(3, 4)).toBe("pending");
     expect(getQuestCarouselSwipeIntent(14, 4)).toBe("horizontal");
     expect(getQuestCarouselSwipeIntent(8, 22)).toBe("vertical");
@@ -149,7 +149,7 @@ describe("QuestBriefingCard carousel behavior", () => {
     expect(getQuestCarouselSwipeIntent(22, 20, "mouse")).toBe("horizontal");
   });
 
-  test("maps committed inner recipe swipes to neighboring quest-detail slides", () => {
+  test("maps committed inner detail swipes to neighboring quest-detail slides", () => {
     expect(getQuestCarouselSwipeDirection(-33)).toBe(0);
     expect(getQuestCarouselSwipeDirection(-34)).toBe(1);
     expect(getQuestCarouselSwipeDirection(34)).toBe(-1);
@@ -160,10 +160,5 @@ describe("QuestBriefingCard carousel behavior", () => {
     expect(getQuestCarouselSwipeDirection(20, 0.6)).toBe(-1);
     expect(getQuestCarouselSwipeDirection(-20, -0.4)).toBe(0);
     expect(getQuestCarouselSwipeDirection(-20, 0.6)).toBe(0);
-  });
-
-  test("switches crowded vertical recipe steps from dots to a fraction", () => {
-    expect(shouldUseRecipeDeckFractionPagination(3)).toBe(false);
-    expect(shouldUseRecipeDeckFractionPagination(4)).toBe(true);
   });
 });

@@ -1,10 +1,17 @@
 import * as z from "zod";
 
-import { AlchemyQuestIdSchema } from "./data/alchemy-quests";
+import {
+  ALCHEMY_QUESTS,
+  AlchemyQuestIdSchema,
+  expandCompletedAlchemyQuestIds,
+  getAlchemyQuestById,
+} from "./data/alchemy-quests";
 import {
   AlchemyCardIdSchema,
   AlchemyMachineryIdSchema,
   AlchemyRecipeIdSchema,
+  getAlchemyRecipeById,
+  getAlchemyRecipeByOutput,
 } from "./data/alchemy-recipes";
 import { ExtendedMoleculeRecipeIdSchema } from "./data/extended-molecule-recipes";
 import {
@@ -49,6 +56,25 @@ export type Progress = z.infer<typeof ProgressSchema>;
 export const ALCHEMIST_GUILD_BOARD_ID = "alchemist-guild-board";
 export const ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID = "quest:first-water";
 export const ALCHEMIST_GUILD_FIRST_WATER_DELIVERY_CARD_ID = "material:water";
+export const ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID = "field-bag";
+export const ALCHEMIST_GUILD_FIELD_BAG_UNLOCK_QUEST_ID = ALCHEMIST_GUILD_FIRST_WATER_QUEST_ID;
+
+export const ALCHEMIST_GUILD_UPGRADE_IDS = [
+  "expedition-queue",
+  "merchant-gold",
+  "hydrogen-bounty",
+  "celestial-streak",
+  "new-reward-slot",
+  ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
+] as const;
+export const AlchemistGuildUpgradeIdSchema = z.enum(ALCHEMIST_GUILD_UPGRADE_IDS);
+export type AlchemistGuildUpgradeId = z.infer<typeof AlchemistGuildUpgradeIdSchema>;
+export const AlchemistGuildUnlockedUpgradeIdsSchema = z
+  .array(AlchemistGuildUpgradeIdSchema)
+  .default([]);
+export type AlchemistGuildUnlockedUpgradeIds = z.infer<
+  typeof AlchemistGuildUnlockedUpgradeIdsSchema
+>;
 
 export const AlchemistGuildReagentSlotIdSchema = z.enum([
   "reagent-slot-1",
@@ -135,7 +161,7 @@ export type AlchemistGuildBoardSlots = z.infer<typeof AlchemistGuildBoardSlotsSc
 export const ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT: AlchemistGuildBoardSlots =
   AlchemistGuildBoardSlotsSchema.parse({});
 
-export const AlchemistGuildInventorySlotIdSchema = z.enum([
+export const ALCHEMIST_GUILD_QUICK_INVENTORY_SLOT_IDS = [
   "inventory-slot-1",
   "inventory-slot-2",
   "inventory-slot-3",
@@ -144,7 +170,39 @@ export const AlchemistGuildInventorySlotIdSchema = z.enum([
   "inventory-slot-6",
   "inventory-slot-7",
   "inventory-slot-8",
-]);
+] as const;
+export const ALCHEMIST_GUILD_RESERVE_INVENTORY_SLOT_IDS = [
+  "inventory-slot-9",
+  "inventory-slot-10",
+  "inventory-slot-11",
+  "inventory-slot-12",
+  "inventory-slot-13",
+  "inventory-slot-14",
+  "inventory-slot-15",
+  "inventory-slot-16",
+  "inventory-slot-17",
+  "inventory-slot-18",
+  "inventory-slot-19",
+  "inventory-slot-20",
+  "inventory-slot-21",
+  "inventory-slot-22",
+  "inventory-slot-23",
+  "inventory-slot-24",
+  "inventory-slot-25",
+  "inventory-slot-26",
+  "inventory-slot-27",
+  "inventory-slot-28",
+  "inventory-slot-29",
+  "inventory-slot-30",
+  "inventory-slot-31",
+  "inventory-slot-32",
+] as const;
+export const ALCHEMIST_GUILD_INVENTORY_SLOT_IDS = [
+  ...ALCHEMIST_GUILD_QUICK_INVENTORY_SLOT_IDS,
+  ...ALCHEMIST_GUILD_RESERVE_INVENTORY_SLOT_IDS,
+] as const;
+
+export const AlchemistGuildInventorySlotIdSchema = z.enum(ALCHEMIST_GUILD_INVENTORY_SLOT_IDS);
 export type AlchemistGuildInventorySlotId = z.infer<typeof AlchemistGuildInventorySlotIdSchema>;
 
 export const AlchemistGuildInventoryCooldownSchema = z.object({
@@ -160,20 +218,31 @@ export const AlchemistGuildInventoryItemSchema = z.object({
 });
 export type AlchemistGuildInventoryItem = z.infer<typeof AlchemistGuildInventoryItemSchema>;
 
-export const AlchemistGuildInventorySlotsSchema = z.object({
-  "inventory-slot-1": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-2": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-3": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-4": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-5": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-6": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-7": AlchemistGuildInventoryItemSchema.nullable().default(null),
-  "inventory-slot-8": AlchemistGuildInventoryItemSchema.nullable().default(null),
-});
+export const AlchemistGuildInventorySlotsSchema = z.record(
+  AlchemistGuildInventorySlotIdSchema,
+  AlchemistGuildInventoryItemSchema.nullable().default(null),
+);
 export type AlchemistGuildInventorySlots = z.infer<typeof AlchemistGuildInventorySlotsSchema>;
 
 export const ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT: AlchemistGuildInventorySlots =
   AlchemistGuildInventorySlotsSchema.parse({});
+
+export function getAccessibleAlchemistGuildInventorySlotIds(
+  unlockedUpgradeIds: readonly string[],
+): readonly AlchemistGuildInventorySlotId[] {
+  return unlockedUpgradeIds.includes(ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID)
+    ? ALCHEMIST_GUILD_INVENTORY_SLOT_IDS
+    : ALCHEMIST_GUILD_QUICK_INVENTORY_SLOT_IDS;
+}
+
+export const AlchemistGuildLegacyQuestRefundsSchema = z
+  .record(AlchemistGuildCardIdSchema, z.int().min(1))
+  .default({});
+export type AlchemistGuildLegacyQuestRefunds = z.infer<
+  typeof AlchemistGuildLegacyQuestRefundsSchema
+>;
+export const ALCHEMIST_GUILD_LEGACY_QUEST_REFUNDS_DEFAULT: AlchemistGuildLegacyQuestRefunds =
+  AlchemistGuildLegacyQuestRefundsSchema.parse({});
 
 export const AlchemistGuildProfileSchema = z.object({
   discoveryTokens: z.int().min(0).default(0),
@@ -188,10 +257,9 @@ export type AlchemistGuildProfile = z.infer<typeof AlchemistGuildProfileSchema>;
 export const ALCHEMIST_GUILD_PROFILE_DEFAULT: AlchemistGuildProfile =
   AlchemistGuildProfileSchema.parse({});
 
-// A quest delivery is the per-card delivered count: `{ "material:salt": 1, ... }`.
-// The set of required cards + their counts is DERIVED from the quest at runtime
-// (see `getQuestDeliverables`), not stored, so multi-item quests need no extra
-// state. The `preprocess` heals the pre-multi-item shape
+// A quest delivery is the per-card delivered count: `{ "material:salt": 1 }`.
+// The one required recipe output is derived from the quest at runtime rather than
+// stored. The `preprocess` heals the oldest delivery shape
 // (`{ cardId, delivered, required }`) on hydration — Pillar 3, no DB-version bump.
 const LegacyQuestDeliverySchema = z.object({
   cardId: AlchemistGuildCardIdSchema,
@@ -555,10 +623,17 @@ export type AlchemistGuildExpeditionState = z.infer<typeof AlchemistGuildExpedit
 export const ALCHEMIST_GUILD_EXPEDITION_DEFAULT: AlchemistGuildExpeditionState =
   AlchemistGuildExpeditionStateSchema.parse({});
 
-export const AlchemistGuildBoardStateSchema = z.object({
+export const ALCHEMIST_GUILD_QUEST_MODEL_VERSION = 2 as const;
+
+const AlchemistGuildBoardStateObjectSchema = z.object({
   activeBoardMode: AlchemistGuildBoardModeSchema.default("crafting"),
   autoPlayedQuestVoiceIds: z.array(AlchemyQuestIdSchema).default([]),
-  completedQuestIds: z.array(AlchemyQuestIdSchema).default([]),
+  completedQuestIds: z
+    .preprocess((value) => {
+      const parsedQuestIds = z.array(AlchemyQuestIdSchema).safeParse(value);
+      return parsedQuestIds.success ? expandCompletedAlchemyQuestIds(parsedQuestIds.data) : value;
+    }, z.array(AlchemyQuestIdSchema))
+    .default([]),
   discoveredElementIds: z
     .array(AlchemistGuildCardIdSchema)
     .default([...ALCHEMIST_GUILD_STARTING_DISCOVERED_ELEMENT_IDS]),
@@ -573,9 +648,15 @@ export const AlchemistGuildBoardStateSchema = z.object({
   inventorySlots: AlchemistGuildInventorySlotsSchema.default(
     ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,
   ),
+  legacyQuestRefunds: AlchemistGuildLegacyQuestRefundsSchema.default(
+    ALCHEMIST_GUILD_LEGACY_QUEST_REFUNDS_DEFAULT,
+  ),
   questDeliveries: AlchemistGuildQuestDeliveriesSchema.default(
     ALCHEMIST_GUILD_QUEST_DELIVERIES_DEFAULT,
   ),
+  questModelVersion: z
+    .literal(ALCHEMIST_GUILD_QUEST_MODEL_VERSION)
+    .default(ALCHEMIST_GUILD_QUEST_MODEL_VERSION),
   questLogScrollTop: z.number().min(0).default(0),
   reagentSlots: AlchemistGuildBoardSlotsSchema.default(ALCHEMIST_GUILD_BOARD_SLOTS_DEFAULT),
   // The chosen treatment affects the staged recipe output, so it persists with
@@ -588,12 +669,371 @@ export const AlchemistGuildBoardStateSchema = z.object({
   // Upgrade-shop ids the player has unlocked (see the upgrade catalog in the app
   // layer). The Upgrades tab only appears once this is non-empty. `upgradesTabSeen`
   // suppresses the "new tab" nudge after the first visit.
-  unlockedUpgradeIds: z.array(z.string()).default([]),
+  unlockedUpgradeIds: AlchemistGuildUnlockedUpgradeIdsSchema,
   upgradesTabSeen: z.boolean().default(false),
 });
+
+export const AlchemistGuildBoardStateSchema = z.preprocess(
+  migrateLegacyAlchemyQuestBoardState,
+  AlchemistGuildBoardStateObjectSchema,
+);
 export type AlchemistGuildBoardState = z.infer<typeof AlchemistGuildBoardStateSchema>;
 export const ALCHEMIST_GUILD_BOARD_DEFAULT: AlchemistGuildBoardState =
   AlchemistGuildBoardStateSchema.parse({});
+
+function migrateLegacyAlchemyQuestBoardState(value: unknown): unknown {
+  if (!isUnknownRecord(value)) return value;
+  if (value.questModelVersion === ALCHEMIST_GUILD_QUEST_MODEL_VERSION) {
+    return reconcileFieldBagAndSettleLegacyQuestRefunds(value);
+  }
+
+  const completedQuestIdsResult = z.array(AlchemyQuestIdSchema).safeParse(value.completedQuestIds);
+  const expandedCompletedQuestIds = completedQuestIdsResult.success
+    ? expandCompletedAlchemyQuestIds(completedQuestIdsResult.data)
+    : null;
+  const completedQuestIds = expandedCompletedQuestIds ?? value.completedQuestIds;
+  const knownCompletedQuestIds = new Set<string>(expandedCompletedQuestIds ?? []);
+  const legacyCompletedQuestIds = new Set<string>(
+    completedQuestIdsResult.success ? completedQuestIdsResult.data : [],
+  );
+  const deliveryMigration = migrateLegacyQuestDeliveries(
+    value.questDeliveries,
+    legacyCompletedQuestIds,
+  );
+  const unlockedUpgradeIds = reconcileFieldBagUpgradeIds(
+    completedQuestIds,
+    value.unlockedUpgradeIds,
+  );
+  const inventoryMigration = migrateLegacyQuestRefundInventory(
+    value.inventorySlots,
+    value.legacyQuestRefunds,
+    deliveryMigration.refunds,
+    unlockedUpgradeIds,
+  );
+
+  return {
+    ...value,
+    autoPlayedQuestVoiceIds: migrateLegacyAutoPlayedQuestVoiceIds(value.autoPlayedQuestVoiceIds),
+    completedQuestIds,
+    inventorySlots: inventoryMigration.inventorySlots,
+    legacyQuestRefunds: inventoryMigration.legacyQuestRefunds,
+    questDeliveries: deliveryMigration.questDeliveries,
+    questModelVersion: ALCHEMIST_GUILD_QUEST_MODEL_VERSION,
+    selectedQuestId: migrateLegacySelectedQuestId(value.selectedQuestId, knownCompletedQuestIds),
+    unlockedUpgradeIds,
+  };
+}
+
+function reconcileFieldBagAndSettleLegacyQuestRefunds(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const unlockedUpgradeIds = reconcileFieldBagUpgradeIds(
+    value.completedQuestIds,
+    value.unlockedUpgradeIds,
+  );
+  return settleBoardLegacyQuestRefunds({ ...value, unlockedUpgradeIds });
+}
+
+function reconcileFieldBagUpgradeIds(completedQuestIdsValue: unknown, upgradeIdsValue: unknown) {
+  const completedQuestIdsResult = z.array(AlchemyQuestIdSchema).safeParse(completedQuestIdsValue);
+  const upgradeIdsResult = AlchemistGuildUnlockedUpgradeIdsSchema.safeParse(upgradeIdsValue);
+  if (!completedQuestIdsResult.success || !upgradeIdsResult.success) return upgradeIdsValue;
+
+  const completedQuestIds = expandCompletedAlchemyQuestIds(completedQuestIdsResult.data);
+  if (
+    !completedQuestIds.includes(ALCHEMIST_GUILD_FIELD_BAG_UNLOCK_QUEST_ID) ||
+    upgradeIdsResult.data.includes(ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID)
+  ) {
+    return upgradeIdsResult.data;
+  }
+
+  return [...upgradeIdsResult.data, ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID];
+}
+
+function migrateLegacySelectedQuestId(
+  value: unknown,
+  completedQuestIds: ReadonlySet<string>,
+): unknown {
+  const selectedQuestIdResult = AlchemyQuestIdSchema.safeParse(value);
+  if (!selectedQuestIdResult.success) return value;
+
+  const selectedQuest = getAlchemyQuestById(selectedQuestIdResult.data);
+  if (
+    !selectedQuest ||
+    selectedQuest.continuation.stepCount === 1 ||
+    selectedQuest.id !== selectedQuest.continuation.arcId
+  ) {
+    return value;
+  }
+
+  const firstIncompleteChapter = ALCHEMY_QUESTS.find(
+    (quest) =>
+      quest.continuation.arcId === selectedQuest.continuation.arcId &&
+      !completedQuestIds.has(quest.id),
+  );
+  return firstIncompleteChapter?.id ?? value;
+}
+
+function migrateLegacyAutoPlayedQuestVoiceIds(value: unknown): unknown {
+  const voiceIdsResult = z.array(AlchemyQuestIdSchema).safeParse(value);
+  if (!voiceIdsResult.success) return value;
+
+  return [
+    ...new Set(
+      voiceIdsResult.data.map(
+        (questId) => getAlchemyQuestById(questId)?.continuation.arcId ?? questId,
+      ),
+    ),
+  ];
+}
+
+type LegacyQuestDeliverable = {
+  cardId: AlchemistGuildCardId;
+  required: number;
+};
+
+type LegacyQuestDeliveryMigration = {
+  questDeliveries: unknown;
+  refunds: AlchemistGuildLegacyQuestRefunds;
+};
+
+function migrateLegacyQuestDeliveries(
+  value: unknown,
+  completedQuestIds: ReadonlySet<string>,
+): LegacyQuestDeliveryMigration {
+  const deliveriesResult = z.record(AlchemyQuestIdSchema, z.unknown()).safeParse(value);
+  if (!deliveriesResult.success) {
+    return { questDeliveries: value, refunds: ALCHEMIST_GUILD_LEGACY_QUEST_REFUNDS_DEFAULT };
+  }
+
+  const migratedDeliveries: Record<string, AlchemistGuildQuestDelivery> = {};
+  const refunds: AlchemistGuildLegacyQuestRefunds = {};
+  for (const [questId, rawDelivery] of Object.entries(deliveriesResult.data)) {
+    const deliveryResult = AlchemistGuildQuestDeliverySchema.safeParse(rawDelivery);
+    if (!deliveryResult.success) {
+      return { questDeliveries: value, refunds: ALCHEMIST_GUILD_LEGACY_QUEST_REFUNDS_DEFAULT };
+    }
+
+    const quest = getAlchemyQuestById(questId);
+    if (!quest || quest.id !== quest.continuation.arcId) {
+      migratedDeliveries[questId] = mergeQuestDelivery(
+        migratedDeliveries[questId],
+        deliveryResult.data,
+      );
+      continue;
+    }
+
+    if (completedQuestIds.has(questId)) continue;
+
+    const legacyDeliverables = getLegacyQuestDeliverables(quest.continuation.arcId);
+    if (isLegacyQuestDeliveryComplete(deliveryResult.data, legacyDeliverables)) {
+      for (const chapter of getAlchemyQuestArcChapters(quest.continuation.arcId)) {
+        const recipe = getAlchemyRecipeById(chapter.recipeId);
+        if (!recipe) continue;
+
+        migratedDeliveries[chapter.id] = mergeQuestDelivery(migratedDeliveries[chapter.id], {
+          [recipe.output.cardId]: 1,
+        });
+      }
+      continue;
+    }
+
+    for (const deliverable of legacyDeliverables) {
+      const deliveredCount = Math.min(
+        deliveryResult.data[deliverable.cardId] ?? 0,
+        deliverable.required,
+      );
+      if (deliveredCount <= 0) continue;
+      refunds[deliverable.cardId] = (refunds[deliverable.cardId] ?? 0) + deliveredCount;
+    }
+  }
+
+  return { questDeliveries: migratedDeliveries, refunds };
+}
+
+function getAlchemyQuestArcChapters(arcId: string) {
+  return ALCHEMY_QUESTS.filter((quest) => quest.continuation.arcId === arcId).toSorted(
+    (left, right) => left.continuation.step - right.continuation.step,
+  );
+}
+
+function getLegacyQuestDeliverables(arcId: string): LegacyQuestDeliverable[] {
+  const recipes = getAlchemyQuestArcChapters(arcId).flatMap((chapter) => {
+    const recipe = getAlchemyRecipeById(chapter.recipeId);
+    return recipe ? [recipe] : [];
+  });
+  const consumedCardIds = new Set<string>(
+    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
+  );
+  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
+  const effectiveTerminalRecipes =
+    terminalRecipes.length > 0 ? terminalRecipes : recipes.slice(0, 1);
+  const bundleRecipe =
+    effectiveTerminalRecipes.length === 1 ? effectiveTerminalRecipes[0] : undefined;
+
+  if (bundleRecipe) {
+    const craftableComponents = bundleRecipe.arguments.flatMap((argument) =>
+      getAlchemyRecipeByOutput(argument.cardId)
+        ? [{ cardId: argument.cardId, required: argument.quantity }]
+        : [],
+    );
+    if (craftableComponents.length >= 2) return craftableComponents;
+  }
+
+  return effectiveTerminalRecipes.map((recipe) => ({
+    cardId: recipe.output.cardId,
+    required: 1,
+  }));
+}
+
+function isLegacyQuestDeliveryComplete(
+  delivery: AlchemistGuildQuestDelivery,
+  deliverables: readonly LegacyQuestDeliverable[],
+): boolean {
+  return deliverables.every(
+    (deliverable) => (delivery[deliverable.cardId] ?? 0) >= deliverable.required,
+  );
+}
+
+type LegacyQuestRefundInventoryMigration = {
+  inventorySlots: unknown;
+  legacyQuestRefunds: unknown;
+};
+
+function migrateLegacyQuestRefundInventory(
+  inventoryValue: unknown,
+  refundsValue: unknown,
+  incomingRefunds: AlchemistGuildLegacyQuestRefunds,
+  unlockedUpgradeIdsValue: unknown,
+): LegacyQuestRefundInventoryMigration {
+  const inventoryResult = AlchemistGuildInventorySlotsSchema.safeParse(
+    inventoryValue ?? ALCHEMIST_GUILD_INVENTORY_SLOTS_DEFAULT,
+  );
+  const refundsResult = AlchemistGuildLegacyQuestRefundsSchema.safeParse(
+    refundsValue ?? ALCHEMIST_GUILD_LEGACY_QUEST_REFUNDS_DEFAULT,
+  );
+  if (!inventoryResult.success || !refundsResult.success) {
+    return { inventorySlots: inventoryValue, legacyQuestRefunds: refundsValue };
+  }
+
+  const mergedRefunds = { ...refundsResult.data };
+  for (const [rawCardId, count] of Object.entries(incomingRefunds)) {
+    const cardId = AlchemistGuildCardIdSchema.parse(rawCardId);
+    mergedRefunds[cardId] = (mergedRefunds[cardId] ?? 0) + count;
+  }
+  const unlockedUpgradeIdsResult =
+    AlchemistGuildUnlockedUpgradeIdsSchema.safeParse(unlockedUpgradeIdsValue);
+  if (!unlockedUpgradeIdsResult.success) {
+    return { inventorySlots: inventoryValue, legacyQuestRefunds: refundsValue };
+  }
+  return settleLegacyQuestRefunds(
+    inventoryResult.data,
+    mergedRefunds,
+    unlockedUpgradeIdsResult.data,
+  );
+}
+
+function settleBoardLegacyQuestRefunds(value: Record<string, unknown>): Record<string, unknown> {
+  const migration = migrateLegacyQuestRefundInventory(
+    value.inventorySlots,
+    value.legacyQuestRefunds,
+    ALCHEMIST_GUILD_LEGACY_QUEST_REFUNDS_DEFAULT,
+    value.unlockedUpgradeIds,
+  );
+  return {
+    ...value,
+    inventorySlots: migration.inventorySlots,
+    legacyQuestRefunds: migration.legacyQuestRefunds,
+  };
+}
+
+function settleLegacyQuestRefunds(
+  inventory: AlchemistGuildInventorySlots,
+  refunds: AlchemistGuildLegacyQuestRefunds,
+  unlockedUpgradeIds: readonly AlchemistGuildUpgradeId[],
+): LegacyQuestRefundInventoryMigration {
+  let nextInventory = inventory;
+  const remainingRefunds: AlchemistGuildLegacyQuestRefunds = {};
+  const accessibleSlotIds = getAccessibleAlchemistGuildInventorySlotIds(unlockedUpgradeIds);
+
+  for (const [rawCardId, count] of Object.entries(refunds).toSorted(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const cardId = AlchemistGuildCardIdSchema.parse(rawCardId);
+    const destinationSlotId = getLegacyQuestRefundDestinationSlotId(
+      nextInventory,
+      cardId,
+      accessibleSlotIds,
+    );
+    if (!destinationSlotId) {
+      remainingRefunds[cardId] = count;
+      continue;
+    }
+
+    const existingItem = nextInventory[destinationSlotId];
+    nextInventory = {
+      ...nextInventory,
+      [destinationSlotId]: {
+        cardId,
+        cooldowns: [
+          ...(existingItem?.cooldowns ?? []),
+          ...createLegacyQuestRefundCooldowns(cardId, count, existingItem?.cooldowns ?? []),
+        ],
+      },
+    };
+  }
+
+  return { inventorySlots: nextInventory, legacyQuestRefunds: remainingRefunds };
+}
+
+function getLegacyQuestRefundDestinationSlotId(
+  inventory: AlchemistGuildInventorySlots,
+  cardId: AlchemistGuildCardId,
+  accessibleSlotIds: readonly AlchemistGuildInventorySlotId[],
+): AlchemistGuildInventorySlotId | null {
+  for (const slotId of accessibleSlotIds) {
+    if (inventory[slotId]?.cardId === cardId) return slotId;
+  }
+  for (const slotId of accessibleSlotIds) {
+    if (!inventory[slotId]) return slotId;
+  }
+  return null;
+}
+
+function createLegacyQuestRefundCooldowns(
+  cardId: AlchemistGuildCardId,
+  count: number,
+  existingCooldowns: readonly AlchemistGuildInventoryCooldown[],
+): AlchemistGuildInventoryCooldown[] {
+  const usedIds = new Set(existingCooldowns.map((cooldown) => cooldown.id));
+  const cooldowns: AlchemistGuildInventoryCooldown[] = [];
+  let sequence = 1;
+
+  while (cooldowns.length < count) {
+    const id = `legacy-quest-refund:${cardId}:${sequence}`;
+    sequence += 1;
+    if (usedIds.has(id)) continue;
+    usedIds.add(id);
+    cooldowns.push({ id, readyAtMs: 0, startedAtMs: 0 });
+  }
+
+  return cooldowns;
+}
+
+function mergeQuestDelivery(
+  current: AlchemistGuildQuestDelivery | undefined,
+  incoming: AlchemistGuildQuestDelivery,
+): AlchemistGuildQuestDelivery {
+  const merged = { ...current };
+  for (const [cardId, deliveredCount] of Object.entries(incoming)) {
+    merged[cardId] = Math.max(merged[cardId] ?? 0, deliveredCount);
+  }
+  return merged;
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 // Sound playback settings — global mute + master volume. Persists across reloads
 // so a parent muting for naptime doesn't have to re-mute every page load.

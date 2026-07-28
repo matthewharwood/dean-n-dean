@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { getAlchemyCharactersByRequester } from "./alchemy-characters";
+import { getAlchemyCharacterForQuest } from "./alchemy-characters";
 import { ALCHEMY_QUESTS, type StaticAlchemyQuest } from "./alchemy-quests";
 
 // Per-quest requester voice lines ("catchphrase + need"), played from the speaker
@@ -8,16 +8,10 @@ import { ALCHEMY_QUESTS, type StaticAlchemyQuest } from "./alchemy-quests";
 const AlchemyQuestAudioPathSchema = z.string().regex(/^alchemy-quest-voices\/[a-z0-9-]+\.mp3$/);
 type AlchemyQuestAudioPath = z.infer<typeof AlchemyQuestAudioPathSchema>;
 
-// Quests that ship a recorded requester voice line. Currently the tutorial arc
-// through the first glassworks quest ("up until glass"). Extend by adding a quest
-// id here and committing the matching alchemy-quest-voices/<slug>.mp3 asset.
-const ALCHEMY_QUEST_VOICE_LINE_IDS = [
-  "quest:first-water",
-  "quest:kitchen-salt-and-fuel",
-  "quest:metal-samples",
-  "quest:field-kit-basics",
-  "quest:glass-minerals",
-] as const;
+// Only register recordings whose bytes still match the current one-recipe request.
+// The older multi-recipe recordings remain as legacy assets, but split arcs use the
+// requester's character clip until new chapter-specific lines are recorded.
+const ALCHEMY_QUEST_VOICE_LINE_IDS = ["quest:first-water"] as const;
 type AlchemyQuestVoiceLineId = (typeof ALCHEMY_QUEST_VOICE_LINE_IDS)[number];
 
 const QUEST_VOICE_LINE_ID_SET: ReadonlySet<string> = new Set(ALCHEMY_QUEST_VOICE_LINE_IDS);
@@ -36,7 +30,10 @@ export function getAlchemyQuestVoiceClipPath(questId: string): AlchemyQuestAudio
 // catchphrase as a flavour intro, then the quest need. The recorded asset may add a
 // brief in-character flourish when this falls under the synthesis length minimum.
 export function getAlchemyQuestVoiceLineText(quest: StaticAlchemyQuest): string {
-  const requester = getAlchemyCharactersByRequester(quest.narrative.requester)[0];
+  const requester = getAlchemyCharacterForQuest(
+    quest.narrative.requester,
+    quest.continuation.arcId,
+  );
   const intro = requester?.catchphrases[0]?.text;
   return intro ? `${intro} ${quest.narrative.need}` : quest.narrative.need;
 }
@@ -45,9 +42,15 @@ export function getAlchemyQuestVoiceLineText(quest: StaticAlchemyQuest): string 
 // requester line when one exists, otherwise the requester character's catchphrase
 // clip. Null when the requester has no committed voice asset.
 export function getQuestRequesterVoiceClipPath(quest: StaticAlchemyQuest): string | null {
-  const questClipPath = getAlchemyQuestVoiceClipPath(quest.id);
+  const questClipPath =
+    quest.continuation.stepCount === 1
+      ? getAlchemyQuestVoiceClipPath(quest.continuation.arcId)
+      : null;
   if (questClipPath) return questClipPath;
-  const requester = getAlchemyCharactersByRequester(quest.narrative.requester)[0];
+  const requester = getAlchemyCharacterForQuest(
+    quest.narrative.requester,
+    quest.continuation.arcId,
+  );
   return requester?.voiceClips[0]?.audioPath ?? null;
 }
 
@@ -59,7 +62,9 @@ type AlchemyQuestVoiceLine = {
 
 export const ALCHEMY_QUEST_VOICE_LINES: readonly AlchemyQuestVoiceLine[] =
   ALCHEMY_QUEST_VOICE_LINE_IDS.map((questId) => {
-    const quest = ALCHEMY_QUESTS.find((entry) => entry.id === questId);
+    const quest = ALCHEMY_QUESTS.find(
+      (entry) => entry.continuation.arcId === questId && entry.continuation.step === 1,
+    );
     if (!quest) throw new Error(`Missing quest for voice line: ${questId}`);
     const audioPath = getAlchemyQuestVoiceClipPath(questId);
     if (!audioPath) throw new Error(`Missing audio path for voice line: ${questId}`);

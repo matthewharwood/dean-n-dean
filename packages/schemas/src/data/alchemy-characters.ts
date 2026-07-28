@@ -315,6 +315,18 @@ export function getAlchemyCharactersByRequester(
   );
 }
 
+export function getAlchemyCharacterForQuest(
+  requester: QuestRequester,
+  questArcId: string,
+): StaticAlchemyCharacter | undefined {
+  const requesterCharacters = getAlchemyCharactersByRequester(requester);
+  return (
+    requesterCharacters.find((currentCharacter) =>
+      currentCharacter.questIds.some((questId) => questId === questArcId),
+    ) ?? requesterCharacters[0]
+  );
+}
+
 export function validateAlchemyCharacterMedia(
   characters: readonly unknown[] = ALCHEMY_CHARACTERS,
 ): AlchemyCharacter[] {

@@ -4,7 +4,7 @@ export const QUEST_AUTO_VOICE_DEBOUNCE_MS = 500;
 
 type QuestAutoVoiceCandidate = {
   autoPlayedQuestVoiceIds: readonly string[];
-  questId: string;
+  voiceKey: string;
   unlocked: boolean;
   voiceClipPath: string | null;
 };
@@ -12,19 +12,19 @@ type QuestAutoVoiceCandidate = {
 export function getQuestAutoVoiceClipPath(candidate: QuestAutoVoiceCandidate): string | null {
   if (!candidate.unlocked) return null;
   if (!candidate.voiceClipPath) return null;
-  if (candidate.autoPlayedQuestVoiceIds.includes(candidate.questId)) return null;
+  if (candidate.autoPlayedQuestVoiceIds.includes(candidate.voiceKey)) return null;
 
   return candidate.voiceClipPath;
 }
 
 export function markQuestVoiceAutoPlayed(
   boardState: AlchemistGuildBoardState,
-  questId: string,
+  voiceKey: string,
 ): AlchemistGuildBoardState {
-  if (boardState.autoPlayedQuestVoiceIds.includes(questId)) return boardState;
+  if (boardState.autoPlayedQuestVoiceIds.includes(voiceKey)) return boardState;
 
   return {
     ...boardState,
-    autoPlayedQuestVoiceIds: [...boardState.autoPlayedQuestVoiceIds, questId],
+    autoPlayedQuestVoiceIds: [...boardState.autoPlayedQuestVoiceIds, voiceKey],
   };
 }

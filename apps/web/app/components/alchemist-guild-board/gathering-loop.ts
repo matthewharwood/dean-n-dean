@@ -35,6 +35,7 @@ import {
   type PhonicsWord,
   type StaticAlchemyQuest,
 } from "@dean-stack/schemas";
+import * as z from "zod";
 
 import type { SoundId } from "~/sound/schema";
 import {
@@ -271,6 +272,20 @@ const rewardPool = [
   ...ALCHEMY_GATHERABLE_CARDS.filter((card) => card.unlockCohort <= 3).map((card) => card.cardId),
 ] satisfies AlchemistGuildCardId[];
 const primitiveRewardCardIds = new Set<string>(ALCHEMY_PRIMITIVE_CARD_IDS);
+const expeditionQuestDropCardIds = new Set<string>(
+  ALCHEMY_GATHERABLE_CARDS.map((card) => card.cardId),
+);
+
+export const EXPEDITION_QUEST_DROP_TARGET_LIMIT = 10;
+
+export const ExpeditionQuestDropSourceSchema = z.enum(["current-quest", "future-quest"]);
+export type ExpeditionQuestDropSource = z.infer<typeof ExpeditionQuestDropSourceSchema>;
+
+export const ExpeditionQuestDropTargetSchema = z.object({
+  cardId: AlchemistGuildCardIdSchema,
+  source: ExpeditionQuestDropSourceSchema,
+});
+export type ExpeditionQuestDropTarget = z.infer<typeof ExpeditionQuestDropTargetSchema>;
 
 export function createGatheringEquation(
   round: number,
@@ -1591,6 +1606,36 @@ export function createGatheringRewardOptions(
   return createGatheringRewardPlan(round, context, targetDropChances).cardIds;
 }
 
+export function getExpeditionQuestDropTargets(
+  context: GatheringRewardContext,
+): ExpeditionQuestDropTarget[] {
+  const currentQuestDemand = createSelectedQuestPrimitiveDemandScores(context);
+  const futureQuestDemand = createPrimitiveDemandScores(context);
+  const currentQuestCardIds = getOrderedDemandCardIds(currentQuestDemand).filter((cardId) =>
+    expeditionQuestDropCardIds.has(cardId),
+  );
+  const currentQuestCardIdSet = new Set<string>(currentQuestCardIds);
+  const futureQuestCardIds = getOrderedDemandCardIds(futureQuestDemand).filter(
+    (cardId) => expeditionQuestDropCardIds.has(cardId) && !currentQuestCardIdSet.has(cardId),
+  );
+
+  const targets = [
+    ...currentQuestCardIds.map((cardId) => ({
+      cardId,
+      source: "current-quest" as const,
+    })),
+    ...futureQuestCardIds.map((cardId) => ({
+      cardId,
+      source: "future-quest" as const,
+    })),
+  ].slice(0, EXPEDITION_QUEST_DROP_TARGET_LIMIT);
+
+  return z
+    .array(ExpeditionQuestDropTargetSchema)
+    .max(EXPEDITION_QUEST_DROP_TARGET_LIMIT)
+    .parse(targets);
+}
+
 export function createGatheringRewardPlan(
   round: number,
   context?: GatheringRewardContext,
@@ -2223,19 +2268,8 @@ function createPrimitiveDemandScores(
 }
 
 function getQuestPrimitiveDemandRootCardIds(quest: StaticAlchemyQuest): string[] {
-  const recipes = quest.recipeIds.flatMap((recipeId) => {
-    const recipe = getAlchemyRecipeById(recipeId);
-    return recipe ? [recipe] : [];
-  });
-  if (recipes.length === 0) return [];
-
-  const consumedCardIds = new Set<string>(
-    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
-  );
-  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
-  const roots = terminalRecipes.length === 1 ? terminalRecipes : recipes;
-
-  return roots.map((recipe) => recipe.output.cardId);
+  const recipe = getAlchemyRecipeById(quest.recipeId);
+  return recipe ? [recipe.output.cardId] : [];
 }
 
 type PrimitiveDemandInput = {
@@ -2307,13 +2341,22 @@ function getUpcomingGatheringQuests(
   const completedQuestIds = getEffectivelyCompletedQuestIds(context);
   const virtuallyCompletedQuestIds = new Set<string>(completedQuestIds);
   const upcomingQuests: StaticAlchemyQuest[] = [];
+  const selectedArcIds = new Set<string>();
 
-  for (const quest of ALCHEMY_QUESTS) {
-    if (upcomingQuests.length >= questWindow) break;
-    if (virtuallyCompletedQuestIds.has(quest.id)) continue;
-    if (!areQuestPrerequisitesMet(quest, virtuallyCompletedQuestIds)) continue;
+  while (upcomingQuests.length < questWindow) {
+    const availableQuests = ALCHEMY_QUESTS.filter(
+      (quest) =>
+        !virtuallyCompletedQuestIds.has(quest.id) &&
+        areQuestPrerequisitesMet(quest, virtuallyCompletedQuestIds),
+    );
+    if (availableQuests.length === 0) break;
 
+    const quest =
+      availableQuests.find((candidate) => !selectedArcIds.has(candidate.continuation.arcId)) ??
+      availableQuests[0];
+    if (!quest) break;
     upcomingQuests.push(quest);
+    selectedArcIds.add(quest.continuation.arcId);
     virtuallyCompletedQuestIds.add(quest.id);
   }
 
