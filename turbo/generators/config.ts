@@ -2,7 +2,7 @@ import type { PlopTypes } from "@turbo/gen";
 
 // Scaffolds a new dean-stack app under `apps/<name>` mirroring `apps/web`'s
 // toolchain (Vite + TanStack Start + Tailwind v4 + Storybook + Playwright +
-// IDB + Jotai + Zod + animejs + Symphony task wiring) minus the `apps/web`
+// IDB + Jotai + Zod + animejs + LiteRT.js + Symphony task wiring) minus the `apps/web`
 // demo components.
 //
 // Usage:

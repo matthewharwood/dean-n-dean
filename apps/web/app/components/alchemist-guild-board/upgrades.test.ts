@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID } from "@dean-stack/schemas";
 
 import {
   applyHydrogenBounty,
@@ -21,12 +22,14 @@ import {
   NEW_REWARD_SLOT_UNLOCK_SESSIONS,
   NEW_REWARD_SLOT_UPGRADE_ID,
   UPGRADE_CATALOG,
+  UpgradeCatalogEntrySchema,
 } from "./upgrades";
 
 describe("upgrade catalog", () => {
   test("exposes the real upgrades plus redacted teasers", () => {
     const realIds = UPGRADE_CATALOG.filter((entry) => !entry.redacted).map((entry) => entry.id);
     expect(realIds).toEqual([
+      ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
       EXPEDITION_QUEUE_UPGRADE_ID,
       MERCHANT_GOLD_UPGRADE_ID,
       HYDROGEN_BOUNTY_UPGRADE_ID,
@@ -36,9 +39,33 @@ describe("upgrade catalog", () => {
     expect(UPGRADE_CATALOG.filter((entry) => entry.redacted).length).toBeGreaterThan(0);
   });
 
-  test("every entry has unique copy fields", () => {
+  test("every entry has a unique id", () => {
     const ids = UPGRADE_CATALOG.map((entry) => entry.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("identifies the Field Bag as the early no-pressure inventory upgrade", () => {
+    expect(
+      UPGRADE_CATALOG.find((entry) => entry.id === ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID),
+    ).toEqual({
+      description: "Opens a roomy 32-stack bag in the right panel, so selling stays optional.",
+      id: ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
+      redacted: false,
+      title: "Field Bag",
+      unlockHint: "Finish Sir Bubbleton Needs Water",
+    });
+  });
+
+  test("rejects empty catalog copy", () => {
+    expect(
+      UpgradeCatalogEntrySchema.safeParse({
+        description: "",
+        id: ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
+        redacted: false,
+        title: "Field Bag",
+        unlockHint: "",
+      }).success,
+    ).toBe(false);
   });
 });
 

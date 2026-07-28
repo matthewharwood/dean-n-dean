@@ -1,7 +1,8 @@
-// The upgrade shop catalog + unlock rules. Only ONE upgrade is real for now
-// (Expedition Queue); the rest are deliberately redacted teasers so the tab reads
-// as "more to come". LATER (intentional, not yet built): flesh each redacted entry
-// out with a real id, unlock quest, and effect — they are static placeholders today.
+// The upgrade shop catalog + unlock rules. Redacted entries remain deliberate
+// teasers so the tab reads as "more to come."
+
+import { ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID } from "@dean-stack/schemas";
+import * as z from "zod";
 
 import { CELESTIAL_STREAK_TIER_AT } from "./gathering-streak";
 
@@ -38,17 +39,25 @@ export const NEW_REWARD_SLOT_UNLOCK_SESSIONS = 5;
 /** Chance (0..1) the unlocked New Reward Slot adds a 4th reward option after a kill. */
 export const NEW_REWARD_SLOT_FOURTH_CHANCE = 0.5;
 
-export type UpgradeCatalogEntry = {
-  id: string;
-  title: string;
-  description: string;
+export const UpgradeCatalogEntrySchema = z.object({
+  description: z.string().trim().min(1),
+  id: z.string().trim().min(1),
+  redacted: z.boolean(),
+  title: z.string().trim().min(1),
   /** Short copy describing how it's earned (its "quest"). */
-  unlockHint: string;
-  /** Redacted entries are static teasers, not yet unlockable. */
-  redacted: boolean;
-};
+  unlockHint: z.string().trim().min(1),
+});
+export type UpgradeCatalogEntry = z.infer<typeof UpgradeCatalogEntrySchema>;
+export const UpgradeCatalogSchema = z.array(UpgradeCatalogEntrySchema).readonly();
 
-export const UPGRADE_CATALOG: readonly UpgradeCatalogEntry[] = [
+export const UPGRADE_CATALOG = UpgradeCatalogSchema.parse([
+  {
+    description: "Opens a roomy 32-stack bag in the right panel, so selling stays optional.",
+    id: ALCHEMIST_GUILD_FIELD_BAG_UPGRADE_ID,
+    redacted: false,
+    title: "Field Bag",
+    unlockHint: "Finish Sir Bubbleton Needs Water",
+  },
   {
     description: "Line up to three expeditions to run back-to-back — no idle docks.",
     id: EXPEDITION_QUEUE_UPGRADE_ID,
@@ -106,7 +115,7 @@ export const UPGRADE_CATALOG: readonly UpgradeCatalogEntry[] = [
     title: "???",
     unlockHint: "Locked",
   },
-];
+]);
 
 /** Whether the Expedition Queue upgrade is earned at the given emergent count. */
 export function isExpeditionQueueUnlockEarned(discoveredEmergentCount: number): boolean {

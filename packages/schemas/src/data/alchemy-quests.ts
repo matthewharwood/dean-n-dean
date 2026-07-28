@@ -1,5 +1,5 @@
 import * as z from "zod";
-
+import { ALCHEMY_QUEST_ARC_LORE_BEATS } from "./alchemy-quest-lore";
 import {
   ALCHEMY_GATHERABLE_CARDS,
   ALCHEMY_MAX_TABLE_SLOT_COUNT,
@@ -8,12 +8,16 @@ import {
   ALCHEMY_STARTING_TABLE_SLOT_COUNT,
   getAlchemyRecipeArgumentComplexity,
   getAlchemyRecipeById,
+  getAlchemyRecipeMachineryId,
   getAlchemyRecipeVisibleSlotCount,
   type QuestRequester,
   QuestRequesterSchema,
   type StaticAlchemyRecipe,
 } from "./alchemy-recipes";
 import { ELEMENT_CARDS } from "./element-cards";
+
+const QUEST_ID_PREFIX_PATTERN = /^quest:/;
+const ALCHEMY_RECIPE_ID_PREFIX_PATTERN = /^alchemy:/;
 
 export const ALCHEMY_QUEST_KINDS = [
   "tutorial",
@@ -107,6 +111,22 @@ export const AlchemyQuestNarrativeSchema = z.object({
 });
 export type AlchemyQuestNarrative = z.infer<typeof AlchemyQuestNarrativeSchema>;
 
+export const AlchemyQuestContinuationSchema = z
+  .object({
+    arcId: AlchemyQuestIdSchema,
+    arcTitle: z.string().min(1),
+    step: z.int().min(1),
+    stepCount: z.int().min(1),
+    carriesOutputForward: z.boolean(),
+    previousQuestId: AlchemyQuestIdSchema.nullable(),
+    nextQuestId: AlchemyQuestIdSchema.nullable(),
+  })
+  .refine((continuation) => continuation.step <= continuation.stepCount, {
+    error: "Quest continuation step cannot exceed its step count",
+    path: ["step"],
+  });
+export type AlchemyQuestContinuation = z.infer<typeof AlchemyQuestContinuationSchema>;
+
 export const AlchemyQuestUnlocksSchema = z.object({
   elementCardIds: z.array(AlchemyQuestCardIdSchema),
   rawCardIds: z.array(AlchemyQuestCardIdSchema),
@@ -143,9 +163,10 @@ export const AlchemyQuestSchema = z.object({
   id: AlchemyQuestIdSchema,
   kind: AlchemyQuestKindSchema,
   narrative: AlchemyQuestNarrativeSchema,
+  continuation: AlchemyQuestContinuationSchema,
   progression: AlchemyQuestProgressionSchema,
   prerequisites: AlchemyQuestPrerequisitesSchema,
-  recipeIds: z.array(AlchemyQuestRecipeIdSchema).min(1),
+  recipeId: AlchemyQuestRecipeIdSchema,
   teachingFocus: z.array(z.string().min(1)).min(1),
   unlocks: AlchemyQuestUnlocksSchema,
   rewards: AlchemyQuestRewardsSchema,
@@ -153,8 +174,16 @@ export const AlchemyQuestSchema = z.object({
 });
 export type AlchemyQuest = z.infer<typeof AlchemyQuestSchema>;
 
-type DeepReadonly<T> = T extends readonly (infer U)[]
-  ? readonly DeepReadonly<U>[]
+const AlchemyQuestArcSchema = AlchemyQuestSchema.omit({
+  continuation: true,
+  recipeId: true,
+}).extend({
+  recipeIds: z.array(AlchemyQuestRecipeIdSchema).min(1),
+});
+type AlchemyQuestArc = z.infer<typeof AlchemyQuestArcSchema>;
+
+type DeepReadonly<T> = T extends readonly unknown[]
+  ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
   : T extends object
     ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
     : T;
@@ -206,7 +235,7 @@ const draft = (
   preference: DeepReadonly<AlchemyDiscoveryOption>,
 ) => [critical, synergy, preference] as const;
 
-const quest = <const T extends DeepReadonly<AlchemyQuest>>(value: T) => value;
+const questArc = <const T extends DeepReadonly<AlchemyQuestArc>>(value: T) => value;
 
 export const ALCHEMY_TABLE_SLOT_UPGRADES = [
   {
@@ -227,8 +256,8 @@ export const ALCHEMY_TABLE_SLOT_UPGRADES = [
   },
 ] as const satisfies readonly AlchemyTableSlotUpgrade[];
 
-export const ALCHEMY_QUESTS = [
-  quest({
+const ALCHEMY_QUEST_ARCS = [
+  questArc({
     id: "quest:first-water",
     kind: "tutorial",
     narrative: {
@@ -254,7 +283,7 @@ export const ALCHEMY_QUESTS = [
       elementCardIds: ["element:h", "element:o", "element:c"],
       requesters: ["knight"],
       zones: ["zone:quest-board", "zone:periodic-table-vault"],
-      upgrades: ["upgrade:table-slot-4"],
+      upgrades: ["upgrade:table-slot-4", "upgrade:field-bag"],
       recipeIds: ["alchemy:water"],
       knowledgeBadges: ["badge:first-molecule"],
     }),
@@ -265,7 +294,7 @@ export const ALCHEMY_QUESTS = [
       option("preference", "npc", "npc:baker", "Baker Brindle", "Adds cozy kitchen orders."),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:kitchen-salt-and-fuel",
     kind: "production",
     narrative: {
@@ -299,7 +328,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(18, 18, 0, 3),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:metal-samples",
     kind: "curiosity",
     narrative: {
@@ -331,7 +360,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(16, 14, 0, 2),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:field-kit-basics",
     kind: "production",
     narrative: {
@@ -394,7 +423,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:glass-minerals",
     kind: "critical",
     narrative: {
@@ -462,7 +491,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:first-flask",
     kind: "critical",
     narrative: {
@@ -490,7 +519,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(28, 26, 0, 3),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:water-flask-delivery",
     kind: "capstone",
     narrative: {
@@ -545,7 +574,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:lime-and-ceramics",
     kind: "production",
     narrative: {
@@ -585,7 +614,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(36, 34, 0, 3),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:fizzing-gases",
     kind: "curiosity",
     narrative: {
@@ -613,7 +642,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(30, 32, 0, 3),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:salts-and-conductors",
     kind: "mastery",
     narrative: {
@@ -664,7 +693,7 @@ export const ALCHEMY_QUESTS = [
       option("preference", "upgrade", "upgrade:autosort-1", "Auto Sorter", "Sorts finished cards."),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:potion-board",
     kind: "production",
     narrative: {
@@ -701,7 +730,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(42, 42, 0, 4),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:ranger-and-cleric-orders",
     kind: "curiosity",
     narrative: {
@@ -746,7 +775,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(44, 44, 0, 4),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:scribe-and-charm",
     kind: "critical",
     narrative: {
@@ -806,7 +835,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:alloy-market",
     kind: "critical",
     narrative: {
@@ -851,12 +880,12 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(54, 56, 0, 5),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:fasteners-and-parts",
     kind: "production",
     narrative: {
       title: "A Tray of Useful Parts",
-      requester: "artificer",
+      requester: "blacksmith",
       summary: "Ingot cards become small physical parts for gear.",
       need: "Craft a Bronze Buckle, Steel Needle, Copper Rivet, Chain Link, and Wood Shaft using the correct machinery.",
       hint: "Set machinery before swiping: Shaft Straightener + Wood makes the Shaft; Rivet Header + two Copper Ingots makes the Rivet; Needle Mill + two Steel Ingots makes the Needle.",
@@ -892,7 +921,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(48, 48, 0, 4),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:forge-field-gear",
     kind: "capstone",
     narrative: {
@@ -934,7 +963,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:acid-base-show",
     kind: "curiosity",
     narrative: {
@@ -963,7 +992,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(42, 48, 0, 4),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:pigment-lab",
     kind: "production",
     narrative: {
@@ -1007,7 +1036,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(52, 54, 0, 4),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:stained-glass-lens",
     kind: "mastery",
     narrative: {
@@ -1062,7 +1091,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:leather-and-parchment",
     kind: "critical",
     narrative: {
@@ -1106,7 +1135,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(58, 58, 0, 4),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:guild-kits-and-care",
     kind: "production",
     narrative: {
@@ -1154,7 +1183,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(66, 68, 0, 5),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:stealth-and-polish",
     kind: "curiosity",
     narrative: {
@@ -1203,7 +1232,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:crystal-optics",
     kind: "critical",
     narrative: {
@@ -1233,7 +1262,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(62, 66, 0, 5),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:precious-conductors",
     kind: "production",
     narrative: {
@@ -1281,7 +1310,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(76, 76, 0, 5),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:star-map",
     kind: "capstone",
     narrative: {
@@ -1325,7 +1354,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:garden-minerals",
     kind: "critical",
     narrative: {
@@ -1375,7 +1404,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(82, 86, 0, 6),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:fermentation-and-preservation",
     kind: "curiosity",
     narrative: {
@@ -1420,7 +1449,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(74, 80, 0, 5),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:garden-charm",
     kind: "capstone",
     narrative: {
@@ -1474,7 +1503,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:advanced-materials",
     kind: "critical",
     narrative: {
@@ -1521,7 +1550,7 @@ export const ALCHEMY_QUESTS = [
     rewards: rewards(100, 104, 0, 6),
     discoveryDraft: null,
   }),
-  quest({
+  questArc({
     id: "quest:class-kits",
     kind: "mastery",
     narrative: {
@@ -1595,7 +1624,7 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-  quest({
+  questArc({
     id: "quest:guild-adventure-crate",
     kind: "capstone",
     narrative: {
@@ -1647,7 +1676,228 @@ export const ALCHEMY_QUESTS = [
       ),
     ),
   }),
-] as const satisfies readonly DeepReadonly<AlchemyQuest>[];
+] as const satisfies readonly DeepReadonly<AlchemyQuestArc>[];
+
+export const ALCHEMY_QUESTS = Object.freeze(createAlchemyQuestChapters(ALCHEMY_QUEST_ARCS));
+
+function createAlchemyQuestChapters(
+  arcs: readonly DeepReadonly<AlchemyQuestArc>[],
+): DeepReadonly<AlchemyQuest>[] {
+  const chapters: DeepReadonly<AlchemyQuest>[] = [];
+  let sequence = 0;
+
+  for (const arc of arcs) {
+    const recipes = arc.recipeIds.map(requireRecipe);
+    const loreBeats = getAlchemyQuestArcLoreBeats(arc);
+    const chapterIds = recipes.map((recipe, index) =>
+      getAlchemyQuestChapterId(arc.id, recipe.id, index, recipes.length),
+    );
+
+    for (const [index, recipe] of recipes.entries()) {
+      const step = index + 1;
+      const isFirstStep = index === 0;
+      const isFinalStep = step === recipes.length;
+      const previousRecipe = recipes[index - 1] ?? null;
+      const nextRecipe = recipes[index + 1] ?? null;
+      const previousQuestId = chapterIds[index - 1] ?? null;
+      const nextQuestId = chapterIds[index + 1] ?? null;
+      const carriesOutputForward = recipes
+        .slice(index + 1)
+        .some((laterRecipe) =>
+          laterRecipe.arguments.some((argument) => argument.cardId === recipe.output.cardId),
+        );
+      const id = chapterIds[index];
+      if (!id) throw new Error(`Missing generated quest chapter id for ${arc.id}`);
+
+      sequence += 1;
+      chapters.push({
+        id,
+        kind: arc.kind,
+        narrative: createAlchemyQuestChapterNarrative(
+          arc,
+          recipe,
+          previousRecipe,
+          nextRecipe,
+          step,
+          recipes.length,
+          carriesOutputForward,
+          loreBeats[index],
+        ),
+        continuation: {
+          arcId: arc.id,
+          arcTitle: arc.narrative.title,
+          step,
+          stepCount: recipes.length,
+          carriesOutputForward,
+          previousQuestId,
+          nextQuestId,
+        },
+        progression: {
+          ...arc.progression,
+          sequence,
+          suggestedMinutes: getAlchemyQuestChapterMinutes(
+            arc.progression.suggestedMinutes,
+            index,
+            recipes.length,
+          ),
+        },
+        prerequisites: isFirstStep
+          ? {
+              allOf: [...arc.prerequisites.allOf],
+              anyOf: arc.prerequisites.anyOf.map((gate) => ({
+                count: gate.count,
+                questIds: [...gate.questIds],
+              })),
+            }
+          : prerequisites([previousQuestId ?? arc.id]),
+        recipeId: recipe.id,
+        teachingFocus: [
+          ...new Set([...recipe.education.concepts, ...arc.teachingFocus.slice(0, 1)]),
+        ],
+        unlocks: {
+          elementCardIds: isFirstStep ? [...arc.unlocks.elementCardIds] : [],
+          rawCardIds: isFirstStep ? [...arc.unlocks.rawCardIds] : [],
+          recipeIds: [recipe.id],
+          requesters: isFirstStep ? [...arc.unlocks.requesters] : [],
+          zones: isFirstStep ? [...arc.unlocks.zones] : [],
+          upgrades: isFinalStep ? [...arc.unlocks.upgrades] : [],
+          knowledgeBadges: isFinalStep ? [...arc.unlocks.knowledgeBadges] : [],
+        },
+        rewards: {
+          gold: splitAlchemyQuestReward(arc.rewards.gold, index, recipes.length),
+          knowledgeXp: splitAlchemyQuestReward(arc.rewards.knowledgeXp, index, recipes.length),
+          discoveryTokens: isFinalStep ? arc.rewards.discoveryTokens : 0,
+          muddlefogCleared: isFinalStep ? arc.rewards.muddlefogCleared : 0,
+        },
+        discoveryDraft: isFinalStep
+          ? (arc.discoveryDraft?.map((entry) => ({ ...entry })) ?? null)
+          : null,
+      });
+    }
+  }
+
+  return chapters;
+}
+
+function getAlchemyQuestChapterId(
+  arcId: string,
+  recipeId: string,
+  index: number,
+  stepCount: number,
+): string {
+  if (index === stepCount - 1) return arcId;
+  const arcSlug = arcId.replace(QUEST_ID_PREFIX_PATTERN, "");
+  const recipeSlug = recipeId.replace(ALCHEMY_RECIPE_ID_PREFIX_PATTERN, "");
+  return `quest:${arcSlug}-${recipeSlug}`;
+}
+
+function createAlchemyQuestChapterNarrative(
+  arc: DeepReadonly<AlchemyQuestArc>,
+  recipe: StaticAlchemyRecipe,
+  previousRecipe: StaticAlchemyRecipe | null,
+  nextRecipe: StaticAlchemyRecipe | null,
+  step: number,
+  stepCount: number,
+  carriesOutputForward: boolean,
+  loreBeat: string | undefined,
+): AlchemyQuestNarrative {
+  if (!loreBeat) throw new Error(`Missing lore beat ${step} for ${arc.id}`);
+  if (stepCount === 1) return { ...arc.narrative, completion: loreBeat };
+
+  const isFirstStep = step === 1;
+  const isFinalStep = step === stepCount;
+  const title = isFinalStep ? arc.narrative.title : `${recipe.name}: ${arc.narrative.title}`;
+  const summary =
+    stepCount === 1
+      ? arc.narrative.summary
+      : `${arc.narrative.summary} Part ${step} of ${stepCount} focuses on ${recipe.name}.`;
+  const need = isFirstStep
+    ? `Make one ${recipe.name} to begin “${arc.narrative.title}.” ${
+        carriesOutputForward
+          ? "It will stay in Inventory for a later part."
+          : "The requester will log it before the next part."
+      }`
+    : `${previousRecipe?.name ?? "The previous craft"} is logged. Make one ${recipe.name} to continue “${arc.narrative.title}.”`;
+  const hint = `${formatAlchemyQuestRecipeAction(recipe)} ${recipe.education.note}`;
+  const completion = isFinalStep
+    ? loreBeat
+    : carriesOutputForward
+      ? `${loreBeat} Keep it in Inventory for a later recipe. Next, ${nextRecipe?.name ?? "the final piece"} continues the story.`
+      : `${loreBeat} The requester logs the delivery. Next, ${nextRecipe?.name ?? "the final piece"} continues the story.`;
+
+  return {
+    title,
+    requester: arc.narrative.requester,
+    summary,
+    need,
+    hint,
+    completion,
+  };
+}
+
+function getAlchemyQuestArcLoreBeats(arc: DeepReadonly<AlchemyQuestArc>): readonly string[] {
+  const loreBeats = ALCHEMY_QUEST_ARC_LORE_BEATS[arc.id];
+  if (!loreBeats) throw new Error(`Missing quest arc lore for ${arc.id}`);
+  if (loreBeats.length !== arc.recipeIds.length) {
+    throw new Error(
+      `Quest arc ${arc.id} has ${arc.recipeIds.length} recipes but ${loreBeats.length} lore beats`,
+    );
+  }
+  return loreBeats;
+}
+
+function formatAlchemyQuestRecipeAction(recipe: StaticAlchemyRecipe): string {
+  const ingredientNames = recipe.arguments.map((argument) => {
+    const ingredientName = getAlchemyQuestCardName(argument.cardId);
+    return argument.quantity === 1 ? ingredientName : `${argument.quantity} ${ingredientName}`;
+  });
+  const stationName = formatAlchemyQuestToken(getAlchemyRecipeMachineryId(recipe));
+  const action = `${recipe.action.slice(0, 1).toUpperCase()}${recipe.action.slice(1)}`;
+
+  return `${action} ${formatAlchemyQuestList(ingredientNames)} at the ${stationName} to make ${recipe.name}.`;
+}
+
+function getAlchemyQuestCardName(cardId: string): string {
+  const recipe = ALCHEMY_RECIPES.find((candidate) => candidate.output.cardId === cardId);
+  if (recipe) return recipe.output.name;
+
+  const gatherable = ALCHEMY_GATHERABLE_CARDS.find((candidate) => candidate.cardId === cardId);
+  if (gatherable) return gatherable.name;
+
+  const element = ELEMENT_CARDS.find((candidate) => candidate.id === cardId);
+  return element?.name ?? formatAlchemyQuestToken(cardId);
+}
+
+function formatAlchemyQuestToken(token: string): string {
+  const label = token.includes(":") ? (token.split(":").at(-1) ?? token) : token;
+  return label
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function formatAlchemyQuestList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "the listed ingredients";
+  const finalItem = items.at(-1);
+  return `${items.slice(0, -1).join(", ")} and ${finalItem}`;
+}
+
+function getAlchemyQuestChapterMinutes(
+  minutes: readonly [number, number],
+  index: number,
+  stepCount: number,
+): [number, number] {
+  const totalMinutes = Math.max(minutes[1] - minutes[0], stepCount);
+  const start = minutes[0] + Math.floor((totalMinutes * index) / stepCount);
+  const end = minutes[0] + Math.floor((totalMinutes * (index + 1)) / stepCount);
+  return [start, Math.max(start + 1, end)];
+}
+
+function splitAlchemyQuestReward(total: number, index: number, stepCount: number): number {
+  const base = Math.floor(total / stepCount);
+  const remainder = total % stepCount;
+  return base + (index >= stepCount - remainder ? 1 : 0);
+}
 
 export type StaticAlchemyQuest = (typeof ALCHEMY_QUESTS)[number];
 export type StaticAlchemyQuestId = StaticAlchemyQuest["id"];
@@ -1666,10 +1916,34 @@ export function getAlchemyQuestsByAct(act: number): StaticAlchemyQuest[] {
   return ALCHEMY_QUESTS.filter((currentQuest) => currentQuest.progression.act === act);
 }
 
+export function expandCompletedAlchemyQuestIds(
+  completedQuestIds: readonly string[] = [],
+): string[] {
+  const expandedQuestIds = new Set<string>(completedQuestIds);
+  const visitPrerequisites = (questId: string): void => {
+    const quest = getAlchemyQuestById(questId);
+    if (!quest) return;
+
+    for (const prerequisiteQuestId of quest.prerequisites.allOf) {
+      if (expandedQuestIds.has(prerequisiteQuestId)) continue;
+      expandedQuestIds.add(prerequisiteQuestId);
+      visitPrerequisites(prerequisiteQuestId);
+    }
+  };
+
+  for (const questId of completedQuestIds) visitPrerequisites(questId);
+
+  const knownQuestIds = ALCHEMY_QUESTS.flatMap((quest) =>
+    expandedQuestIds.has(quest.id) ? [quest.id] : [],
+  );
+  const unknownQuestIds = completedQuestIds.filter((questId) => !getAlchemyQuestById(questId));
+  return [...knownQuestIds, ...unknownQuestIds];
+}
+
 export function getAvailableAlchemyQuests(
   completedQuestIds: readonly string[] = [],
 ): StaticAlchemyQuest[] {
-  const completedQuestIdSet = new Set<string>(completedQuestIds);
+  const completedQuestIdSet = new Set<string>(expandCompletedAlchemyQuestIds(completedQuestIds));
 
   return ALCHEMY_QUESTS.filter(
     (currentQuest) =>
@@ -1708,15 +1982,10 @@ export function getAlchemyQuestBoard(
 
 export function getAlchemyQuestMasteryScore(questToScore: {
   readonly kind: AlchemyQuestKind;
-  readonly recipeIds: readonly string[];
+  readonly recipeId: string;
   readonly rewards: DeepReadonly<AlchemyQuestRewards>;
 }): number {
-  const complexityTotal = questToScore.recipeIds.reduce((total, recipeId) => {
-    const complexity = getAlchemyRecipeArgumentComplexity(recipeId);
-    return total + (complexity?.normalizedComplexity ?? 0);
-  }, 0);
-  const averageComplexity =
-    questToScore.recipeIds.length > 0 ? complexityTotal / questToScore.recipeIds.length : 0;
+  const complexity = getAlchemyRecipeArgumentComplexity(questToScore.recipeId);
   const kindBonus =
     questToScore.kind === "capstone" ? 28 : questToScore.kind === "mastery" ? 18 : 0;
 
@@ -1724,20 +1993,18 @@ export function getAlchemyQuestMasteryScore(questToScore: {
     questToScore.rewards.knowledgeXp +
       questToScore.rewards.gold / 5 +
       questToScore.rewards.discoveryTokens * 25 +
-      averageComplexity * 100 +
-      questToScore.recipeIds.length * 6 +
+      (complexity?.normalizedComplexity ?? 0) * 100 +
+      6 +
       kindBonus,
   );
 }
 
 export function getAlchemyQuestRequiredTableSlotCount(questToCheck: {
-  readonly recipeIds: readonly string[];
+  readonly recipeId: string;
 }): number {
   return Math.max(
     ALCHEMY_STARTING_TABLE_SLOT_COUNT,
-    ...questToCheck.recipeIds.map((recipeId) =>
-      getAlchemyRecipeVisibleSlotCount(requireRecipe(recipeId)),
-    ),
+    getAlchemyRecipeVisibleSlotCount(requireRecipe(questToCheck.recipeId)),
   );
 }
 
@@ -1794,19 +2061,18 @@ export function validateAlchemyQuestGraph(
     }
     sequences.add(currentQuest.progression.sequence);
 
-    for (const recipeId of currentQuest.recipeIds) {
-      if (!knownRecipeIds.has(recipeId)) {
-        throw new Error(`Unknown alchemy quest recipe id: ${recipeId}`);
-      }
-      if (recipesSeen.has(recipeId)) {
-        const previousQuest = recipeToQuest.get(recipeId);
-        throw new Error(
-          `Alchemy recipe ${recipeId} appears in both ${previousQuest?.id ?? "unknown"} and ${currentQuest.id}`,
-        );
-      }
-      recipesSeen.add(recipeId);
-      recipeToQuest.set(recipeId, currentQuest);
+    const recipeId = currentQuest.recipeId;
+    if (!knownRecipeIds.has(recipeId)) {
+      throw new Error(`Unknown alchemy quest recipe id: ${recipeId}`);
     }
+    if (recipesSeen.has(recipeId)) {
+      const previousQuest = recipeToQuest.get(recipeId);
+      throw new Error(
+        `Alchemy recipe ${recipeId} appears in both ${previousQuest?.id ?? "unknown"} and ${currentQuest.id}`,
+      );
+    }
+    recipesSeen.add(recipeId);
+    recipeToQuest.set(recipeId, currentQuest);
   }
 
   if (recipesSeen.size !== ALCHEMY_RECIPES.length) {
@@ -1821,16 +2087,13 @@ export function validateAlchemyQuestGraph(
   }
 
   for (const currentQuest of parsedQuests) {
-    const outputs = new Set<string>();
-    for (const recipeId of currentQuest.recipeIds) {
-      const currentRecipe = requireRecipe(recipeId);
-      outputs.add(currentRecipe.output.cardId);
-    }
-    recipeOutputsByQuestId.set(currentQuest.id, outputs);
+    const currentRecipe = requireRecipe(currentQuest.recipeId);
+    recipeOutputsByQuestId.set(currentQuest.id, new Set([currentRecipe.output.cardId]));
   }
 
   for (const currentQuest of parsedQuests) {
     validatePrerequisites(currentQuest, questById);
+    validateContinuation(currentQuest, questById);
     validateDiscoveryDraft(currentQuest, knownElementIds, knownRawIds, knownRecipeIds);
     validateUnlocks(currentQuest, knownElementIds, knownRawIds, knownRecipeIds);
     validateQuestTableSlotRequirement(currentQuest);
@@ -1872,6 +2135,71 @@ function validatePrerequisiteReference(
   }
   if (prerequisiteQuest.progression.sequence >= currentSequence) {
     throw new Error(`Prerequisite ${prerequisiteQuestId} must come before ${currentQuestId}`);
+  }
+}
+
+function validateContinuation(
+  currentQuest: AlchemyQuest,
+  questById: ReadonlyMap<string, AlchemyQuest>,
+): void {
+  const { continuation } = currentQuest;
+  const isFirstStep = continuation.step === 1;
+  const isFinalStep = continuation.step === continuation.stepCount;
+
+  if (isFirstStep !== (continuation.previousQuestId === null)) {
+    throw new Error(`Quest ${currentQuest.id} has an invalid previous continuation link`);
+  }
+  if (isFinalStep !== (continuation.nextQuestId === null)) {
+    throw new Error(`Quest ${currentQuest.id} has an invalid next continuation link`);
+  }
+  if (isFinalStep && currentQuest.id !== continuation.arcId) {
+    throw new Error(
+      `Final continuation quest ${currentQuest.id} must retain id ${continuation.arcId}`,
+    );
+  }
+
+  const previousQuest = continuation.previousQuestId
+    ? questById.get(continuation.previousQuestId)
+    : undefined;
+  if (
+    previousQuest &&
+    (previousQuest.continuation.arcId !== continuation.arcId ||
+      previousQuest.continuation.step !== continuation.step - 1 ||
+      previousQuest.continuation.nextQuestId !== currentQuest.id)
+  ) {
+    throw new Error(`Quest ${currentQuest.id} has a broken previous continuation`);
+  }
+  if (continuation.previousQuestId && !previousQuest) {
+    throw new Error(`Quest ${currentQuest.id} references a missing previous continuation`);
+  }
+
+  const nextQuest = continuation.nextQuestId ? questById.get(continuation.nextQuestId) : undefined;
+  if (
+    nextQuest &&
+    (nextQuest.continuation.arcId !== continuation.arcId ||
+      nextQuest.continuation.step !== continuation.step + 1 ||
+      nextQuest.continuation.previousQuestId !== currentQuest.id)
+  ) {
+    throw new Error(`Quest ${currentQuest.id} has a broken next continuation`);
+  }
+  if (continuation.nextQuestId && !nextQuest) {
+    throw new Error(`Quest ${currentQuest.id} references a missing next continuation`);
+  }
+
+  const outputCardId = requireRecipe(currentQuest.recipeId).output.cardId;
+  const expectedCarryover = [...questById.values()]
+    .filter(
+      (candidate) =>
+        candidate.continuation.arcId === continuation.arcId &&
+        candidate.continuation.step > continuation.step,
+    )
+    .some((candidate) =>
+      requireRecipe(candidate.recipeId).arguments.some(
+        (argument) => argument.cardId === outputCardId,
+      ),
+    );
+  if (continuation.carriesOutputForward !== expectedCarryover) {
+    throw new Error(`Quest ${currentQuest.id} has incorrect continuation carryover metadata`);
   }
 }
 
@@ -1994,16 +2322,13 @@ function validateRecipeDependencyOrder(
     }
   }
 
-  for (const recipeId of questToValidate.recipeIds) {
-    const currentRecipe = requireRecipe(recipeId);
-    for (const argument of currentRecipe.arguments) {
-      if (!availableCardIds.has(argument.cardId)) {
-        throw new Error(
-          `Quest ${questToValidate.id} uses ${recipeId} before argument ${argument.cardId} is available`,
-        );
-      }
+  const currentRecipe = requireRecipe(questToValidate.recipeId);
+  for (const argument of currentRecipe.arguments) {
+    if (!availableCardIds.has(argument.cardId)) {
+      throw new Error(
+        `Quest ${questToValidate.id} uses ${questToValidate.recipeId} before argument ${argument.cardId} is available`,
+      );
     }
-    availableCardIds.add(currentRecipe.output.cardId);
   }
 }
 

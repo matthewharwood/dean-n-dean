@@ -63,16 +63,31 @@ describe("expedition queue", () => {
 
   test("advancing auto-starts the next queued run", () => {
     const withQueue = expedition({
-      queuedTargetCardIds: ["element:cu", "element:au"],
+      queuedTargetCardIds: ["raw:hide", "element:au"],
       readyAtMs: DURATION,
       startedAtMs: 0,
       targetCardId: "element:fe",
     });
     const advanced = advanceExpeditionQueue(withQueue, 5000, DURATION);
-    expect(advanced.targetCardId).toBe("element:cu");
+    expect(advanced.targetCardId).toBe("raw:hide");
     expect(advanced.startedAtMs).toBe(5000);
     expect(advanced.readyAtMs).toBe(5000 + DURATION);
     expect(advanced.queuedTargetCardIds).toEqual(["element:au"]);
+  });
+
+  test("starts and queues raw Quest Help targets without special casing", () => {
+    const active = startOrEnqueueExpedition(
+      ALCHEMIST_GUILD_EXPEDITION_DEFAULT,
+      "raw:hide",
+      true,
+      1000,
+      DURATION,
+    );
+    const queued = startOrEnqueueExpedition(active, "raw:quartz", true, 2000, DURATION);
+
+    expect(active.targetCardId).toBe("raw:hide");
+    expect(queued.queuedTargetCardIds).toEqual(["raw:quartz"]);
+    expect(advanceExpeditionQueue(queued, 3000, DURATION).targetCardId).toBe("raw:quartz");
   });
 
   test("advancing clears the dock when the queue is empty", () => {

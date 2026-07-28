@@ -82,21 +82,7 @@ export function createQuestAssemblyGuide(
 }
 
 function getQuestTerminalRecipe(quest: StaticAlchemyQuest): StaticAlchemyRecipe | null {
-  const recipes = quest.recipeIds.flatMap((recipeId) => {
-    const recipe = getAlchemyRecipeById(recipeId);
-    return recipe ? [recipe] : [];
-  });
-  if (recipes.length === 0) return null;
-
-  const consumedCardIds = new Set<string>(
-    recipes.flatMap((recipe) => recipe.arguments.map((argument) => argument.cardId)),
-  );
-  const terminalRecipes = recipes.filter((recipe) => !consumedCardIds.has(recipe.output.cardId));
-
-  const terminalRecipe = terminalRecipes[0];
-  if (terminalRecipes.length === 1 && terminalRecipe) return terminalRecipe;
-
-  return recipes[0] ?? null;
+  return getAlchemyRecipeById(quest.recipeId) ?? null;
 }
 
 function getIngredientStatus(
