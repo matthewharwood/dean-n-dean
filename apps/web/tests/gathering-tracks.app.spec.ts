@@ -48,7 +48,7 @@ async function seedGatheringMap(page: import("@playwright/test").Page): Promise<
         req.onerror = () => reject(req.error);
       });
 
-    const open = indexedDB.open("web", 4);
+    const open = indexedDB.open("web");
     const db: IDBDatabase = await new Promise((resolve, reject) => {
       open.onsuccess = () => resolve(open.result);
       open.onerror = () => reject(open.error);
