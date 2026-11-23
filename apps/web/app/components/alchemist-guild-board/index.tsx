@@ -196,7 +196,8 @@ import {
   streakRarity,
 } from "./gathering-streak";
 import { GatheringStreakMeter } from "./gathering-streak-meter";
-import { getGatheringOperandLabels } from "./gathering-track-display";
+import { GATHERING_TRACK_NAMES, getGatheringOperandLabels } from "./gathering-track-display";
+import { GemSwipeControl, getGemSwipeMetrics, getGemSwipeTravelPx } from "./gem-swipe-control";
 import { GlbMonsterViewer } from "./glb-monster-viewer";
 import {
   ALCHEMIST_GUILD_INTRO_FOCUS_ELEMENT_ID,
@@ -281,8 +282,7 @@ const SWAP_MIN_DURATION_MS = 180;
 const SWAP_MAX_DURATION_MS = 300;
 const TRANSMUTE_FLY_DURATION_MS = 420;
 const TRANSMUTE_SWIPE_THRESHOLD = 0.72;
-const TRANSMUTE_KNOB_WIDTH_PX = 96;
-const TRANSMUTE_TRACK_PADDING_PX = 12;
+const TRANSMUTE_TRACK_PADDING_PX = getGemSwipeMetrics("large").paddingPx;
 const TRANSMUTE_COMMIT_HOLD_MS = 160;
 const GATHERING_CONFIRM_SWIPE_THRESHOLD = TRANSMUTE_SWIPE_THRESHOLD;
 const GATHERING_CONFIRM_COMMIT_HOLD_MS = TRANSMUTE_COMMIT_HOLD_MS;
@@ -300,8 +300,8 @@ const EXTENDED_LEDGER_FILTER_SLOT_COUNT = 5;
 const INVENTORY_SELL_COIN_FLY_DURATION_MS = 620;
 const QUEST_CLAIM_SWIPE_THRESHOLD = 0.72;
 const QUEST_CLAIM_COMMIT_HOLD_MS = 120;
-const QUEST_CLAIM_KNOB_WIDTH_PX = 72;
-const QUEST_CLAIM_TRACK_PADDING_PX = 6;
+const QUEST_CLAIM_KNOB_WIDTH_PX = getGemSwipeMetrics("compact").thumbWidthPx;
+const QUEST_CLAIM_TRACK_PADDING_PX = getGemSwipeMetrics("compact").paddingPx;
 const QUEST_REWARD_FLY_DURATION_MS = 560;
 const QUEST_REWARD_FLY_STAGGER_MS = 72;
 const OUTPUT_CARD_COOLDOWN_MS = 1000;
@@ -338,29 +338,29 @@ const WINDOW_POINTER_LISTENER_OPTIONS = {
 } satisfies AddEventListenerOptions;
 const WINDOW_POINTER_LISTENER_CAPTURE = true;
 const BOARD_DOT_GRID_STYLE = {
-  backgroundColor: "#f4f6f4",
+  backgroundColor: "#0a2b22",
   backgroundImage:
-    "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(235,241,239,0.58) 54%, rgba(224,242,254,0.38)), radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.18) 1px, transparent 0)",
-  backgroundSize: "100% 100%, 12px 12px",
+    "radial-gradient(circle at 54% 38%, rgba(110,231,183,0.16), transparent 44%), linear-gradient(145deg, rgba(20,73,57,0.94), rgba(5,34,26,0.98) 58%, rgba(8,47,39,0.96)), repeating-linear-gradient(135deg, rgba(255,255,255,0.024) 0 1px, transparent 1px 10px)",
+  backgroundSize: "100% 100%, 100% 100%, 12px 12px",
 } satisfies CSSProperties;
 const GLASS_PANEL_CLASS =
-  "pointer-events-auto relative min-h-0 min-w-0 rounded-[12px] border border-[#6b4a2b]/18 bg-[linear-gradient(135deg,rgba(255,255,255,0.74),rgba(255,255,255,0.46)_48%,rgba(224,242,254,0.22))] shadow-[inset_0_1px_0_rgba(255,255,255,0.86),inset_0_0_0_1px_rgba(255,255,255,0.38),0_1px_0_rgba(107,74,43,0.14),0_18px_36px_rgba(15,23,42,0.14)] backdrop-blur-xl backdrop-saturate-150";
+  "pointer-events-auto relative min-h-0 min-w-0 rounded-[8px] border border-[#d7bd7a]/70 bg-[linear-gradient(145deg,rgba(248,252,245,0.86),rgba(213,237,225,0.76)_56%,rgba(184,221,206,0.72))] text-[#17382f] shadow-[inset_0_1px_0_rgba(255,255,255,0.92),inset_0_0_0_2px_rgba(255,255,255,0.32),0_1px_0_rgba(255,248,218,0.6),0_18px_36px_rgba(0,27,20,0.3)] backdrop-blur-xl backdrop-saturate-150";
 const GLASS_CONTROL_CLASS =
-  "pointer-events-auto rounded-[10px] border border-[#6b4a2b]/18 bg-white/68 shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_8px_18px_rgba(15,23,42,0.1)] backdrop-blur-md backdrop-saturate-150";
+  "pointer-events-auto rounded-[8px] border border-[#d7bd7a]/70 bg-[linear-gradient(180deg,rgba(250,253,248,0.9),rgba(205,232,218,0.82))] text-[#17382f] shadow-[inset_0_1px_0_rgba(255,255,255,0.94),inset_0_0_0_1px_rgba(255,255,255,0.34),0_8px_18px_rgba(0,29,21,0.22)] backdrop-blur-xl backdrop-saturate-150";
 const HIDDEN_SCROLL_CLASS =
   "overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const CLEAR_TABLE_WINDOW_CLASS =
-  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-[linear-gradient(135deg,rgba(255,255,255,0.22),rgba(255,255,255,0.08)_50%,rgba(14,165,233,0.06))] shadow-[inset_0_1px_0_rgba(255,255,255,0.56),inset_0_0_0_1px_rgba(255,255,255,0.22),0_12px_28px_rgba(15,23,42,0.1)] backdrop-blur-sm backdrop-saturate-150";
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[8px] border border-[#d7bd7a]/70 bg-[radial-gradient(circle_at_50%_38%,rgba(167,243,208,0.2),transparent_60%),linear-gradient(145deg,rgba(16,77,59,0.68),rgba(3,39,29,0.84))] text-[#17382f] shadow-[inset_0_1px_0_rgba(255,255,255,0.45),inset_0_0_0_2px_rgba(223,252,239,0.14),0_12px_28px_rgba(0,25,18,0.28)] backdrop-blur-md backdrop-saturate-140";
 const PERIODIC_TABLE_WINDOW_CLASS =
-  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[12px] border border-[#6b4a2b]/16 bg-transparent shadow-[inset_0_1px_0_rgba(255,255,255,0.48),inset_0_0_0_1px_rgba(255,255,255,0.18),0_12px_28px_rgba(15,23,42,0.08)]";
+  "pointer-events-none relative min-h-0 min-w-0 overflow-hidden rounded-[8px] border border-[#d7bd7a]/68 bg-[radial-gradient(circle_at_50%_42%,rgba(110,231,183,0.1),rgba(3,44,33,0.54)_64%,rgba(2,29,22,0.76))] shadow-[inset_0_1px_0_rgba(255,255,255,0.34),inset_0_0_0_2px_rgba(223,252,239,0.1),0_12px_28px_rgba(0,25,18,0.28)]";
 const GATHERING_PANEL_LABEL_CLASS =
-  "pointer-events-none absolute left-3 top-3 z-20 rounded-full border border-[#6b4a2b]/18 bg-white/62 px-2 py-1 text-[10px] font-black uppercase leading-none tracking-normal text-[#3c2819] shadow-[inset_0_1px_0_rgba(255,255,255,0.72),0_5px_12px_rgba(15,23,42,0.08)] backdrop-blur-md";
+  "pointer-events-none absolute left-3 top-3 z-20 rounded-[6px] border border-[#d7bd7a]/68 bg-[#edf8f1]/88 px-2 py-1 text-[10px] font-black uppercase leading-none tracking-normal text-[#174b3a] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_5px_12px_rgba(0,31,22,0.2)] backdrop-blur-xl";
 const GATHERING_PANEL_TRANSITION_CLASS =
   "transition-[grid-template-rows,opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 const BOARD_MAIN_GRID_TRANSITION_CLASS =
   "transition-[grid-template-columns] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 const GATHERING_EQUATION_CARD_CLASS =
-  "relative grid h-[148px] w-[105px] place-items-center rounded-[6px] border-2 bg-white/75 text-neutral-950 shadow-[0_8px_18px_rgba(15,23,42,0.12)]";
+  "relative grid h-28 w-20 place-items-center rounded-[7px] border-2 bg-white/75 text-neutral-950 shadow-[0_8px_18px_rgba(15,23,42,0.12)] xl:h-32 xl:w-24";
 const BOARD_DESCRIPTIONS = {
   alchemyWorkbench:
     "The five-slot Alchemy Workbench where elemental cards combine into compounds, materials, and quest items.",
@@ -1282,6 +1282,7 @@ const GatheringGamePanelPropsSchema = z.object({
   gathering: z.custom<AlchemistGuildGatheringState>(),
   isConfirmDragging: z.boolean(),
   onAnswerPointerDown: z.custom<GatheringAnswerPointerDownHandler>(),
+  onConfirmKeyboardCommit: z.custom<() => void>(),
   onConfirmPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
 });
 
@@ -1295,6 +1296,7 @@ const GatheringGamePanel = defineComponent(
     gatheringDropTarget,
     isConfirmDragging,
     onAnswerPointerDown,
+    onConfirmKeyboardCommit,
     onConfirmPointerDown,
   }) => {
     const displayedAnswer = gathering.equation.selectedValue;
@@ -1308,13 +1310,15 @@ const GatheringGamePanel = defineComponent(
 
     return (
       <div
+        data-board-section="gathering-game-stage"
+        data-gathering-transition-stage="practice"
         data-gathering-drop-target={gathering.phase === "move" ? "action-zone" : undefined}
         data-gathering-drop-active={actionDropActive ? "true" : undefined}
-        className={`pointer-events-auto grid h-full min-h-0 place-items-center p-6 transition-[box-shadow] duration-150 ${
+        className={`pointer-events-auto grid h-full min-h-0 place-items-center overflow-y-auto p-2 transition-[box-shadow] duration-150 ${
           actionDropActive ? "shadow-[inset_0_0_0_4px_rgba(14,165,233,0.22)]" : ""
         }`}
       >
-        <div className="grid w-full max-w-[46rem] gap-5 text-center">
+        <div className="grid w-full max-w-[46rem] gap-2 text-center">
           <GatheringStreakMeter streak={gathering.streak} />
           <div className="flex items-center justify-center gap-3 text-neutral-950">
             <GatheringEquationValue
@@ -1360,11 +1364,12 @@ const GatheringGamePanel = defineComponent(
             active={confirmReady}
             confirmed={confirmSucceeded}
             isDragging={isConfirmDragging}
+            onKeyboardCommit={onConfirmKeyboardCommit}
             onPointerDown={onConfirmPointerDown}
             progress={confirmSucceeded ? 1 : confirmSwipeProgress}
             trackRef={confirmPadTrackRef}
           />
-          <div className="mx-auto grid w-full max-w-[24rem] gap-2">
+          <div className="mx-auto grid w-full max-w-[24rem] gap-2 lg:hidden">
             <div className="flex items-center justify-between gap-3 rounded-[6px] border border-neutral-900/10 bg-white/65 px-3 py-2 text-xs font-black uppercase leading-none text-neutral-800">
               <span>Round {gathering.round}</span>
               <span>Equation {gathering.equationIndex}</span>
@@ -1389,7 +1394,7 @@ const GatheringEquationValue = defineComponent(
   GatheringEquationValuePropsSchema,
   ({ disabled, label, value }) => (
     <span
-      className={`${GATHERING_EQUATION_CARD_CLASS} text-5xl font-black leading-none transition-[background-color,border-color,opacity,filter] duration-150 ${
+      className={`${GATHERING_EQUATION_CARD_CLASS} text-4xl font-black leading-none transition-[background-color,border-color,opacity,filter] duration-150 xl:text-5xl ${
         disabled
           ? "border-neutral-500/45 bg-neutral-100/70 text-neutral-500 opacity-65 grayscale"
           : "border-neutral-800/55 text-neutral-950"
@@ -1408,11 +1413,15 @@ const GatheringRewardStagePanelPropsSchema = z.object({
 const GatheringRewardStagePanel = defineComponent(
   GatheringRewardStagePanelPropsSchema,
   ({ gathering }) => (
-    <div className="pointer-events-auto grid h-full min-h-0 place-items-center p-6">
+    <div
+      data-gathering-transition-stage="reward-ready"
+      className="pointer-events-auto grid h-full min-h-0 place-items-center p-2"
+    >
       <article
         data-board-section="gathering-reward-chest"
+        data-gathering-transition-surface="reward-ready"
         data-board-name={`${gathering.monster.name} treasure chest`}
-        className="grid w-[min(17rem,72vw)] gap-2 rounded-[7px] border-2 border-emerald-700/55 bg-white/80 p-2 shadow-[0_18px_36px_rgba(15,23,42,0.2),0_0_0_4px_rgba(16,185,129,0.12)]"
+        className="grid w-[min(11.5rem,72vw)] gap-2 rounded-[7px] border-2 border-emerald-700/55 bg-white/80 p-2 shadow-[0_18px_36px_rgba(15,23,42,0.2),0_0_0_4px_rgba(16,185,129,0.12)]"
       >
         <div className="relative aspect-[4/5] overflow-hidden rounded-[5px] border border-neutral-900/15 bg-neutral-100">
           <img
@@ -1452,10 +1461,14 @@ const GatheringBossFightPanel = defineComponent(
     const timerPercent = Math.round((remainingMs / GATHERING_BOSS_PROBLEM_DURATION_MS) * 100);
 
     return (
-      <div className="gathering-boss-arena gathering-boss-enter pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12">
+      <div
+        data-gathering-transition-stage="boss-active"
+        className="gathering-boss-arena gathering-boss-enter pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12"
+      >
         <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Fight</span>
         <article
           data-board-section="gathering-boss-fight"
+          data-gathering-transition-surface="boss-active"
           className="grid w-full max-w-[44rem] gap-5 rounded-[8px] border-2 border-neutral-950/25 bg-white/80 p-5 text-center shadow-[0_20px_44px_rgba(15,23,42,0.22)] backdrop-blur-md"
           aria-live="polite"
         >
@@ -1546,17 +1559,21 @@ const GatheringBossRewardPanel = defineComponent(
     });
 
     return (
-      <div className="gathering-boss-reward pointer-events-auto grid h-full min-h-0 place-items-center p-5 pt-12">
+      <div
+        data-gathering-transition-stage="boss-reward"
+        className="gathering-boss-reward pointer-events-auto grid h-full min-h-0 place-items-center p-2 pt-10"
+      >
         <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Reward</span>
         <article
           data-board-section="gathering-boss-reward"
-          className="grid w-full max-w-[46rem] gap-4 rounded-[8px] border-2 border-emerald-700/60 bg-white/82 p-5 text-center shadow-[0_20px_44px_rgba(15,23,42,0.2),0_0_0_5px_rgba(16,185,129,0.14)] backdrop-blur-md"
+          data-gathering-transition-surface="boss-reward"
+          className="grid w-full max-w-[42rem] gap-2 rounded-[8px] border-2 border-emerald-700/60 bg-white/82 p-3 text-center shadow-[0_20px_44px_rgba(15,23,42,0.2),0_0_0_5px_rgba(16,185,129,0.14)] backdrop-blur-md"
         >
           <div>
             <p className="text-xs font-black uppercase leading-none text-emerald-900">
               Level {boss.level} cleared
             </p>
-            <h3 className="mt-1 font-serif text-4xl leading-none text-neutral-950">New elements</h3>
+            <h3 className="mt-1 font-serif text-3xl leading-none text-neutral-950">New elements</h3>
           </div>
           <div className="grid grid-cols-6 gap-2">
             {rewardCards.map((card, index) => (
@@ -1576,7 +1593,7 @@ const GatheringBossRewardPanel = defineComponent(
           </div>
           <button
             type="button"
-            className="mx-auto inline-grid min-h-12 min-w-44 place-items-center rounded-[7px] border border-emerald-950/20 bg-emerald-600 px-5 text-sm font-black uppercase leading-none text-white shadow-[0_10px_20px_rgba(6,95,70,0.22)] transition-[transform,background-color] hover:bg-emerald-700 active:translate-y-px"
+            className="mx-auto inline-grid min-h-11 min-w-44 place-items-center rounded-[7px] border border-emerald-950/20 bg-emerald-600 px-5 text-sm font-black uppercase leading-none text-white shadow-[0_10px_20px_rgba(6,95,70,0.22)] transition-[transform,background-color] hover:bg-emerald-700 active:translate-y-px"
             onClick={onClaim}
           >
             Claim Elements
@@ -1595,9 +1612,16 @@ const GatheringBossFailurePanelPropsSchema = z.object({
 const GatheringBossFailurePanel = defineComponent(
   GatheringBossFailurePanelPropsSchema,
   ({ boss, onDismiss }) => (
-    <div className="gathering-boss-failure pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12">
+    <div
+      data-gathering-transition-stage="boss-failed"
+      className="gathering-boss-failure pointer-events-auto grid h-full min-h-0 place-items-center p-6 pt-12"
+    >
       <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Failed</span>
-      <article className="grid w-full max-w-[34rem] gap-4 rounded-[8px] border-2 border-rose-800/55 bg-white/82 p-5 text-center shadow-[0_18px_42px_rgba(15,23,42,0.2)] backdrop-blur-md">
+      <article
+        data-board-section="gathering-boss-failure"
+        data-gathering-transition-surface="boss-failed"
+        className="grid w-full max-w-[34rem] gap-4 rounded-[8px] border-2 border-rose-800/55 bg-white/82 p-5 text-center shadow-[0_18px_42px_rgba(15,23,42,0.2)] backdrop-blur-md"
+      >
         <span className="mx-auto grid size-14 place-items-center rounded-[7px] border border-rose-900/25 bg-rose-50 text-rose-950">
           <X className="size-7" strokeWidth={2.8} aria-hidden="true" />
         </span>
@@ -1632,7 +1656,11 @@ const GatheringBossStatusPanel = defineComponent(
   ({ boss, mastery }) => (
     <>
       <span className={GATHERING_PANEL_LABEL_CLASS}>Boss Status</span>
-      <div className="col-span-5 grid h-full min-h-0 place-items-center rounded-[6px] border border-neutral-900/10 bg-white/55 p-4 text-center">
+      <div
+        data-board-section="gathering-boss-status"
+        data-gathering-transition-surface="boss-status"
+        className="col-span-5 grid h-full min-h-0 place-items-center rounded-[6px] border border-neutral-900/10 bg-white/55 p-4 text-center"
+      >
         <div className="grid max-w-[30rem] gap-2">
           <p className="text-xs font-black uppercase leading-none text-neutral-700">
             Level {mastery.currentLevel} boss
@@ -1650,6 +1678,7 @@ const GatheringAnswerConfirmPadPropsSchema = z.object({
   active: z.boolean(),
   confirmed: z.boolean(),
   isDragging: z.boolean(),
+  onKeyboardCommit: z.custom<() => void>(),
   onPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
   progress: z.number().min(0).max(1),
   trackRef: z.custom<RefObject<HTMLDivElement | null>>(),
@@ -1657,62 +1686,28 @@ const GatheringAnswerConfirmPadPropsSchema = z.object({
 
 const GatheringAnswerConfirmPad = defineComponent(
   GatheringAnswerConfirmPadPropsSchema,
-  ({ active, confirmed, isDragging, onPointerDown, progress, trackRef }) => (
-    <div
-      ref={trackRef}
-      data-board-section="gathering-answer-confirm-pad"
-      data-board-name="Gathering answer confirm pad"
-      data-confirm-ready={active ? "true" : "false"}
-      data-confirm-status={getGatheringConfirmPadStatus(active, confirmed)}
-      data-swipe-progress={progress.toFixed(2)}
-      className={`relative mx-auto min-h-20 w-full max-w-[24rem] overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm ${getGatheringConfirmPadStateClass(
-        active,
-        confirmed,
-      )}`}
+  ({ active, confirmed, isDragging, onKeyboardCommit, onPointerDown, progress, trackRef }) => (
+    <GemSwipeControl
+      ariaLabel={getGatheringConfirmPadAriaLabel(active, confirmed)}
+      completed={confirmed}
+      disabled={!active}
+      isDragging={isDragging}
+      onKeyboardCommit={onKeyboardCommit}
+      onPointerDown={onPointerDown}
+      progress={progress}
+      purpose="answer"
+      size="standard"
+      status={getGatheringConfirmPadStatus(active, confirmed)}
+      trackRef={trackRef}
     >
-      <span
-        className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
-        aria-hidden="true"
-      >
-        <span
-          className="block h-full rounded-[5px] bg-emerald-400/30 transition-[width] duration-75"
-          style={{ width: `${Math.round(progress * 100)}%` }}
-        />
-      </span>
       <p
-        className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-xl italic ${
-          active || confirmed ? "text-emerald-950" : "text-neutral-700"
+        className={`gem-swipe-control-label gem-swipe-control-label-clearance pointer-events-none absolute inset-0 z-10 grid place-items-center whitespace-nowrap text-center text-[13px] font-black uppercase leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${
+          active || confirmed ? "text-emerald-50" : "text-stone-300"
         }`}
       >
         {getGatheringConfirmPadPrompt(active, confirmed)}
       </p>
-      <button
-        type="button"
-        data-board-section="gathering-answer-confirm-handle"
-        data-board-name="Gathering answer confirm handle"
-        disabled={!active}
-        tabIndex={active ? 0 : -1}
-        aria-label={getGatheringConfirmPadAriaLabel(active, confirmed)}
-        className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${getGatheringConfirmHandleStateClass(
-          active,
-          confirmed,
-        )}`}
-        style={{
-          left: `calc(${TRANSMUTE_TRACK_PADDING_PX}px + ${progress * 100}% - ${
-            progress * (TRANSMUTE_KNOB_WIDTH_PX + TRANSMUTE_TRACK_PADDING_PX * 2)
-          }px)`,
-          transition: isDragging ? "none" : "left 220ms cubic-bezier(0.34,1.56,0.64,1)",
-          width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
-        }}
-        onPointerDown={onPointerDown}
-      >
-        <div className="flex h-10 items-center gap-3" aria-hidden="true">
-          <span className="h-full w-0.5 bg-neutral-300" />
-          <span className="h-full w-0.5 bg-neutral-300" />
-          <span className="h-full w-0.5 bg-neutral-300" />
-        </div>
-      </button>
-    </div>
+    </GemSwipeControl>
   ),
 );
 
@@ -3249,10 +3244,24 @@ const GatheringInfoPanel = defineComponent(GatheringInfoPanelPropsSchema, ({ gat
         </p>
       </div>
       <dl className="grid grid-cols-2 gap-1 rounded-[6px] border border-neutral-900/10 bg-white/55 p-2 text-[11px] leading-tight">
-        <InfoFact label="Mode" value="Addition" />
-        <InfoFact label="Round" value={String(gathering.round)} />
-        <InfoFact label="Answer" value={String(gathering.equation.answer)} />
-        <InfoFact label="Monster HP" value={`${gathering.monster.hp}/${gathering.monster.maxHp}`} />
+        {gathering.selectedTrack === null ? (
+          <>
+            <InfoFact label="Mode" value="Path select" />
+            <InfoFact label="Next" value="Pick one" />
+            <InfoFact label="Boss" value="Unlocks level 2" />
+            <InfoFact label="Monster" value="Waiting" />
+          </>
+        ) : (
+          <>
+            <InfoFact label="Mode" value={GATHERING_TRACK_NAMES[gathering.selectedTrack]} />
+            <InfoFact label="Round" value={String(gathering.round)} />
+            <InfoFact label="Answer" value={String(gathering.equation.answer)} />
+            <InfoFact
+              label="Monster HP"
+              value={`${gathering.monster.hp}/${gathering.monster.maxHp}`}
+            />
+          </>
+        )}
       </dl>
     </div>
   </>
@@ -3286,6 +3295,7 @@ const QuestDeliveryTargetPropsSchema = z.object({
   dropFeedback: z.custom<DropFeedback>(),
   isClaimDragging: z.boolean(),
   item: QuestDeliveryItemSchema,
+  onClaimKeyboardCommit: z.custom<() => void>(),
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
   questId: z.string().min(1),
   requesterName: z.string().min(1),
@@ -3305,6 +3315,7 @@ const QuestDeliveryTarget = defineComponent(
     dropFeedback,
     isClaimDragging,
     item,
+    onClaimKeyboardCommit,
     onClaimPointerDown,
     questId,
     requesterName,
@@ -3317,9 +3328,6 @@ const QuestDeliveryTarget = defineComponent(
       ? `Present ${item.required} ${item.card.name} ${cardNoun} to ${requesterName} for inspection`
       : `Deliver ${item.required} ${item.card.name} ${cardNoun} to ${requesterName}`;
     const deliveryStatus = getQuestDeliveryStatus(carriesOutputForward, itemComplete);
-    const claimKnobLeft = `calc(${QUEST_CLAIM_TRACK_PADDING_PX}px + ${
-      claimProgress * 100
-    }% - ${claimProgress * (QUEST_CLAIM_KNOB_WIDTH_PX + QUEST_CLAIM_TRACK_PADDING_PX * 2)}px)`;
 
     return (
       <div
@@ -3362,48 +3370,28 @@ const QuestDeliveryTarget = defineComponent(
         </section>
 
         {complete ? (
-          <div
-            data-board-section="quest-claim-swipe"
-            data-claim-locked="false"
-            className={getQuestDeliveryClaimTrackClass(true)}
+          <GemSwipeControl
+            ariaLabel={`Swipe to ${claimAction.toLowerCase()} with ${requesterName}`}
+            completed={claimProgress >= 1}
+            disabled={!canClaim}
+            isDragging={isClaimDragging}
+            onKeyboardCommit={onClaimKeyboardCommit}
+            onPointerDown={onClaimPointerDown}
+            progress={claimProgress}
+            purpose="quest-reward"
+            size="compact"
           >
-            <span
-              className="absolute inset-y-0 left-0 rounded-full bg-emerald-300/45 transition-[width] duration-75"
-              style={{ width: `${Math.round(claimProgress * 100)}%` }}
-              aria-hidden="true"
-            />
-            <span className="pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+            <span className="gem-swipe-control-label pointer-events-none absolute inset-y-0 left-3 right-3 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
               <span className="min-w-0 pl-[4.85rem]">
-                <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-amber-950/65">
+                <span className="block truncate text-[9px] font-black uppercase leading-none tracking-normal text-emerald-100/75 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
                   {itemComplete && carriesOutputForward ? "Recipe inspected" : "Recipe ready"}
                 </span>
-                <span className="mt-0.5 block truncate text-sm font-black leading-tight text-amber-950">
+                <span className="mt-0.5 block truncate text-sm font-black leading-tight text-emerald-50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]">
                   {claimAction} with {requesterName}
                 </span>
               </span>
             </span>
-            <button
-              type="button"
-              data-quest-claim-knob=""
-              tabIndex={canClaim ? 0 : -1}
-              aria-label={`Swipe to ${claimAction.toLowerCase()} with ${requesterName}`}
-              className={`absolute top-1/2 z-20 grid h-8 -translate-y-1/2 touch-none select-none place-items-center rounded-full border shadow-[0_5px_14px_rgba(72,45,16,0.22)] transition-[background-color,border-color,opacity] ${
-                canClaim
-                  ? "cursor-grab border-emerald-950/30 bg-emerald-600 text-white active:cursor-grabbing"
-                  : "cursor-not-allowed border-neutral-950/15 bg-white text-emerald-800"
-              } ${isClaimDragging ? "opacity-95" : ""}`}
-              style={{
-                left: claimKnobLeft,
-                transition: isClaimDragging
-                  ? "none"
-                  : "left 220ms cubic-bezier(0.34,1.56,0.64,1), background-color 160ms ease, border-color 160ms ease",
-                width: `${QUEST_CLAIM_KNOB_WIDTH_PX}px`,
-              }}
-              onPointerDown={canClaim ? onClaimPointerDown : undefined}
-            >
-              <ChevronUp className="size-5 rotate-90" strokeWidth={2.75} />
-            </button>
-          </div>
+          </GemSwipeControl>
         ) : null}
       </div>
     );
@@ -3430,6 +3418,7 @@ const QuestPanelPropsSchema = z.object({
   focusRequest: z.custom<QuestBriefingFocusRequest | null>(),
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
+  onClaimKeyboardCommit: z.custom<() => void>(),
   onClaimPointerDown: z.custom<(event: ReactPointerEvent<HTMLButtonElement>) => void>(),
   onPlayerNameChange: z.custom<(nextPlayerName: string) => void>(),
   onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
@@ -3462,6 +3451,7 @@ const QuestPanel = defineComponent(
     focusRequest,
     hasQuestNotifications,
     isClaimDragging,
+    onClaimKeyboardCommit,
     onClaimPointerDown,
     onPlayerNameChange,
     onQuestLogScrollTopChange,
@@ -3499,6 +3489,7 @@ const QuestPanel = defineComponent(
           dropFeedback={deliveryDropFeedback}
           isClaimDragging={isClaimDragging}
           item={deliveryItem}
+          onClaimKeyboardCommit={onClaimKeyboardCommit}
           onClaimPointerDown={onClaimPointerDown}
           questId={selectedQuestId}
           requesterName={getQuestRequesterName(selectedQuestId)}
@@ -4147,6 +4138,7 @@ const BoardModeTabButton = defineComponent(
         type="button"
         role="tab"
         aria-selected={selected}
+        data-board-mode={tab}
         data-board-mode-reveal-active={revealActive ? "true" : undefined}
         data-board-mode-nudge-active={nudgeActive ? "true" : undefined}
         className={getBoardModeTabClass(selected, nudgeActive, revealActive)}
@@ -4587,6 +4579,7 @@ const QuestCurrentCarousel = defineComponent(
             Prev
           </button>
           <p
+            data-board-section="quest-story-progress"
             className="min-w-0 text-center font-mono text-[11px] font-black leading-none text-amber-950"
             aria-live="polite"
           >
@@ -4674,11 +4667,11 @@ const QuestLog = defineComponent(
     const viewportRef = useRef<HTMLDivElement>(null);
     const scrollFrameRef = useRef(0);
     const [viewportHeight, setViewportHeight] = useState(0);
-    const [visibleScrollTop, setVisibleScrollTop] = useState(0);
+    const [visibleScrollTop, setVisibleScrollTop] = useState<number | null>(null);
     const claimedQuestIdSet = new Set(claimedQuestIds);
     const activeQuestIdSet = new Set(activeQuestIds);
     const unlockedQuestIdSet = new Set(unlockedQuestIds);
-    const startIndex = getQuestLogStartIndex(visibleScrollTop);
+    const startIndex = getQuestLogStartIndex(visibleScrollTop ?? questLogScrollTop);
     const endIndex = getQuestLogEndIndex(startIndex, viewportHeight);
     const visibleQuests = ALCHEMY_QUESTS.slice(startIndex, endIndex);
     const totalHeight = ALCHEMY_QUESTS.length * QUEST_LOG_ROW_PITCH_PX - QUEST_LOG_ROW_GAP_PX;
@@ -4703,7 +4696,6 @@ const QuestLog = defineComponent(
       if (!viewportElement) return;
 
       viewportElement.scrollTop = questLogScrollTop;
-      setVisibleScrollTop(questLogScrollTop);
 
       const resizeObserver = new ResizeObserver((entries) => {
         const entry = entries[0];
@@ -5716,6 +5708,7 @@ const InfoPanelTabs = defineComponent(
             type="button"
             role="tab"
             aria-selected={selected}
+            data-info-panel-tab={tab}
             className={`relative min-w-0 rounded-[5px] border px-1.5 py-1.5 text-xs font-black leading-none transition-[background-color,border-color,color] ${
               selected
                 ? "border-sky-900/45 bg-sky-950 text-white"
@@ -6141,6 +6134,7 @@ const RecipeLedger = defineComponent(
     const recipeListRef = useRef<HTMLUListElement>(null);
     const onRevealSeenRef = useRef(onRevealSeen);
     const revealRecipeIdsKey = revealRecipeIds.join(RECIPE_REVEAL_ID_SEPARATOR);
+    const revealRecipeIdsSet = new Set(revealRecipeIds);
     const discoveredRecipeIdsSet = new Set(discoveredRecipeIds);
     const discoveredCount = ALCHEMY_RECIPES.reduce(
       (total, recipe) => total + (discoveredRecipeIdsSet.has(recipe.id) ? 1 : 0),
@@ -6209,7 +6203,7 @@ const RecipeLedger = defineComponent(
             <RecipeLedgerItem
               key={recipe.id}
               isDiscovered={discoveredRecipeIdsSet.has(recipe.id)}
-              isReveal={revealRecipeIds.includes(recipe.id)}
+              isReveal={revealRecipeIdsSet.has(recipe.id)}
               onInspect={onRecipeInspect}
               recipe={recipe}
               recipeIndex={recipeIndex}
@@ -6315,6 +6309,7 @@ const ExtendedRecipeLedger = defineComponent(
     const recipeListRef = useRef<HTMLUListElement>(null);
     const onRevealSeenRef = useRef(onRevealSeen);
     const revealRecipeIdsKey = revealRecipeIds.join(RECIPE_REVEAL_ID_SEPARATOR);
+    const revealRecipeIdsSet = new Set(revealRecipeIds);
     const discoveredRecipeIdsSet = new Set(discoveredRecipeIds);
     const filteredRecipes = getFilteredExtendedMoleculeRecipes(filterCardIds);
     const discoveredCount = filteredRecipes.reduce(
@@ -6394,7 +6389,7 @@ const ExtendedRecipeLedger = defineComponent(
             <ExtendedRecipeLedgerItem
               key={recipe.id}
               isDiscovered={discoveredRecipeIdsSet.has(recipe.id)}
-              isReveal={revealRecipeIds.includes(recipe.id)}
+              isReveal={revealRecipeIdsSet.has(recipe.id)}
               onInspect={onRecipeInspect}
               recipe={recipe}
               recipeIndex={recipeIndex}
@@ -6552,6 +6547,7 @@ const EmergentRecipeLedger = defineComponent(
     const recipeListRef = useRef<HTMLUListElement>(null);
     const onRevealSeenRef = useRef(onRevealSeen);
     const revealRecipeIdsKey = revealRecipeIds.join(RECIPE_REVEAL_ID_SEPARATOR);
+    const revealRecipeIdsSet = new Set(revealRecipeIds);
 
     useEffect(() => {
       onRevealSeenRef.current = onRevealSeen;
@@ -6612,7 +6608,7 @@ const EmergentRecipeLedger = defineComponent(
           {recipes.map((recipe) => (
             <EmergentRecipeLedgerItem
               key={recipe.id}
-              isReveal={revealRecipeIds.includes(recipe.id)}
+              isReveal={revealRecipeIdsSet.has(recipe.id)}
               onInspect={onRecipeInspect}
               recipe={recipe}
             />
@@ -6716,6 +6712,7 @@ const LeftModePanelPropsSchema = z.object({
   hasQuestNotifications: z.boolean(),
   isClaimDragging: z.boolean(),
   isGatheringMode: z.boolean(),
+  onClaimKeyboardCommit: z.custom<() => void>(),
   onClaimPointerDown: z.custom<ButtonPointerDownHandler>(),
   onPlayerNameChange: z.custom<(nextPlayerName: string) => void>(),
   onQuestLogScrollTopChange: z.custom<(scrollTop: number) => void>(),
@@ -6752,6 +6749,7 @@ const LeftModePanel = defineComponent(
     hasQuestNotifications,
     isClaimDragging,
     isGatheringMode,
+    onClaimKeyboardCommit,
     onClaimPointerDown,
     onPlayerNameChange,
     onQuestLogScrollTopChange,
@@ -6807,6 +6805,7 @@ const LeftModePanel = defineComponent(
           focusRequest={focusRequest}
           hasQuestNotifications={hasQuestNotifications}
           isClaimDragging={isClaimDragging}
+          onClaimKeyboardCommit={onClaimKeyboardCommit}
           onClaimPointerDown={onClaimPointerDown}
           onPlayerNameChange={onPlayerNameChange}
           onQuestLogScrollTopChange={onQuestLogScrollTopChange}
@@ -6934,6 +6933,7 @@ const CenterBoardPanelsPropsSchema = z.object({
   onGatheringBossAnswer: z.custom<GatheringBossAnswerHandler>(),
   onGatheringBossFailureDismiss: z.custom<GatheringBossCommandHandler>(),
   onGatheringBossRewardClaim: z.custom<GatheringBossCommandHandler>(),
+  onGatheringConfirmKeyboardCommit: z.custom<() => void>(),
   onGatheringConfirmPointerDown: z.custom<GatheringConfirmPointerDownHandler>(),
   onGatheringMovePointerDown: z.custom<GatheringMovePointerDownHandler>(),
   onGatheringRewardSelect: z.custom<GatheringRewardSelectHandler>(),
@@ -6943,6 +6943,7 @@ const CenterBoardPanelsPropsSchema = z.object({
   onMachineryChange: z.custom<(machineryId: AlchemyMachineryId | null) => void>(),
   onSelectGatheringTrack: z.custom<(track: AlchemistGuildGatheringTrackKind) => void>(),
   onSlottedCardPointerDown: z.custom<SlottedCardPointerDownHandler>(),
+  onTransmutationKeyboardCommit: z.custom<() => void>(),
   onTransmutationSwipePointerDown: z.custom<ButtonPointerDownHandler>(),
   periodicTableViewportRef: z.custom<RefObject<HTMLDivElement | null>>(),
   recipePreview: z.custom<AlchemyWorkbenchAnyRecipePreview | null>(),
@@ -6950,7 +6951,6 @@ const CenterBoardPanelsPropsSchema = z.object({
   selectedGatheringRewardCardId: z.string().nullable(),
   showBoardDebugBadges: z.boolean(),
   swapAnimation: z.custom<SwapAnimation | null>(),
-  transmuteKnobTravelPx: z.number().min(0),
   transmutePadTrackRef: z.custom<RefObject<HTMLDivElement | null>>(),
   transmuteSwipeProgress: z.number().min(0).max(1),
 });
@@ -6981,6 +6981,7 @@ const CenterBoardPanels = defineComponent(
     onGatheringBossAnswer,
     onGatheringBossFailureDismiss,
     onGatheringBossRewardClaim,
+    onGatheringConfirmKeyboardCommit,
     onGatheringConfirmPointerDown,
     onGatheringMovePointerDown,
     onGatheringRewardSelect,
@@ -6990,6 +6991,7 @@ const CenterBoardPanels = defineComponent(
     onMachineryChange,
     onSelectGatheringTrack,
     onSlottedCardPointerDown,
+    onTransmutationKeyboardCommit,
     onTransmutationSwipePointerDown,
     periodicTableViewportRef,
     recipePreview,
@@ -6997,7 +6999,6 @@ const CenterBoardPanels = defineComponent(
     selectedGatheringRewardCardId,
     showBoardDebugBadges,
     swapAnimation,
-    transmuteKnobTravelPx,
     transmutePadTrackRef,
     transmuteSwipeProgress,
   }) => {
@@ -7056,6 +7057,7 @@ const CenterBoardPanels = defineComponent(
           gatheringDropTarget={gatheringDropTarget}
           isConfirmDragging={isGatheringConfirmDragging}
           onAnswerPointerDown={onGatheringAnswerPointerDown}
+          onConfirmKeyboardCommit={onGatheringConfirmKeyboardCommit}
           onConfirmPointerDown={onGatheringConfirmPointerDown}
         />
       );
@@ -7072,7 +7074,11 @@ const CenterBoardPanels = defineComponent(
     let gatheringSecondaryContent: ReactNode;
     if (isGatheringPathMapMode) {
       gatheringSecondaryContent = (
-        <div className="grid h-full place-items-center p-6 text-center">
+        <div
+          data-board-section="gathering-path-guidance"
+          data-gathering-transition-surface="guidance"
+          className={`col-span-full grid h-full min-h-0 place-items-center overflow-y-auto p-4 text-center ${HIDDEN_SCROLL_CLASS}`}
+        >
           <p className="max-w-[20rem] text-sm font-bold leading-snug text-neutral-700">
             Each path teaches a different skill. Beat a path&apos;s boss to unlock its next level —
             then come back here to choose what to learn next.
@@ -7128,7 +7134,13 @@ const CenterBoardPanels = defineComponent(
     }
 
     return (
-      <section className={getCenterBoardPanelsClass(isGatheringMode)}>
+      <section
+        className={getCenterBoardPanelsClass(
+          isGatheringMode,
+          isGatheringPathMapMode,
+          isGatheringRewardMode,
+        )}
+      >
         <div
           ref={periodicTableViewportRef}
           data-board-section={isGatheringMode ? "gathering-game-panel" : "periodic-table-dock"}
@@ -7194,36 +7206,31 @@ const CenterBoardPanels = defineComponent(
                   unlocked={machineryUnlocked}
                 />
 
-                <div
-                  ref={transmutePadTrackRef}
-                  data-board-section="transmutation-pad"
-                  data-board-name="Transmutation Pad"
-                  data-board-description={BOARD_DESCRIPTIONS.transmutationPad}
-                  data-transmutation-ready={canTransmutePreview ? "true" : "false"}
-                  data-swipe-progress={transmuteSwipeProgress.toFixed(2)}
-                  className={`relative min-h-0 overflow-hidden rounded-[6px] border p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-sm ${
-                    canTransmutePreview
-                      ? "cursor-ew-resize border-sky-800/70 bg-sky-50/35"
-                      : "border-neutral-600/80 bg-white/25"
-                  }`}
+                <GemSwipeControl
+                  ariaLabel={getTransmutationPadAriaLabel(
+                    recipePreview,
+                    isOutputAlreadyMade,
+                    machineryChoiceRequired,
+                  )}
+                  boardDescription={BOARD_DESCRIPTIONS.transmutationPad}
+                  completed={transmuteSwipeProgress >= 1}
+                  disabled={!canTransmutePreview}
+                  isDragging={isTransmuteDragging}
+                  onKeyboardCommit={onTransmutationKeyboardCommit}
+                  onPointerDown={onTransmutationSwipePointerDown}
+                  progress={transmuteSwipeProgress}
+                  purpose="transmute"
+                  size="large"
+                  trackRef={transmutePadTrackRef}
                 >
                   <BoardDebugBadge
                     description={BOARD_DESCRIPTIONS.transmutationPad}
                     label="Transmutation Pad"
                     visible={showBoardDebugBadges}
                   />
-                  <span
-                    className="pointer-events-none absolute inset-y-3 left-3 right-3 rounded-[5px] bg-white/25"
-                    aria-hidden="true"
-                  >
-                    <span
-                      className="block h-full rounded-[5px] bg-emerald-400/28 transition-[width] duration-75"
-                      style={{ width: `${Math.round(transmuteSwipeProgress * 100)}%` }}
-                    />
-                  </span>
                   <p
-                    className={`pointer-events-none absolute inset-0 z-10 grid place-items-center px-[7.5rem] text-center font-serif text-2xl italic lg:text-3xl ${
-                      canTransmutePreview ? "text-sky-950" : "text-neutral-700"
+                    className={`gem-swipe-control-label gem-swipe-control-label-clearance pointer-events-none absolute inset-0 z-10 grid place-items-center text-center font-serif text-2xl italic drop-shadow-[0_1px_1px_rgba(0,0,0,0.88)] lg:text-3xl ${
+                      canTransmutePreview ? "text-emerald-50" : "text-stone-300"
                     }`}
                   >
                     {getTransmutationPadPrompt(
@@ -7234,42 +7241,7 @@ const CenterBoardPanels = defineComponent(
                     )}
                   </p>
                   <QuestTransmutationHint guide={questAssemblyGuide} preview={recipePreview} />
-                  <button
-                    type="button"
-                    data-board-section="swipe-rune-handle"
-                    data-board-name="Swipe rune handle"
-                    disabled={!canTransmutePreview}
-                    tabIndex={canTransmutePreview ? 0 : -1}
-                    aria-label={getTransmutationPadAriaLabel(
-                      recipePreview,
-                      isOutputAlreadyMade,
-                      machineryChoiceRequired,
-                    )}
-                    className={`absolute bottom-3 top-3 z-20 grid touch-none place-items-center rounded-[5px] text-white shadow-[0_8px_18px_rgba(15,23,42,0.22)] transition-[background-color,opacity] duration-200 active:cursor-grabbing ${
-                      canTransmutePreview
-                        ? "cursor-grab bg-neutral-800"
-                        : "cursor-not-allowed bg-neutral-700/55 opacity-70"
-                    }`}
-                    style={{
-                      left: `${TRANSMUTE_TRACK_PADDING_PX}px`,
-                      transform: `translateX(${transmuteSwipeProgress * transmuteKnobTravelPx}px)`,
-                      transition: isTransmuteDragging
-                        ? "none"
-                        : "transform 220ms cubic-bezier(0.34,1.56,0.64,1)",
-                      width: `${TRANSMUTE_KNOB_WIDTH_PX}px`,
-                    }}
-                    onPointerDown={onTransmutationSwipePointerDown}
-                  >
-                    <div
-                      className="flex h-14 items-center gap-3 lg:h-18 lg:gap-4"
-                      aria-hidden="true"
-                    >
-                      <span className="h-full w-0.5 bg-neutral-300" />
-                      <span className="h-full w-0.5 bg-neutral-300" />
-                      <span className="h-full w-0.5 bg-neutral-300" />
-                    </div>
-                  </button>
-                </div>
+                </GemSwipeControl>
               </div>
 
               <div
@@ -7802,10 +7774,20 @@ const RightModePanels = defineComponent(
   },
 );
 
-function getCenterBoardPanelsClass(isGatheringMode: boolean): string {
+function getCenterBoardPanelsClass(
+  isGatheringMode: boolean,
+  isGatheringPathMapMode: boolean,
+  isGatheringRewardMode: boolean,
+): string {
   const baseClass = `grid min-h-0 min-w-0 gap-3 ${GATHERING_PANEL_TRANSITION_CLASS}`;
+  if (isGatheringPathMapMode) {
+    return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,8rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,9rem)]`;
+  }
+  if (isGatheringRewardMode) {
+    return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,13.5rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13.5rem)]`;
+  }
   if (isGatheringMode) {
-    return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,13rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,13rem)]`;
+    return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,12.5rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,12.5rem)]`;
   }
 
   return `${baseClass} lg:grid-rows-[minmax(0,1fr)_minmax(0,20rem)] xl:grid-rows-[minmax(0,1fr)_minmax(0,22rem)]`;
@@ -7987,10 +7969,14 @@ const UpgradesPanel = defineComponent(
   ),
 );
 
-function getBoardCanvasClass(isGatheringMode: boolean, isExpeditionMode: boolean): string {
+function getBoardCanvasClass(
+  isGatheringMode: boolean,
+  isExpeditionMode: boolean,
+  isUpgradesMode: boolean,
+): string {
   const baseClass =
     "absolute inset-0 z-0 block size-full touch-none transition-opacity duration-300 motion-reduce:transition-none";
-  if (isGatheringMode) return `${baseClass} pointer-events-none opacity-0`;
+  if (isGatheringMode || isUpgradesMode) return `${baseClass} pointer-events-none opacity-0`;
   if (isExpeditionMode) return `${baseClass} pointer-events-none opacity-100`;
 
   return `${baseClass} opacity-100`;
@@ -8009,10 +7995,10 @@ function getWorkbenchPanelClass(
 ): string {
   if (isGatheringMode) {
     if (gatheringPhase === "reward") {
-      return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(auto-fit,minmax(105px,105px))] grid-rows-[minmax(0,1fr)] justify-center gap-5 overflow-visible p-4 pt-10`;
+      return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(auto-fit,minmax(105px,105px))] grid-rows-[148px] content-center justify-center gap-5 overflow-visible p-4 pt-8`;
     }
 
-    return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(5,105px)] grid-rows-[minmax(0,1fr)] justify-center gap-2 overflow-hidden p-4 pt-10 xl:gap-3`;
+    return `${GLASS_PANEL_CLASS} grid grid-cols-[repeat(5,105px)] grid-rows-[148px] content-center justify-center gap-2 overflow-visible p-4 pt-8 xl:gap-3`;
   }
 
   return `${GLASS_PANEL_CLASS} grid grid-cols-2 grid-rows-[repeat(4,minmax(0,1fr))] gap-3 p-3 sm:grid-cols-3 sm:grid-rows-none lg:gap-5 xl:grid-cols-5 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:gap-8`;
@@ -8146,7 +8132,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     useState<QuestRewardFlyAnimation | null>(null);
   const [transmuteSwipeProgress, setTransmuteSwipeProgress] = useState(0);
   const [isTransmuteDragging, setIsTransmuteDragging] = useState(false);
-  const [transmuteTrackWidth, setTransmuteTrackWidth] = useState(0);
   const [gatheringConfirmSwipeProgress, setGatheringConfirmSwipeProgress] = useState(0);
   const [isGatheringConfirmDragging, setIsGatheringConfirmDragging] = useState(false);
   const [selectedGatheringRewardCardId, setSelectedGatheringRewardCardId] = useState<string | null>(
@@ -8319,7 +8304,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     gatheringNudgeKey,
     gatheringUnlockSeen: boardState.gathering.unlockSeen,
   });
-  const transmuteKnobTravelPx = getTransmuteKnobTravelPx(transmuteTrackWidth);
   const canConfirmGatheringAnswer =
     isGatheringMode &&
     boardState.gathering.phase === "solving" &&
@@ -9442,6 +9426,23 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setForgeRound(null);
   };
 
+  const completeQuestClaimSwipe = (questId: string) => {
+    setQuestClaimSwipeState(questId, {
+      dragging: false,
+      progress: 1,
+    });
+    void sfx.play("transmute.complete");
+    window.setTimeout(() => {
+      commitQuestClaim(questId);
+      setQuestClaimSwipeState(questId, EMPTY_QUEST_CLAIM_SWIPE_STATE);
+    }, QUEST_CLAIM_COMMIT_HOLD_MS);
+  };
+
+  const handleQuestClaimKeyboardCommit = () => {
+    if (!canClaimSelectedQuest) return;
+    completeQuestClaimSwipe(selectedQuestId);
+  };
+
   const handleQuestClaimSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !canClaimSelectedQuest) return;
     event.preventDefault();
@@ -9492,15 +9493,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
       const committed = latestProgress >= QUEST_CLAIM_SWIPE_THRESHOLD;
       if (committed) {
-        setQuestClaimSwipeState(claimQuestId, {
-          dragging: false,
-          progress: 1,
-        });
-        void sfx.play("transmute.complete");
-        window.setTimeout(() => {
-          commitQuestClaim(claimQuestId);
-          setQuestClaimSwipeState(claimQuestId, EMPTY_QUEST_CLAIM_SWIPE_STATE);
-        }, QUEST_CLAIM_COMMIT_HOLD_MS);
+        completeQuestClaimSwipe(claimQuestId);
         return;
       }
 
@@ -9598,6 +9591,23 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     void sfx.play("card.massDissolve");
   };
 
+  const completeTransmutationSwipe = () => {
+    setIsTransmuteDragging(false);
+    setTransmuteSwipeProgress(1);
+    if (transmutationPreview && !isEmergentRecipePreview(transmutationPreview)) {
+      void sfx.play("transmute.complete");
+    }
+    window.setTimeout(() => {
+      commitTransmutation();
+      setTransmuteSwipeProgress(0);
+    }, TRANSMUTE_COMMIT_HOLD_MS);
+  };
+
+  const handleTransmutationKeyboardCommit = () => {
+    if (!canTransmutePreview) return;
+    completeTransmutationSwipe();
+  };
+
   const handleTransmutationSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !canTransmutePreview) return;
     event.preventDefault();
@@ -9609,7 +9619,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     const knobRect = event.currentTarget.getBoundingClientRect();
     const grabOffsetX = event.clientX - knobRect.left;
-    const travelDistance = Math.max(getTransmuteKnobTravelPx(trackElement.clientWidth), 1);
+    const travelDistance = Math.max(getGemSwipeTravelPx(trackElement.clientWidth, "large"), 1);
     let latestProgress = 0;
     setIsTransmuteDragging(true);
 
@@ -9641,14 +9651,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       setIsTransmuteDragging(false);
 
       if (committed) {
-        setTransmuteSwipeProgress(1);
-        if (transmutationPreview && !isEmergentRecipePreview(transmutationPreview)) {
-          void sfx.play("transmute.complete");
-        }
-        window.setTimeout(() => {
-          commitTransmutation();
-          setTransmuteSwipeProgress(0);
-        }, TRANSMUTE_COMMIT_HOLD_MS);
+        completeTransmutationSwipe();
         return;
       }
 
@@ -9703,6 +9706,21 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     setGatheringConfirmSwipeProgress(0);
   };
 
+  const completeGatheringConfirmSwipe = () => {
+    setIsGatheringConfirmDragging(false);
+    const currentGathering = boardStateRef.current.gathering;
+    const answerCorrect =
+      currentGathering.equation.selectedValue === currentGathering.equation.answer;
+    setGatheringConfirmSwipeProgress(1);
+    void sfx.play(answerCorrect ? "transmute.complete" : "gathering.answerWrong");
+    window.setTimeout(commitGatheringAnswerConfirmation, GATHERING_CONFIRM_COMMIT_HOLD_MS);
+  };
+
+  const handleGatheringConfirmKeyboardCommit = () => {
+    if (!canConfirmGatheringAnswer) return;
+    completeGatheringConfirmSwipe();
+  };
+
   const handleGatheringConfirmSwipePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !canConfirmGatheringAnswer) return;
     event.preventDefault();
@@ -9714,7 +9732,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
 
     const knobRect = event.currentTarget.getBoundingClientRect();
     const grabOffsetX = event.clientX - knobRect.left;
-    const travelDistance = Math.max(getTransmuteKnobTravelPx(trackElement.clientWidth), 1);
+    const travelDistance = Math.max(getGemSwipeTravelPx(trackElement.clientWidth, "standard"), 1);
     let latestProgress = 0;
     setIsGatheringConfirmDragging(true);
 
@@ -9746,12 +9764,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       setIsGatheringConfirmDragging(false);
 
       if (committed) {
-        const currentGathering = boardStateRef.current.gathering;
-        const answerCorrect =
-          currentGathering.equation.selectedValue === currentGathering.equation.answer;
-        setGatheringConfirmSwipeProgress(1);
-        void sfx.play(answerCorrect ? "transmute.complete" : "gathering.answerWrong");
-        window.setTimeout(commitGatheringAnswerConfirmation, GATHERING_CONFIRM_COMMIT_HOLD_MS);
+        completeGatheringConfirmSwipe();
         return;
       }
 
@@ -9848,24 +9861,6 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
     gatheringNudgePlayedKeyRef.current = gatheringNudgeKey;
     void sfx.play("crafting.needsGathering");
   }, [gatheringNudgeActive, gatheringNudgeKey]);
-
-  useEffect(() => {
-    if (isGatheringMode || isExpeditionMode) return;
-
-    const trackElement = transmutePadTrackRef.current;
-    if (!trackElement) return;
-
-    const syncTrackWidth = () => {
-      setTransmuteTrackWidth(trackElement.clientWidth);
-    };
-    syncTrackWidth();
-    const resizeObserver = new ResizeObserver(syncTrackWidth);
-    resizeObserver.observe(trackElement);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [isExpeditionMode, isGatheringMode]);
 
   useEffect(() => {
     if (boardState.gathering.phase !== "reward") setSelectedGatheringRewardCardId(null);
@@ -11272,7 +11267,8 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
       data-test="alchemist-guild-board"
       data-board-section="alchemy-board"
       data-board-name="Alchemy board"
-      className="relative isolate h-dvh overflow-hidden p-3 font-sans text-neutral-950 lg:p-4"
+      data-gem-theme="lapidary"
+      className="relative isolate h-dvh overflow-hidden p-3 font-sans text-[#f3e8d2] lg:p-4"
       style={BOARD_DOT_GRID_STYLE}
       aria-label="Alchemist Guild board"
     >
@@ -11280,7 +11276,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
         ref={periodicTableCanvasRef}
         data-board-section="periodic-table-canvas"
         data-board-name={getBoardCanvasName(isExpeditionMode)}
-        className={getBoardCanvasClass(isGatheringMode, isExpeditionMode)}
+        className={getBoardCanvasClass(isGatheringMode, isExpeditionMode, isUpgradesMode)}
         aria-label={getBoardCanvasAriaLabel(isGatheringMode, isExpeditionMode)}
       >
         Alchemist Guild Pixi canvas
@@ -11417,6 +11413,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
                   selectedQuestId={selectedQuestId}
                   title={FIRST_PROFILE_CARD_PROPS.title}
                   unlockedQuestIds={unlockedQuestIds}
+                  onClaimKeyboardCommit={handleQuestClaimKeyboardCommit}
                   onClaimPointerDown={handleQuestClaimSwipePointerDown}
                   onPlayerNameChange={(nextPlayerName) => {
                     setBoardState((previous) => ({
@@ -11456,6 +11453,7 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               onGatheringBossAnswer={handleGatheringBossAnswer}
               onGatheringBossFailureDismiss={handleGatheringBossFailureDismiss}
               onGatheringBossRewardClaim={handleGatheringBossRewardClaim}
+              onGatheringConfirmKeyboardCommit={handleGatheringConfirmKeyboardCommit}
               onGatheringConfirmPointerDown={handleGatheringConfirmSwipePointerDown}
               onGatheringMovePointerDown={beginGatheringMoveDrag}
               onGatheringRewardSelect={handleGatheringRewardSelect}
@@ -11475,10 +11473,10 @@ export const AlchemistGuildBoard = defineComponent(AlchemistGuildBoardPropsSchem
               selectedGatheringRewardCardId={selectedGatheringRewardCardId}
               showBoardDebugBadges={showBoardDebugBadges}
               swapAnimation={swapAnimation}
-              transmuteKnobTravelPx={transmuteKnobTravelPx}
               transmutePadTrackRef={transmutePadTrackRef}
               transmuteSwipeProgress={transmuteSwipeProgress}
               onSlottedCardPointerDown={beginSlottedCardDrag}
+              onTransmutationKeyboardCommit={handleTransmutationKeyboardCommit}
               onTransmutationSwipePointerDown={handleTransmutationSwipePointerDown}
             />
 
@@ -12731,20 +12729,6 @@ function getGatheringMasteryFeedback(
   return "steady";
 }
 
-function getGatheringConfirmPadStateClass(active: boolean, confirmed: boolean): string {
-  if (confirmed) return "border-emerald-700/70 bg-emerald-50/65";
-  if (active) return "cursor-ew-resize border-emerald-800/70 bg-emerald-50/45";
-
-  return "border-neutral-600/50 bg-white/20";
-}
-
-function getGatheringConfirmHandleStateClass(active: boolean, confirmed: boolean): string {
-  if (confirmed) return "cursor-default bg-emerald-700";
-  if (active) return "cursor-grab bg-neutral-800";
-
-  return "cursor-not-allowed bg-neutral-700/55 opacity-70";
-}
-
 function getGatheringConfirmPadStatus(active: boolean, confirmed: boolean): string {
   if (confirmed) return "confirmed";
   if (active) return "ready";
@@ -12796,6 +12780,8 @@ function getGatheringAnswerSlotClass(
 }
 
 function getGatheringInfoTitle(gathering: AlchemistGuildGatheringState): string {
+  if (gathering.selectedTrack === null) return "Choose a Learning Path";
+
   switch (gathering.boss.phase) {
     case "active":
       return "Boss Streak";
@@ -12813,11 +12799,15 @@ function getGatheringInfoTitle(gathering: AlchemistGuildGatheringState): string 
     case "reward":
       return "Reward Pull";
     default:
-      return "Addition Check";
+      return `${GATHERING_TRACK_NAMES[gathering.selectedTrack]} Check`;
   }
 }
 
 function getGatheringInfoText(gathering: AlchemistGuildGatheringState): string {
+  if (gathering.selectedTrack === null) {
+    return "Pick one practice path. Beat its boss to unlock the next level, then choose again.";
+  }
+
   switch (gathering.boss.phase) {
     case "active":
       return `Solve ${GATHERING_BOSS_REQUIRED_STREAK} in a row. More than ${GATHERING_BOSS_ALLOWED_MISSES} misses restarts this level.`;
@@ -12835,10 +12825,13 @@ function getGatheringInfoText(gathering: AlchemistGuildGatheringState): string {
     case "reward":
       return "Choose one of the three reward cards. The pick is logged and added to your supplies.";
     default:
+      if (gathering.selectedTrack === "phonics") {
+        return "Listen to the target sound, then choose the word that contains it.";
+      }
       if (gathering.equation.selectedValue !== null) {
         return "The answer card is staged. Swipe the confirm pad to check it.";
       }
-      return `${gathering.equation.left} plus ${gathering.equation.right} sets up this turn.`;
+      return `${gathering.equation.left} ${gathering.selectedTrack === "subtraction" ? "minus" : "plus"} ${gathering.equation.right} sets up this turn.`;
   }
 }
 
@@ -13599,10 +13592,6 @@ function getCooldownProgress(cooldown: AlchemistGuildInventoryCooldown, nowMs: n
   if (durationMs <= 0) return 1;
 
   return clamp((nowMs - cooldown.startedAtMs) / durationMs, 0, 1);
-}
-
-function getTransmuteKnobTravelPx(trackWidthPx: number): number {
-  return Math.max(0, trackWidthPx - TRANSMUTE_KNOB_WIDTH_PX - TRANSMUTE_TRACK_PADDING_PX * 2);
 }
 
 function getOutputCooldownMs(cardId: string): number {

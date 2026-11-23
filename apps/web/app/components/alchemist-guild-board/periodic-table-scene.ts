@@ -488,7 +488,7 @@ function drawPeriodicTable(
       fontFamily: PERIODIC_TABLE_FONT_FAMILY,
       fontSize: 22,
       fontWeight: "700",
-      fill: 0x111111,
+      fill: 0xf1dfb6,
     },
   });
   title.anchor.set(0.5, 0);

@@ -1,5 +1,6 @@
 @import "https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..900&family=JetBrains+Mono:wght@400;700;800&display=swap";
 @import "tailwindcss";
+@import "../components/alchemist-guild-board/gem-interface-theme.css";
 
 @theme {
   --color-brand-500: oklch(62% 0.20 260deg);

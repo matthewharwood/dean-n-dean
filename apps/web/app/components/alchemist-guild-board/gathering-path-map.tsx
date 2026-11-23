@@ -34,10 +34,18 @@ function getPathBadgeLabel(option: GatheringPathOption): string {
 export const GatheringPathMap = defineComponent(
   GatheringPathMapPropsSchema,
   ({ onSelectTrack, options }) => (
-    <div className="pointer-events-auto grid h-full min-h-0 place-items-center p-6">
-      <div className="grid w-full max-w-[44rem] gap-5 text-center">
-        <header className="grid gap-1">
-          <h2 className="text-2xl font-black uppercase tracking-tight text-neutral-950">
+    <section
+      data-board-section="gathering-path-map"
+      data-gathering-transition-stage="path-select"
+      className="pointer-events-auto grid h-full min-h-0 overflow-y-auto p-3 [scrollbar-width:none] sm:p-4 lg:p-3 [&::-webkit-scrollbar]:hidden"
+      aria-labelledby="gathering-path-map-title"
+    >
+      <div className="m-auto grid w-full max-w-[44rem] gap-3 py-1 text-center">
+        <header data-board-section="gathering-transition-header" className="grid gap-1">
+          <h2
+            id="gathering-path-map-title"
+            className="text-2xl font-black uppercase tracking-tight text-neutral-950"
+          >
             Choose a Learning Path
           </h2>
           <p className="text-sm font-bold text-neutral-700">
@@ -54,11 +62,12 @@ export const GatheringPathMap = defineComponent(
               <li key={option.track}>
                 <button
                   type="button"
+                  data-board-section="gathering-path-option"
                   data-gathering-path-track={option.track}
                   data-gathering-path-level={option.level ?? ""}
                   disabled={option.isComplete}
                   onClick={() => onSelectTrack(option.track)}
-                  className={`grid w-full gap-1 rounded-[10px] border-2 p-4 text-left shadow-[0_8px_18px_rgba(15,23,42,0.10)] transition-[transform,box-shadow] duration-150 ${
+                  className={`grid w-full gap-1 rounded-[10px] border-2 p-3 text-left shadow-[0_8px_18px_rgba(15,23,42,0.10)] transition-[transform,box-shadow] duration-150 ${
                     option.isComplete
                       ? "cursor-default border-neutral-300 bg-neutral-100 opacity-70"
                       : `${TRACK_ACCENT[option.track]} hover:-translate-y-0.5 hover:shadow-[0_12px_24px_rgba(15,23,42,0.16)]`
@@ -84,6 +93,6 @@ export const GatheringPathMap = defineComponent(
           })}
         </ul>
       </div>
-    </div>
+    </section>
   ),
 );

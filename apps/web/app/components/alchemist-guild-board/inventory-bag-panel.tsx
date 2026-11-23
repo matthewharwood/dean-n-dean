@@ -123,6 +123,7 @@ export const InventoryBagPanel = defineComponent(
         </div>
 
         <section
+          data-board-section="inventory-bag-reserve-panel"
           aria-labelledby={pocketsTitleId}
           // biome-ignore lint/a11y/noNoninteractiveTabindex: This named overflow viewport must be keyboard-focusable so arrow keys can scroll it.
           tabIndex={0}

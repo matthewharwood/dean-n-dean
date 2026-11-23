@@ -11,7 +11,9 @@ import "../app/styles/index.css";
 // showToolbar:false keeps the re-render outlines (the actual diagnostic) but drops
 // react-scan's bottom-anchored control widget, which otherwise overlaps and steals
 // pointer events from bottom-anchored UI in stories (e.g. the bottom-right toast).
-if (import.meta.env.DEV) {
+const reactScanEnabled = new URLSearchParams(globalThis.location.search).get("reactScan") !== "off";
+
+if (import.meta.env.DEV && reactScanEnabled) {
   const { scan } = await import("react-scan");
   scan({ showToolbar: false });
 }
@@ -31,7 +33,9 @@ const preview: Preview = {
       <Suspense fallback={<div data-test="story-hydrating">…</div>}>
         <HydrateThenRender>
           <Provider>
-            <Story />
+            <div className="contents" data-gem-theme="lapidary">
+              <Story />
+            </div>
           </Provider>
         </HydrateThenRender>
       </Suspense>

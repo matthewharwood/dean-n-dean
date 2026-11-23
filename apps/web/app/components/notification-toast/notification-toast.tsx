@@ -158,16 +158,27 @@ export const NotificationToast = defineComponent(
         data-board-section="notification-toast"
         data-notification-id={notification.id}
         data-notification-tone={notification.tone}
-        className={`pointer-events-auto relative grid w-[min(22rem,calc(100vw-1.5rem))] cursor-grab touch-pan-y grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-[12px] border bg-slate-900/92 p-3 pr-2 shadow-[0_18px_44px_rgba(15,23,42,0.4)] active:cursor-grabbing ${TONE_ACCENT[notification.tone]}`}
+        className={`pointer-events-auto relative grid w-[min(18rem,calc(100vw-1.5rem))] cursor-grab touch-pan-y grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5 overflow-hidden rounded-[10px] border bg-slate-900/92 p-2.5 pr-2 shadow-[0_18px_44px_rgba(15,23,42,0.4)] active:cursor-grabbing ${TONE_ACCENT[notification.tone]}`}
         onPointerDown={handlePointerDown}
       >
-        <span className="grid size-9 place-items-center rounded-full bg-white/10 text-[var(--toast-accent)]">
+        <span
+          data-notification-toast-icon=""
+          className="grid size-9 place-items-center rounded-full bg-white/10 text-[var(--toast-accent)]"
+        >
           <ToneIcon className="size-5" strokeWidth={2.4} aria-hidden="true" />
         </span>
-        <span className="grid gap-0.5 pt-0.5">
-          <span className="text-sm font-black leading-tight text-white">{notification.title}</span>
+        <span data-notification-toast-copy="" className="grid gap-0.5 pt-0.5">
+          <span
+            data-notification-toast-title=""
+            className="text-sm font-black leading-tight text-white"
+          >
+            {notification.title}
+          </span>
           {notification.body ? (
-            <span className="text-xs font-medium leading-snug text-white/65">
+            <span
+              data-notification-toast-body=""
+              className="text-xs font-medium leading-snug text-white/65"
+            >
               {notification.body}
             </span>
           ) : null}
